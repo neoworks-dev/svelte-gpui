@@ -1,0 +1,22 @@
+{
+  "name": "@neoworks/svelte-gpui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./runtime/index.ts",
+  "description": "Compiled Svelte 5 components drawn by GPUI. No webview, no browser DOM.",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "svelte": "^5.57.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "esbuild": "^0.24.0",
+    "svelte": "^5.57.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.7.2"
+  }
+}
