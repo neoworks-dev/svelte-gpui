@@ -90,6 +90,31 @@ URL or an `http(s)` URL; remote ones are fetched on a thread into
 `~/.cache/svelte-gpui/images`, and `load` or `error` fires when they settle.
 `rounded-full` clips images, and `object-cover` sets the fit.
 
+## Running Grove's own components
+
+`examples/grove-row` builds Grove's `GithubItemRow.svelte`, unmodified, with the
+Grove checkout named by `GROVE` (default `../grove`). Its imports resolve from
+Grove's own `node_modules`, so `@neoworks-dev/ui`'s `Checkbox` and Phosphor's icons
+come along. Only `store.svelte`, which talks to the main process, is swapped for a
+stub, in the example's `build.mjs`.
+
+The stylesheet is what Grove's `main.css` compiles to, run from Grove's root so
+Tailwind scans Grove's sources:
+
+```
+cd ~/Documents/neoworks/grove
+~/Documents/neoworks/svelte-gpui/node_modules/.bin/tailwindcss \
+  -i src/renderer/src/assets/main.css -o ~/Documents/neoworks/svelte-gpui/examples/grove-row/dist/grove.css
+```
+
+`--report` says how much of that stylesheet the page needed and the host could not
+give it: the classes in use with no rule, and the classes whose only rules use a
+selector the engine leaves out. For the row that is one class, `peer`, which only
+marks a sibling and has no rule. Four checks on screen: the rows match the
+Electron pane, the label pills and avatars render, `checked:bg-action` follows the
+checkbox, and a real Space on a focused checkbox ran click, `input` and `change`,
+Svelte's `bind:checked`, and the component's own `{#if checked}` check icon.
+
 ## Testing without a pointer
 
 `--do click:TEXT`, `--do focus:TEXT` and `--do scroll:TEXT:PIXELS` act on the
@@ -148,6 +173,31 @@ CSS transitions work for colours and opacity: `transition-colors`,
 `transition-opacity`, `duration-*` and `ease-*` come from the real stylesheet,
 and a change of class, or of hover, eases from what was last drawn. Elements that
 ease take hover from the host rather than GPUI, which is why hover is tracked.
+
+## Running Grove's own components
+
+`examples/grove-row` builds Grove's `GithubItemRow.svelte`, unmodified, with the
+Grove checkout named by `GROVE` (default `../grove`). Its imports resolve from
+Grove's own `node_modules`, so `@neoworks-dev/ui`'s `Checkbox` and Phosphor's icons
+come along. Only `store.svelte`, which talks to the main process, is swapped for a
+stub, in the example's `build.mjs`.
+
+The stylesheet is what Grove's `main.css` compiles to, run from Grove's root so
+Tailwind scans Grove's sources:
+
+```
+cd ~/Documents/neoworks/grove
+~/Documents/neoworks/svelte-gpui/node_modules/.bin/tailwindcss \
+  -i src/renderer/src/assets/main.css -o ~/Documents/neoworks/svelte-gpui/examples/grove-row/dist/grove.css
+```
+
+`--report` says how much of that stylesheet the page needed and the host could not
+give it: the classes in use with no rule, and the classes whose only rules use a
+selector the engine leaves out. For the row that is one class, `peer`, which only
+marks a sibling and has no rule. Four checks on screen: the rows match the
+Electron pane, the label pills and avatars render, `checked:bg-action` follows the
+checkbox, and a real Space on a focused checkbox ran click, `input` and `change`,
+Svelte's `bind:checked`, and the component's own `{#if checked}` check icon.
 
 ## Testing without a pointer
 

@@ -162,6 +162,13 @@ pub struct Style {
     pub pointer: bool,
 }
 
+/// The parts of an element's state that pseudo-classes ask about.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ElementState {
+    pub checked: bool,
+    pub disabled: bool,
+}
+
 /// What `:hover` changes. GPUI's hover refinement can take these.
 #[derive(Debug, Clone, Default)]
 pub struct HoverStyle {
@@ -235,7 +242,13 @@ impl Resolver {
         style
     }
 
-    pub fn compute(&self, tag: &str, class_attribute: &str, inline: &[(String, String)]) -> Computed {
+    pub fn compute(
+        &self,
+        tag: &str,
+        class_attribute: &str,
+        inline: &[(String, String)],
+        state: ElementState,
+    ) -> Computed {
         let classes: Vec<&str> = class_attribute.split_whitespace().collect();
         let mut indices: Vec<usize> = Vec::new();
         indices.extend_from_slice(self.sheet.rules_for_tag(tag));
@@ -261,7 +274,9 @@ impl Resolver {
                 Pseudo::None => self.apply_all(&mut computed.style, rule),
                 Pseudo::Hover => self.apply_all(&mut hover_style, rule),
                 Pseudo::GroupHover(_) => self.apply_all(&mut group_style, rule),
-                Pseudo::Focus | Pseudo::Disabled => {}
+                Pseudo::Checked if state.checked => self.apply_all(&mut computed.style, rule),
+                Pseudo::Disabled if state.disabled => self.apply_all(&mut computed.style, rule),
+                Pseudo::Checked | Pseudo::Focus | Pseudo::Disabled | Pseudo::Other => {}
             }
         }
         for (name, value) in inline {

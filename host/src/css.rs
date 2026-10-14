@@ -16,6 +16,9 @@ pub enum Pseudo {
     GroupHover(String),
     Focus,
     Disabled,
+    Checked,
+    /// A pseudo-class this engine does not model, so the rule never applies.
+    Other,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +44,8 @@ pub struct Stylesheet {
     /// Declarations that apply to the whole document, from `html`, `body` and `:root`.
     pub root_declarations: Vec<(String, String)>,
     skipped: HashSet<String>,
+    /// Class names that appear in a selector the engine left out.
+    skipped_classes: HashSet<String>,
 }
 
 impl Stylesheet {
@@ -131,6 +136,9 @@ impl Stylesheet {
             }),
             None => {
                 self.skipped.insert(text.to_string());
+                for class in class_names(text) {
+                    self.skipped_classes.insert(class);
+                }
             }
         }
     }
@@ -145,12 +153,56 @@ impl Stylesheet {
         }
     }
 
+    /// Whether a class is named by a rule that was left out.
+    pub fn is_skipped_class(&self, class: &str) -> bool {
+        self.skipped_classes.contains(class)
+    }
+
+    /// Whether any rule that was kept mentions the class.
+    pub fn has_rule_for(&self, class: &str) -> bool {
+        self.by_class.contains_key(class)
+    }
+
     /// Selectors that were left out, for a coverage report.
     pub fn skipped_selectors(&self) -> Vec<&str> {
         let mut found: Vec<&str> = self.skipped.iter().map(String::as_str).collect();
         found.sort();
         found
     }
+}
+
+/// The class names a selector mentions, with escapes undone: `.a\:b:hover` gives `a:b`.
+fn class_names(selector: &str) -> Vec<String> {
+    let characters: Vec<char> = selector.chars().collect();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < characters.len() {
+        if characters[at] != '.' {
+            at += 1;
+            continue;
+        }
+        at += 1;
+        let mut name = String::new();
+        while at < characters.len() {
+            match characters[at] {
+                '\\' => {
+                    at += 1;
+                    if let Some(escaped) = characters.get(at) {
+                        name.push(*escaped);
+                    }
+                }
+                character if character.is_alphanumeric() || matches!(character, '-' | '_') => {
+                    name.push(character);
+                }
+                _ => break,
+            }
+            at += 1;
+        }
+        if !name.is_empty() {
+            found.push(name);
+        }
+    }
+    found
 }
 
 fn strip_comments(source: &str) -> String {
@@ -291,7 +343,8 @@ fn pseudo_named(name: &str) -> Pseudo {
         "hover" => Pseudo::Hover,
         "focus" | "focus-visible" | "focus-within" => Pseudo::Focus,
         "disabled" => Pseudo::Disabled,
-        _ => Pseudo::None,
+        "checked" => Pseudo::Checked,
+        _ => Pseudo::Other,
     }
 }
 

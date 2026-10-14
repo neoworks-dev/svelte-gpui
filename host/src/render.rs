@@ -392,13 +392,17 @@ impl Painter<'_> {
 
     fn computed(&self, id: NodeId) -> Computed {
         let Some(node) = self.tree.nodes.get(&id) else {
-            return self.resolver.compute("div", "", &[]);
+            return self.resolver.compute("div", "", &[], Default::default());
         };
         let tag = match &node.kind {
             Kind::Element { tag } => tag.as_str(),
             Kind::Text { .. } => "span",
         };
-        self.resolver.compute(tag, attribute(node, "class"), &node.style)
+        let state = crate::style::ElementState {
+            checked: node.attributes.get("checked").map(String::as_str) == Some("true"),
+            disabled: node.attributes.contains_key("disabled"),
+        };
+        self.resolver.compute(tag, attribute(node, "class"), &node.style, state)
     }
 
     /// One element, with its children, or nothing when it is not displayed.
@@ -982,7 +986,8 @@ impl Painter<'_> {
             element = element.rounded(px(radius));
         }
         element = element.items_center().justify_center();
-        if !checked {
+        // A page that paints its own checkbox draws its own mark too.
+        if !checked || !unpainted {
             return element;
         }
         if control == Control::Radio {

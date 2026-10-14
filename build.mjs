@@ -105,8 +105,9 @@ export async function build(options) {
     alias: {
       "@neoworks/svelte-gpui": here("./runtime/index.ts"),
       "esm-env": here("./runtime/esm-env.ts"),
+      ...options.alias,
     },
-    plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin],
+    plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin, ...(options.plugins ?? [])],
     logLevel: "info",
   });
 }

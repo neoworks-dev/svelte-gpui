@@ -627,6 +627,28 @@ fn print_report(resolver: &Resolver, tree: &Tree) {
         attributes.sort();
         println!("  control {id}: {}", attributes.join(" "));
     }
+    // Classes the page uses that no kept rule styles, and those only a left-out rule names.
+    let mut unstyled: std::collections::BTreeSet<String> = Default::default();
+    let mut lost: std::collections::BTreeSet<String> = Default::default();
+    for node in tree.nodes.values() {
+        let Some(classes) = node.attributes.get("class") else {
+            continue;
+        };
+        for class in classes.split_whitespace() {
+            if resolver.sheet.has_rule_for(class) {
+                continue;
+            }
+            if resolver.sheet.is_skipped_class(class) {
+                lost.insert(class.to_string());
+            } else {
+                unstyled.insert(class.to_string());
+            }
+        }
+    }
+    println!("classes in use with no rule at all: {}", unstyled.len());
+    println!("  {}", unstyled.iter().cloned().collect::<Vec<_>>().join(" "));
+    println!("classes in use whose only rules were left out: {}", lost.len());
+    println!("  {}", lost.iter().cloned().collect::<Vec<_>>().join(" "));
     let skipped = resolver.sheet.skipped_selectors();
     println!("selectors left out: {}", skipped.len());
     for selector in skipped.iter().take(25) {
