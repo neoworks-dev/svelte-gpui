@@ -3,7 +3,12 @@
 //! changes the text and tells the app with an `input` event, and the app writing
 //! `value` replaces the text. Checkboxes and radios are toggled the same way.
 
-use gpui::{ClipboardItem, Context, Keystroke, Pixels, Point, TextLayout, Window};
+use std::ops::Range;
+
+use gpui::{
+    Bounds, ClipboardItem, Context, EntityInputHandler, Keystroke, Pixels, Point, TextLayout,
+    UTF16Selection, Window, point, px, size,
+};
 use serde_json::json;
 
 use crate::Workbench;
@@ -21,6 +26,8 @@ pub struct Field {
     pub focus_value: String,
     pub layout: Option<TextLayout>,
     pub dragging: bool,
+    /// The text an input method is still composing, as a byte range inside `text`.
+    pub marked: Option<Range<usize>>,
     /// How far a single-line field has scrolled sideways to keep the cursor in view.
     pub scroll_x: f32,
 }
@@ -35,6 +42,7 @@ impl Field {
             focus_value: String::new(),
             layout: None,
             dragging: false,
+            marked: None,
             scroll_x: 0.0,
         }
     }
@@ -278,7 +286,17 @@ impl Workbench {
     }
 
     /// Applies a keystroke to a focused field. Returns whether the field used it.
-    pub fn field_key(&mut self, id: NodeId, keystroke: &Keystroke, cx: &mut Context<Self>) -> bool {
+    ///
+    /// Typed characters normally reach a field through the input method, which is how
+    /// accents and composed text arrive; `insert_text` makes the field take them from the
+    /// key instead, for scripted typing.
+    pub fn field_key(
+        &mut self,
+        id: NodeId,
+        keystroke: &Keystroke,
+        insert_text: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.has_field(id) {
             return false;
         }
@@ -318,12 +336,12 @@ impl Workbench {
             "delete" => self.delete(id, false, command, cx),
             "enter" if multiline => self.type_text(id, "\n", "insertLineBreak", cx),
             "enter" => self.commit_change(id, cx),
-            "tab" => return false,
+            "tab" => return true,
             _ => {
                 let Some(text) = &keystroke.key_char else {
                     return false;
                 };
-                if command || keystroke.modifiers.alt {
+                if command || keystroke.modifiers.alt || !insert_text {
                     return false;
                 }
                 self.type_text(id, text, "insertText", cx);
@@ -366,7 +384,23 @@ impl Workbench {
     }
 
     fn type_text(&mut self, id: NodeId, text: &str, input_type: &str, cx: &mut Context<Self>) {
-        let allowed = {
+        self.compose(id, None, text, false, None, input_type, cx);
+    }
+
+    /// Puts text into a field: over `range`, else over what an input method is composing,
+    /// else over the selection. With `mark` the text stays provisional, drawn underlined,
+    /// until it is committed or replaced; `selection` places the cursor inside it.
+    pub fn compose(
+        &mut self,
+        id: NodeId,
+        range: Option<Range<usize>>,
+        text: &str,
+        mark: bool,
+        selection: Option<Range<usize>>,
+        input_type: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let (accepted, was_composing) = {
             let tree = self.svelte.tree.borrow();
             let Some(node) = tree.nodes.get(&id) else {
                 return;
@@ -375,21 +409,64 @@ impl Workbench {
             let Some(field) = fields.get_mut(&id) else {
                 return;
             };
-            let single_line = text.replace(['\n', '\r'], " ");
-            let text = if control_of(node) == Some(Control::Multiline) { text } else { single_line.as_str() };
-            let limit: usize = attribute(node, "maxlength").parse().unwrap_or(usize::MAX);
-            let room = limit.saturating_sub(field.text.chars().count() - field.selected_text().chars().count());
-            let clipped: String = text.chars().take(room).collect();
-            if clipped.is_empty() || !accepts(node, &clipped) {
-                false
-            } else {
-                field.insert(&clipped);
-                true
+            let multiline = control_of(node) == Some(Control::Multiline);
+            let was_composing = field.marked.is_some();
+            let mut text = text.to_string();
+            if !multiline {
+                if !mark && text.trim_matches(['\n', '\r', '\t']).is_empty() && !text.is_empty() {
+                    return;
+                }
+                text = text.replace(['\n', '\r'], " ");
             }
+            let target = match range.or_else(|| field.marked.clone()) {
+                Some(range) => range.start.min(field.text.len())..range.end.min(field.text.len()),
+                None => field.selection(),
+            };
+            if !mark {
+                let limit: usize = attribute(node, "maxlength").parse().unwrap_or(usize::MAX);
+                let kept = field.text.chars().count() - field.text[target.clone()].chars().count();
+                text = text.chars().take(limit.saturating_sub(kept)).collect();
+                if (text.is_empty() && !was_composing) || !accepts(node, &text) {
+                    if text.is_empty() && !was_composing {
+                        return;
+                    }
+                }
+            }
+            field.text.replace_range(target.clone(), &text);
+            let end = target.start + text.len();
+            field.marked = if mark { Some(target.start..end) } else { None };
+            match (&selection, mark) {
+                (Some(inside), true) => {
+                    field.anchor = target.start + byte_offset(&text, inside.start);
+                    field.cursor = target.start + byte_offset(&text, inside.end);
+                }
+                _ => {
+                    field.cursor = end;
+                    field.anchor = end;
+                }
+            }
+            (text, was_composing)
         };
-        if allowed {
-            self.after_edit(id, input_type, Some(text), cx);
+        if mark && !was_composing {
+            self.emit(id, "compositionstart", json!({ "data": "" }).to_string(), cx);
         }
+        if mark {
+            self.emit(id, "compositionupdate", json!({ "data": accepted }).to_string(), cx);
+        }
+        let kind = if mark || was_composing { "insertCompositionText" } else { "insertText" };
+        self.after_edit(id, kind, Some(&accepted), cx);
+        if !mark && was_composing {
+            self.emit(id, "compositionend", json!({ "data": accepted }).to_string(), cx);
+        }
+    }
+
+    /// The field an input method is typing into: the focused one.
+    fn input_target(&self, window: &Window) -> Option<NodeId> {
+        let id = self.focused_node(window)?;
+        if !self.has_field(id) {
+            return None;
+        }
+        Some(id)
     }
 
     fn delete(&mut self, id: NodeId, backwards: bool, word: bool, cx: &mut Context<Self>) {
@@ -638,4 +715,153 @@ fn label_target(tree: &crate::tree::Tree, label: NodeId) -> Option<NodeId> {
         pending.extend(candidate.children.iter().copied());
     }
     None
+}
+
+/// An input method's view of the focused field: its text, selection and preedit, in
+/// UTF-16 offsets, which is what platform input methods count in.
+impl EntityInputHandler for Workbench {
+    fn text_for_range(
+        &mut self,
+        range: Range<usize>,
+        adjusted: &mut Option<Range<usize>>,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let id = self.input_target(window)?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        let start = byte_offset(&field.text, range.start);
+        let end = byte_offset(&field.text, range.end);
+        *adjusted = Some(utf16_offset(&field.text, start)..utf16_offset(&field.text, end));
+        Some(field.text[start..end].to_string())
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        let id = self.input_target(window)?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        let range = field.selection();
+        Some(UTF16Selection {
+            range: utf16_offset(&field.text, range.start)..utf16_offset(&field.text, range.end),
+            reversed: field.cursor < field.anchor,
+        })
+    }
+
+    fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+        let id = self.input_target(window)?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        let marked = field.marked.clone()?;
+        Some(utf16_offset(&field.text, marked.start)..utf16_offset(&field.text, marked.end))
+    }
+
+    fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.input_target(window) else {
+            return;
+        };
+        let data = {
+            let mut fields = self.interaction.fields.borrow_mut();
+            let Some(field) = fields.get_mut(&id) else {
+                return;
+            };
+            match field.marked.take() {
+                Some(range) => field.text[range].to_string(),
+                None => return,
+            }
+        };
+        self.emit(id, "compositionend", json!({ "data": data }).to_string(), cx);
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.input_target(window) else {
+            return;
+        };
+        if !self.editable(id) {
+            return;
+        }
+        let bytes = self.bytes_for(id, range);
+        self.compose(id, bytes, text, false, None, "insertText", cx);
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        new_text: &str,
+        new_selected_range: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.input_target(window) else {
+            return;
+        };
+        if !self.editable(id) {
+            return;
+        }
+        let bytes = self.bytes_for(id, range);
+        let inside = new_selected_range.map(|selected| {
+            byte_offset(new_text, selected.start)..byte_offset(new_text, selected.end)
+        });
+        self.compose(id, bytes, new_text, true, inside, "insertCompositionText", cx);
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range: Range<usize>,
+        element_bounds: Bounds<Pixels>,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        let id = self.input_target(window)?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        let start = byte_offset(&field.text, range.start);
+        let anchor = field
+            .layout
+            .as_ref()
+            .and_then(|layout| layout.position_for_index(start).map(|at| (at, layout.line_height())));
+        match anchor {
+            Some((at, height)) => Some(Bounds { origin: at, size: size(px(1.0), height) }),
+            None => Some(Bounds {
+                origin: point(element_bounds.origin.x, element_bounds.origin.y),
+                size: size(px(1.0), element_bounds.size.height),
+            }),
+        }
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        let id = self.input_target(window)?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        let layout = field.layout.as_ref()?;
+        let index = match layout.index_for_position(position) {
+            Ok(index) | Err(index) => index.min(field.text.len()),
+        };
+        Some(utf16_offset(&field.text, index))
+    }
+}
+
+impl Workbench {
+    /// An input method's UTF-16 range, as byte offsets in the focused field.
+    fn bytes_for(&self, id: NodeId, range: Option<Range<usize>>) -> Option<Range<usize>> {
+        let range = range?;
+        let fields = self.interaction.fields.borrow();
+        let field = fields.get(&id)?;
+        Some(byte_offset(&field.text, range.start)..byte_offset(&field.text, range.end))
+    }
 }

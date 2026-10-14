@@ -140,13 +140,21 @@ impl Workbench {
 
     /// A key press: first to the app, up from whatever has focus, and then, unless the
     /// app cancelled it, to the field that has focus or the clipboard shortcut it spells.
-    fn key(&mut self, event: &KeyDownEvent, _down: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn key(&mut self, event: &KeyDownEvent, _down: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let target = self.focused_node(window).unwrap_or(0);
-        self.handle_key(target, &event.keystroke, event.is_held, cx);
+        self.handle_key(target, &event.keystroke, event.is_held, false, cx)
     }
 
     /// The part of a key press after the target is known; scripted steps come here too.
-    fn handle_key(&mut self, target: NodeId, keystroke: &Keystroke, held: bool, cx: &mut Context<Self>) {
+    /// Returns whether the key was used, so it is not also typed.
+    fn handle_key(
+        &mut self,
+        target: NodeId,
+        keystroke: &Keystroke,
+        held: bool,
+        insert_text: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let command = keystroke.modifiers.control || keystroke.modifiers.platform;
         let clipboard_event = match (command, keystroke.key.as_str()) {
             (true, "c") => Some("copy"),
@@ -156,15 +164,19 @@ impl Workbench {
         };
         let detail = key_detail(keystroke, held);
         if self.emit(target, "keydown", detail, cx).prevented {
-            return;
+            return true;
         }
         if let Some(kind) = clipboard_event {
             self.clipboard_shortcut(kind, target, cx);
-            return;
+            return true;
         }
-        if target != 0 && (self.field_key(target, keystroke, cx) || self.select_key(target, keystroke, cx)) {
+        if target != 0
+            && (self.field_key(target, keystroke, insert_text, cx) || self.select_key(target, keystroke, cx))
+        {
             cx.notify();
+            return true;
         }
+        false
     }
 
     /// `copy`, `cut` and `paste`: the app sees them first, and may take over.
@@ -406,7 +418,17 @@ impl Workbench {
                         key: text.clone(),
                         key_char: Some(text),
                     };
-                    self.handle_key(id, &keystroke, false, cx);
+                    self.handle_key(id, &keystroke, false, true, cx);
+                }
+            }
+            "compose" | "commit" => {
+                let command = Command::Focus(id);
+                self.carry_out(&command, window, cx);
+                let text = parts.next().unwrap_or("");
+                if action == "compose" {
+                    <Self as gpui::EntityInputHandler>::replace_and_mark_text_in_range(self, None, text, None, window, cx);
+                } else {
+                    <Self as gpui::EntityInputHandler>::replace_text_in_range(self, None, text, window, cx);
                 }
             }
             "open" => self.toggle_select(id, cx),
@@ -417,7 +439,9 @@ impl Workbench {
             "key" => {
                 let spelled = parts.next().unwrap_or("");
                 match Keystroke::parse(spelled) {
-                    Ok(keystroke) => self.handle_key(id, &keystroke, false, cx),
+                    Ok(keystroke) => {
+                        self.handle_key(id, &keystroke, false, true, cx);
+                    }
                     Err(_) => eprintln!("cannot read keystroke {spelled:?}"),
                 }
             }

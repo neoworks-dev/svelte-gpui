@@ -11,6 +11,8 @@
   let copied = $state('nothing yet');
   let fruit = $state('pear');
   let picks = $state(0);
+  let composing = $state('none');
+  let steps = $state('');
 </script>
 
 <div class="flex h-full flex-col gap-2 overflow-y-auto bg-surface p-3 text-xs text-default">
@@ -22,11 +24,16 @@
       maxlength="12"
       placeholder="Your name"
       onchange={() => (changes += 1)}
+      oncompositionstart={() => (steps += 's')}
+      oncompositionupdate={(event) => { composing = event.data; steps += 'u'; }}
+      oncompositionend={() => { composing = 'ended'; steps += 'e'; }}
     />
   </label>
   <div class="text-dim">
     name = <span class="font-mono text-green">{JSON.stringify(name)}</span>
     change events <span class="font-mono text-green">{changes}</span>
+    composing <span class="font-mono text-green">{composing}</span>
+    <span class="font-mono text-dim">{steps}</span>
   </div>
 
   <label class="flex flex-col gap-1">

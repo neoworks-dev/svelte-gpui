@@ -124,6 +124,17 @@ cuts or pastes itself. `navigator.clipboard.writeText` and `readText` work.
 Wayland only accepts a clipboard write that follows a real input event, so the
 host writes in the same turn as the event that asked.
 
+## Input methods
+
+A focused field registers GPUI's `EntityInputHandler` while it paints, so the
+platform's input method types into it: committed text, composed text that is shown
+underlined until it is committed, and the preedit of a dead key. Typed characters
+arrive that way too, and a key the host or the app already used (Enter, arrows,
+Backspace, Tab, anything the app cancelled) stops there so it is not typed twice.
+The app sees `compositionstart`, `compositionupdate` and `compositionend`, and an
+`input` event for each change. `--do compose:TARGET:text` and `commit:TARGET:text`
+call the handler methods the platform calls.
+
 ## Transitions
 
 Svelte's `transition:`, `in:` and `out:` call `element.animate()` with a list of
@@ -152,7 +163,9 @@ transitions were not exercised with a pointer.
 
 ## Not done
 
-- No IME or dead-key composition in text fields, no undo, and no spellcheck.
+- No undo and no spellcheck in text fields. Composition was checked through the
+  input handler, not with a real IME or real dead keys: the keys sent by
+  `hyprctl` did not go through the compose table.
 - `input type` of date, color, range and file; no `form` submission.
 - Svelte's `slide` has nothing to measure, since layout only comes back for
   elements that asked, so it does not animate height; `scale` and `blur` only

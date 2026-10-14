@@ -179,7 +179,10 @@ impl Painter<'_> {
             .line_height(relative(1.5))
             .track_focus(&self.interaction.root_focus)
             .on_key_down(cx.listener(|workbench, event, window, cx| {
-                workbench.key(event, true, window, cx);
+                // A key the host or the app used must not also be typed by the input method.
+                if workbench.key(event, true, window, cx) {
+                    cx.stop_propagation();
+                }
             }))
             .on_key_up(cx.listener(|workbench, event, window, cx| {
                 workbench.key_up(event, window, cx);
@@ -696,7 +699,7 @@ impl Painter<'_> {
         let line_height = style.line_height.unwrap_or(1.5);
         let font_size = inherited.font_size;
 
-        let (shown, cursor, selection, scroll) = {
+        let (shown, cursor, selection, scroll, composing) = {
             let mut fields = self.interaction.fields.borrow_mut();
             let field = fields.entry(id).or_insert_with(Field::new);
             if field.applied.as_deref() != Some(initial.as_str()) {
@@ -720,13 +723,25 @@ impl Painter<'_> {
                 }
             };
             let selection = field.selection();
-            (shown, map(field.cursor), map(selection.start)..map(selection.end), field.scroll_x)
+            let composing = field.marked.clone().map(|range| map(range.start)..map(range.end));
+            (shown, map(field.cursor), map(selection.start)..map(selection.end), field.scroll_x, composing)
         };
 
         let empty = shown.is_empty();
         let text_to_draw = if empty { placeholder } else { shown };
         let mut styled = StyledText::new(SharedString::from(text_to_draw.clone()));
-        if !empty && !selection.is_empty() {
+        if let (Some(range), false) = (composing.clone(), empty) {
+            let underline = gpui::UnderlineStyle {
+                thickness: px(1.0),
+                color: Some(inherited.colour.into()),
+                wavy: false,
+            };
+            let highlight = HighlightStyle {
+                underline: Some(underline),
+                ..Default::default()
+            };
+            styled = styled.with_highlights(vec![(range, highlight)]);
+        } else if !empty && !selection.is_empty() {
             let highlight = HighlightStyle {
                 background_color: Some(Hsla::from(self.theme_colour("--focus-ring", 0x3b6ea8)).opacity(0.45)),
                 ..Default::default()
@@ -753,9 +768,16 @@ impl Painter<'_> {
         let fields = self.interaction.fields.clone();
         let caret_colour = inherited.colour;
         let focus = handle.clone();
+        let workbench = cx.entity();
         let caret = canvas(
             |bounds, _, _| bounds,
-            move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+            move |bounds: Bounds<gpui::Pixels>, _, window, cx| {
+                // The input method types into whatever is focused, through this handler.
+                window.handle_input(
+                    &focus,
+                    gpui::ElementInputHandler::new(bounds, workbench.clone()),
+                    cx,
+                );
                 if !focus.is_focused(window) {
                     return;
                 }
