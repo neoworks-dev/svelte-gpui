@@ -995,8 +995,9 @@ fn main() {
         eprintln!("usage: svelte-gpui --bundle app.js [--css app.css] [--width N --height N]");
         std::process::exit(2);
     };
-    let bundle = std::fs::read_to_string(&bundle_path)
-        .unwrap_or_else(|error| panic!("cannot read {bundle_path}: {error}"));
+    if !std::path::Path::new(&bundle_path).exists() {
+        panic!("cannot read {bundle_path}");
+    }
     let stylesheet = match flag("--css") {
         Some(path) => std::fs::read_to_string(&path).unwrap_or_default(),
         None => String::new(),
@@ -1006,7 +1007,7 @@ fn main() {
     println!("malloc at start: {:.1} MB in use", heap_megabytes().0);
     let started = Instant::now();
     let bridge = flag("--bridge").and_then(|path| bridge::Bridge::connect(&path));
-    let svelte = Svelte::start(&bundle, bridge);
+    let svelte = Svelte::start(&bundle_path, bridge);
     println!("malloc after the bundle ran: {:.1} MB in use", heap_megabytes().0);
     println!(
         "mounted in {:.0} ms, {} nodes; memory {:.1} MB RSS before, {:.1} after",
@@ -1137,6 +1138,7 @@ fn main() {
                         .update(cx, |workbench, _window, _cx| {
                             let stats = &workbench.stats;
                             let counters = workbench.svelte.counters.borrow();
+                            println!("{}", workbench.svelte.memory_breakdown());
                             println!(
                                 "{} events, {:.2} ms each; {} batches, {} operations",
                                 stats.events,
