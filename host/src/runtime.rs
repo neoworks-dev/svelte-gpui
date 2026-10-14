@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rquickjs::{CaughtError, Coerced, Context, Function, Object, Runtime, function::Rest};
+use rquickjs::{CaughtError, Coerced, Context, Function, Object, Runtime, function::Rest, qjs};
 
 use crate::tree::{NodeId, Tree};
 
@@ -37,9 +37,86 @@ pub struct Counters {
     pub operations: u32,
 }
 
+/// Runs the bundle. It is compiled once, without its source text and line tables, and kept
+/// beside the bundle as bytecode, which is loaded from then on. That skips parsing and keeps
+/// tens of megabytes of text out of memory; stack traces then lack line numbers, so set
+/// `SVELTE_GPUI_DEBUG` to run the text itself.
+fn run_bundle(ctx: &rquickjs::Ctx<'_>, bundle_path: &str) -> rquickjs::Result<()> {
+    if std::env::var("SVELTE_GPUI_DEBUG").is_ok() {
+        let source = std::fs::read_to_string(bundle_path).expect("read the bundle");
+        return ctx.eval::<(), _>(source);
+    }
+    let cache_path = format!("{bundle_path}.qbc");
+    let fresh = match (std::fs::metadata(bundle_path), std::fs::metadata(&cache_path)) {
+        (Ok(source), Ok(cache)) => match (source.modified(), cache.modified()) {
+            (Ok(source), Ok(cache)) => cache >= source,
+            _ => false,
+        },
+        _ => false,
+    };
+    let raw = ctx.as_raw().as_ptr();
+    if fresh {
+        if let Ok(bytes) = std::fs::read(&cache_path) {
+            let function = unsafe { qjs::JS_ReadObject(raw, bytes.as_ptr(), bytes.len() as _, qjs::JS_READ_OBJ_BYTECODE as i32) };
+            return run_function(ctx, function);
+        }
+    }
+    let source = std::fs::read_to_string(bundle_path).expect("read the bundle");
+    let name = std::ffi::CString::new("bundle").expect("name");
+    let function = unsafe {
+        qjs::JS_Eval(
+            raw,
+            source.as_ptr() as *const std::os::raw::c_char,
+            source.len() as _,
+            name.as_ptr(),
+            (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_STRICT | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32,
+        )
+    };
+    drop(source);
+    let compiled = unsafe { rquickjs::Value::from_raw(ctx.clone(), function) };
+    if compiled.is_exception() {
+        return Err(rquickjs::Error::Exception);
+    }
+    let flags = qjs::JS_WRITE_OBJ_BYTECODE | qjs::JS_WRITE_OBJ_STRIP_SOURCE | qjs::JS_WRITE_OBJ_STRIP_DEBUG;
+    let mut length = 0;
+    let written = unsafe { qjs::JS_WriteObject(raw, &mut length, compiled.as_raw(), flags as i32) };
+    if !written.is_null() {
+        let bytes = unsafe { std::slice::from_raw_parts(written, length as usize) };
+        if std::fs::write(&cache_path, bytes).is_err() {
+            eprintln!("svelte-gpui: cannot keep the compiled bundle at {cache_path}");
+        }
+        unsafe { qjs::js_free(raw, written as *mut std::os::raw::c_void) };
+    }
+    // Run what was written, so a stripped bundle behaves the same on every start.
+    drop(compiled);
+    match std::fs::read(&cache_path) {
+        Ok(bytes) => {
+            let function = unsafe { qjs::JS_ReadObject(raw, bytes.as_ptr(), bytes.len() as _, qjs::JS_READ_OBJ_BYTECODE as i32) };
+            run_function(ctx, function)
+        }
+        Err(_) => {
+            let source = std::fs::read_to_string(bundle_path).expect("read the bundle");
+            ctx.eval::<(), _>(source)
+        }
+    }
+}
+
+/// Runs a compiled script; `function` is consumed.
+fn run_function(ctx: &rquickjs::Ctx<'_>, function: qjs::JSValue) -> rquickjs::Result<()> {
+    if unsafe { qjs::JS_IsException(function) } {
+        return Err(rquickjs::Error::Exception);
+    }
+    let result = unsafe { qjs::JS_EvalFunction(ctx.as_raw().as_ptr(), function) };
+    let finished = unsafe { rquickjs::Value::from_raw(ctx.clone(), result) };
+    if finished.is_exception() {
+        return Err(rquickjs::Error::Exception);
+    }
+    Ok(())
+}
+
 impl App {
     /// Evaluates the bundle, which mounts the component and sends its first batch.
-    pub fn start(bundle: &str, bridge: Option<crate::bridge::Bridge>) -> Self {
+    pub fn start(bundle_path: &str, bridge: Option<crate::bridge::Bridge>) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
         // A promise nobody catches would otherwise fail without a word.
         runtime.set_host_promise_rejection_tracker(Some(Box::new(|_ctx, _promise, reason, handled| {
@@ -85,11 +162,15 @@ impl App {
         };
         app.install_host();
         app.context.with(|ctx| {
-            if let Err(error) = ctx.eval::<(), _>(bundle) {
+            if let Err(error) = run_bundle(&ctx, bundle_path) {
                 eprintln!("svelte-gpui: the bundle failed: {}", CaughtError::from_error(&ctx, error));
             }
         });
         app.drain();
+        // The parser and the bundle's text are done with; give the memory back.
+        unsafe {
+            libc::malloc_trim(0);
+        }
         app
     }
 
@@ -140,6 +221,24 @@ impl App {
             }
             ctx.globals().set("console", console).expect("set console");
         });
+    }
+
+    /// Where the app's memory went, by kind, for the report.
+    pub fn memory_breakdown(&self) -> String {
+        let usage = self.runtime.memory_usage();
+        let megabytes = |bytes: i64| bytes as f64 / 1_048_576.0;
+        format!(
+            "quickjs: {:.1} MB held; functions {:.1} MB (code {:.1}, line tables {:.1}), strings {:.1}, objects {:.1}, properties {:.1}, shapes {:.1}, atoms {:.1}",
+            megabytes(usage.malloc_size),
+            megabytes(usage.js_func_size),
+            megabytes(usage.js_func_code_size),
+            megabytes(usage.js_func_pc2line_size),
+            megabytes(usage.str_size),
+            megabytes(usage.obj_size),
+            megabytes(usage.prop_size),
+            megabytes(usage.shape_size),
+            megabytes(usage.atom_size),
+        )
     }
 
     /// Runs queued promise jobs until there are none: Svelte schedules work as microtasks.

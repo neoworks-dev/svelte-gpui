@@ -3,7 +3,7 @@
 // TypeScript-aware Svelte preprocessor — is wired up here explicitly.
 // Adapted from svelte-gtk4's build.
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -92,7 +92,8 @@ function dedupeSvelte(root) {
 }
 
 export async function build(options) {
-  await esbuild.build({
+  const result = await esbuild.build({
+    metafile: Boolean(process.env.ANALYZE),
     entryPoints: [options.entry],
     outfile: options.outfile,
     bundle: true,
@@ -113,4 +114,7 @@ export async function build(options) {
     plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin, ...(options.plugins ?? [])],
     logLevel: "info",
   });
+  if (result.metafile) {
+    await writeFile(`${options.outfile}.meta.json`, JSON.stringify(result.metafile));
+  }
 }
