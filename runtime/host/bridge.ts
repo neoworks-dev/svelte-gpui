@@ -29,6 +29,8 @@ const DROP = 8;
 const FOCUS = 9;
 const SCROLL_TO = 10;
 const OBSERVE_SIZE = 11;
+const SELECT = 12;
+const WRITE_CLIPBOARD = 13;
 
 export const ROOT_ID = 1;
 
@@ -165,7 +167,25 @@ export function install(): void {
       }
       pending.push([OBSERVE_SIZE, node.hostId]);
     },
+
+    select(node: SElement, start: number, end: number): void {
+      if (node.hostId === 0) {
+        return;
+      }
+      pending.push([SELECT, node.hostId, start, end]);
+    },
   });
+
+  // `navigator.clipboard` reads what the host last saw and writes through it.
+  (globalThis as any).navigator.clipboard = {
+    writeText(text: string): Promise<void> {
+      pending.push([WRITE_CLIPBOARD, 0, String(text)]);
+      return Promise.resolve();
+    },
+    readText(): Promise<string> {
+      return Promise.resolve((globalThis as any).host.clipboardText());
+    },
+  };
 
   setMirror({
     inserted(child: SNode, before: SNode | null): void {

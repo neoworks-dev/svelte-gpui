@@ -32,6 +32,9 @@ pub struct Node {
 pub enum Command {
     Focus(NodeId),
     ScrollTo(NodeId, f32, f32),
+    /// Select a range of a field, in UTF-16 offsets.
+    Select(NodeId, usize, usize),
+    WriteClipboard(String),
 }
 
 pub struct Tree {
@@ -55,6 +58,8 @@ const DROP: i64 = 8;
 const FOCUS: i64 = 9;
 const SCROLL_TO: i64 = 10;
 const OBSERVE_SIZE: i64 = 11;
+const SELECT: i64 = 12;
+const WRITE_CLIPBOARD: i64 = 13;
 
 impl Tree {
     pub fn new() -> Self {
@@ -132,6 +137,12 @@ impl Tree {
                 let top = parts.get(3).and_then(Value::as_f64).unwrap_or(0.0) as f32;
                 self.commands.push(Command::ScrollTo(id, left, top));
             }
+            SELECT => {
+                let start = parts.get(2).and_then(Value::as_u64).unwrap_or(0) as usize;
+                let end = parts.get(3).and_then(Value::as_u64).unwrap_or(0) as usize;
+                self.commands.push(Command::Select(id, start, end));
+            }
+            WRITE_CLIPBOARD => self.commands.push(Command::WriteClipboard(text_at(parts, 2))),
             OBSERVE_SIZE => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     node.observed = true;

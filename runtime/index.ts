@@ -30,9 +30,10 @@ export function start(Component: unknown, props: Record<string, unknown> = {}): 
 
   const globals = globalThis as any;
   globals.__settle = settle;
-  globals.__event = (id: number, type: string, detail: string): void => {
-    dispatch(id, type, JSON.parse(detail));
+  globals.__event = (id: number, type: string, detail: string): string => {
+    const outcome = dispatch(id, type, JSON.parse(detail));
     settle();
+    return JSON.stringify(outcome);
   };
   globals.__size = (id: number, width: number, height: number): void => {
     reportSize(id, width, height);

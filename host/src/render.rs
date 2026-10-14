@@ -11,13 +11,16 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FocusHandle, FontWeight, IntoElement, Length,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Rgba, ScrollDelta,
-    ScrollHandle, ScrollWheelEvent, SharedString, StyledImage, auto, canvas, div, img,
-    prelude::*, px, relative, svg,
+    AnyElement, Bounds, ClickEvent, Context, Div, FocusHandle, FontWeight, HighlightStyle, Hsla,
+    IntoElement, Length, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
+    Rgba, ScrollDelta, ScrollHandle, ScrollWheelEvent, SharedString, StyledImage, StyledText,
+    Corner, anchored, auto, canvas, deferred, div, fill, img, point, prelude::*, px, relative,
+    size, svg,
 };
 
 use crate::Workbench;
+use crate::forms::{Control, Field, control_of};
+use crate::select::choices;
 use crate::assets::register_svg;
 use crate::images::{ImageState, Images};
 use crate::style::{
@@ -35,6 +38,11 @@ pub struct Interaction {
     pub focus: RefCell<HashMap<NodeId, FocusHandle>>,
     pub scroll: RefCell<HashMap<NodeId, ScrollHandle>>,
     pub sizes: Rc<RefCell<HashMap<NodeId, (f32, f32)>>>,
+    pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
+    /// Where each measured element came out in the window, for anchoring menus to it.
+    pub bounds: Rc<RefCell<HashMap<NodeId, Bounds<gpui::Pixels>>>>,
+    /// The select whose list is showing, if any.
+    pub open_select: RefCell<Option<NodeId>>,
     pub images: Images,
 }
 
@@ -346,6 +354,14 @@ impl Painter<'_> {
         match tag {
             "svg" => element = self.svg_content(element, id, node, style, inherited),
             "img" => element = self.image_content(element, node, style),
+            "select" => element = self.select_content(element, id, node, style, inherited, cx),
+            "input" | "textarea" => match control_of(node) {
+                Some(Control::Text) | Some(Control::Multiline) => {
+                    element = self.field_content(element, id, node, style, inherited, cx);
+                }
+                Some(control) => element = self.checkable_content(element, node, style, control),
+                None => {}
+            },
             _ => {
                 let flow = match style.display {
                     Display::Flex => Flow::Flex,
@@ -358,7 +374,8 @@ impl Painter<'_> {
             }
         }
         element = self.border_strips(element, style);
-        if node.observed {
+        let is_select = matches!(&node.kind, Kind::Element { tag } if tag == "select");
+        if node.observed || is_select {
             element = element.child(self.measure(id));
         }
         Some(self.interactive(element, id, node, style, &computed, cx))
@@ -367,10 +384,12 @@ impl Painter<'_> {
     /// An invisible layer that records how big its parent came out.
     fn measure(&self, id: NodeId) -> AnyElement {
         let sizes = self.interaction.sizes.clone();
+        let placed = self.interaction.bounds.clone();
         canvas(
             move |bounds, _, _| {
                 let size = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 sizes.borrow_mut().insert(id, size);
+                placed.borrow_mut().insert(id, bounds);
             },
             |_, _, _, _| {},
         )
@@ -481,6 +500,319 @@ impl Painter<'_> {
         element.child(picture)
     }
 
+    /// A theme colour by its custom property, for the parts of a control CSS does not reach.
+    fn theme_colour(&self, name: &str, fallback: u32) -> Rgba {
+        match self.resolver.sheet.variables.get(name) {
+            Some(value) => crate::css::parse_colour(value).unwrap_or(gpui::rgb(fallback)),
+            None => gpui::rgb(fallback),
+        }
+    }
+
+    /// The text of a `textarea` that has no `value` of its own yet: what is written inside it.
+    fn initial_text(&self, id: NodeId, node: &Node) -> String {
+        if let Some(value) = node.attributes.get("value") {
+            return value.clone();
+        }
+        match &node.kind {
+            Kind::Element { tag } if tag == "textarea" => self.tree.text_content(id),
+            _ => String::new(),
+        }
+    }
+
+    /// The editable text of an `input` or `textarea`, with its selection and caret.
+    fn field_content(
+        &self,
+        element: Div,
+        id: NodeId,
+        node: &Node,
+        style: &Style,
+        inherited: Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> Div {
+        let multiline = control_of(node) == Some(Control::Multiline);
+        let password = attribute(node, "type") == "password";
+        let placeholder = attribute(node, "placeholder").to_string();
+        let handle = self.interaction.focus_handle(id, cx);
+        let initial = self.initial_text(id, node);
+        let line_height = style.line_height.unwrap_or(1.5);
+        let font_size = inherited.font_size;
+
+        let (shown, cursor, selection, scroll) = {
+            let mut fields = self.interaction.fields.borrow_mut();
+            let field = fields.entry(id).or_insert_with(Field::new);
+            if field.applied.as_deref() != Some(initial.as_str()) {
+                field.text = initial.clone();
+                field.cursor = field.text.len();
+                field.anchor = field.cursor;
+                field.applied = Some(initial);
+            }
+            field.cursor = field.cursor.min(field.text.len());
+            field.anchor = field.anchor.min(field.text.len());
+            let shown = if password {
+                "\u{2022}".repeat(field.text.chars().count())
+            } else {
+                field.text.clone()
+            };
+            let map = |byte: usize| -> usize {
+                if password {
+                    field.text[..byte].chars().count() * "\u{2022}".len()
+                } else {
+                    byte
+                }
+            };
+            let selection = field.selection();
+            (shown, map(field.cursor), map(selection.start)..map(selection.end), field.scroll_x)
+        };
+
+        let empty = shown.is_empty();
+        let text_to_draw = if empty { placeholder } else { shown };
+        let mut styled = StyledText::new(SharedString::from(text_to_draw.clone()));
+        if !empty && !selection.is_empty() {
+            let highlight = HighlightStyle {
+                background_color: Some(Hsla::from(self.theme_colour("--focus-ring", 0x3b6ea8)).opacity(0.45)),
+                ..Default::default()
+            };
+            styled = styled.with_highlights(vec![(selection, highlight)]);
+        }
+        if !empty {
+            let layout = styled.layout().clone();
+            if let Some(field) = self.interaction.fields.borrow_mut().get_mut(&id) {
+                field.layout = Some(layout);
+            }
+        }
+
+        let dim = self.theme_colour("--text-dim", 0x71717a);
+        let mut text = div();
+        if !multiline {
+            text = text.whitespace_nowrap().ml(px(-scroll));
+        }
+        if empty {
+            text = text.text_color(dim);
+        }
+        let text = text.child(styled);
+
+        let fields = self.interaction.fields.clone();
+        let caret_colour = inherited.colour;
+        let focus = handle.clone();
+        let caret = canvas(
+            |bounds, _, _| bounds,
+            move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+                if !focus.is_focused(window) {
+                    return;
+                }
+                let mut fields = fields.borrow_mut();
+                let Some(field) = fields.get_mut(&id) else {
+                    return;
+                };
+                let measured = match (&field.layout, empty) {
+                    (Some(layout), false) => layout
+                        .position_for_index(cursor)
+                        .map(|position| (position, layout.line_height())),
+                    _ => None,
+                };
+                let (position, height) = match measured {
+                    Some(found) => found,
+                    None => (bounds.origin, px(font_size * line_height)),
+                };
+                if !multiline {
+                    let relative_x = f32::from(position.x - bounds.origin.x);
+                    let width = f32::from(bounds.size.width);
+                    let target = if relative_x > width - 2.0 {
+                        field.scroll_x + relative_x - (width - 2.0)
+                    } else if relative_x < 0.0 {
+                        (field.scroll_x + relative_x).max(0.0)
+                    } else {
+                        field.scroll_x
+                    };
+                    if (target - field.scroll_x).abs() > 0.5 {
+                        field.scroll_x = target;
+                        window.request_animation_frame();
+                    }
+                }
+                window.paint_quad(fill(
+                    Bounds {
+                        origin: position,
+                        size: size(px(1.5), height),
+                    },
+                    caret_colour,
+                ));
+            },
+        )
+        .absolute()
+        .size_full();
+
+        let mut container = div().relative().flex_1().min_w_0().child(text).child(caret);
+        if !multiline {
+            container = container.overflow_hidden();
+        } else {
+            let rows: f32 = attribute(node, "rows").parse().unwrap_or(2.0);
+            container = container.min_h(px(rows * font_size * line_height));
+        }
+        element.child(container)
+    }
+
+    /// A closed select shows its chosen option and a caret; an open one adds the list.
+    fn select_content(
+        &self,
+        mut element: Div,
+        id: NodeId,
+        node: &Node,
+        style: &Style,
+        inherited: Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> Div {
+        let options = choices(self.tree, id);
+        let current = options.iter().find(|option| option.selected);
+        let label = match current {
+            Some(option) => option.label.clone(),
+            None => String::new(),
+        };
+        let disabled = node.attributes.contains_key("disabled");
+        let _ = disabled;
+        if style.display != Display::Flex {
+            element = element.flex().flex_row();
+        }
+        element = element.items_center().justify_between().gap_x(px(6.0));
+        element = element.child(div().flex_1().min_w_0().truncate().child(SharedString::from(label)));
+        let caret = register_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"><path d=\"M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z\"/></svg>".to_string(),
+        );
+        element = element.child(
+            svg()
+                .path(SharedString::from(caret))
+                .size(px(inherited.font_size * 0.8))
+                .flex_none()
+                .text_color(self.theme_colour("--text-dim", 0x71717a)),
+        );
+        if *self.interaction.open_select.borrow() != Some(id) {
+            return element;
+        }
+        let Some(bounds) = self.interaction.bounds.borrow().get(&id).copied() else {
+            return element;
+        };
+        element.child(self.select_menu(id, &options, bounds, inherited, cx))
+    }
+
+    /// The list under an open select, drawn above everything else.
+    fn select_menu(
+        &self,
+        select: NodeId,
+        options: &[crate::select::Choice],
+        bounds: Bounds<gpui::Pixels>,
+        inherited: Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> AnyElement {
+        let background = self.theme_colour("--bg-elevated", 0x262628);
+        let border = self.theme_colour("--border-strong", 0x3f3f46);
+        let hover = self.theme_colour("--surface-hover", 0x1f1f23);
+        let dim = self.theme_colour("--text-dim", 0x71717a);
+        let text = self.theme_colour("--text", 0xfafafa);
+
+        let mut menu = div()
+            .id(("select-menu", select as usize))
+            .occlude()
+            .flex()
+            .flex_col()
+            .min_w(bounds.size.width)
+            .max_h(px(260.0))
+            .overflow_y_scroll()
+            .p(px(4.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(border)
+            .bg(background)
+            .text_size(px(inherited.font_size))
+            .text_color(text)
+            .on_mouse_down_out(cx.listener(|workbench, _event: &MouseDownEvent, _window, cx| {
+                workbench.close_select(cx);
+            }));
+        let mut last_group: Option<String> = None;
+        for (index, option) in options.iter().enumerate() {
+            if option.group != last_group {
+                if let Some(group) = &option.group {
+                    menu = menu.child(
+                        div().px(px(8.0)).py(px(3.0)).text_color(dim).child(SharedString::from(group.clone())),
+                    );
+                }
+                last_group = option.group.clone();
+            }
+            let mut row = div()
+                .id(("select-option", option.id as usize))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_x(px(12.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .rounded(px(5.0))
+                .child(SharedString::from(option.label.clone()));
+            if option.disabled {
+                row = row.text_color(dim);
+            } else {
+                row = row.cursor_pointer().hover(move |style| style.bg(hover)).on_click(cx.listener(
+                    move |workbench, _event: &ClickEvent, _window, cx| {
+                        workbench.choose_option(select, index, cx);
+                        cx.stop_propagation();
+                    },
+                ));
+            }
+            if option.selected {
+                row = row.bg(hover);
+            }
+            menu = menu.child(row);
+        }
+        deferred(
+            anchored()
+                .position(point(bounds.left(), bounds.bottom() + px(2.0)))
+                .anchor(Corner::TopLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(menu),
+        )
+        .with_priority(1)
+        .into_any_element()
+    }
+
+    /// A checkbox or radio, drawn plainly unless the page styles it.
+    fn checkable_content(&self, mut element: Div, node: &Node, style: &Style, control: Control) -> Div {
+        let checked = node.attributes.get("checked").map(String::as_str) != Some("false")
+            && node.attributes.contains_key("checked");
+        let action = self.theme_colour("--primary", 0xfafafa);
+        let on_action = self.theme_colour("--primary-fg", 0x0b0b0d);
+        if style.width.is_none() {
+            element = element.w(px(14.0)).h(px(14.0)).flex_none();
+        }
+        // Tailwind's reset makes controls transparent, which counts as unstyled here.
+        let unpainted = match style.background {
+            Some(colour) => colour.a == 0.0,
+            None => true,
+        };
+        if unpainted {
+            element = element.bg(if checked { action } else { self.theme_colour("--surface-input", 0x0e0e10) });
+        }
+        if main_border_colour(style).is_none() {
+            element.style().border_widths.top = Some(px(1.0).into());
+            element.style().border_widths.right = Some(px(1.0).into());
+            element.style().border_widths.bottom = Some(px(1.0).into());
+            element.style().border_widths.left = Some(px(1.0).into());
+            element = element.border_color(self.theme_colour("--border-strong", 0x3f3f46));
+        }
+        let radius = if control == Control::Radio { 7.0 } else { 3.0 };
+        if style.radius == [0.0; 4] {
+            element = element.rounded(px(radius));
+        }
+        element = element.items_center().justify_center();
+        if !checked {
+            return element;
+        }
+        if control == Control::Radio {
+            return element.child(div().size(px(6.0)).rounded_full().bg(on_action));
+        }
+        let mark = register_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"><path d=\"M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z\"/></svg>".to_string(),
+        );
+        element.child(svg().path(SharedString::from(mark)).size(px(10.0)).text_color(on_action))
+    }
+
     /// GPUI draws one border colour per element; sides that differ get a strip of their own.
     fn border_strips(&self, mut element: Div, style: &Style) -> Div {
         let Some(main) = main_border_colour(style) else {
@@ -565,6 +897,7 @@ impl Painter<'_> {
             let hover = computed.group_hover.clone();
             element = element.group_hover("group", move |refinement| apply_hover(refinement, &hover));
         }
+        let element = self.wire_field(element, id, node, cx);
         let element = self.wire_clicks(element, id, node, cx);
         let element = self.wire_buttons(element, id, node, cx);
         let element = self.wire_motion(element, id, node, cx);
@@ -580,23 +913,68 @@ impl Painter<'_> {
     ) -> gpui::Stateful<Div> {
         let click = self.route(node, "click");
         let double = self.route(node, "dblclick");
-        if click.is_none() && double.is_none() {
+        let has_default = control_of(node).is_some()
+            || matches!(&node.kind, Kind::Element { tag } if tag == "label" || tag == "select");
+        if click.is_none() && double.is_none() && !has_default {
             return element;
         }
-        element.on_click(cx.listener(move |workbench, event: &ClickEvent, _window, cx| {
+        element.on_click(cx.listener(move |workbench, event: &ClickEvent, window, cx| {
             let detail = pointer_detail(event.position(), event.modifiers(), 0, event.click_count());
+            let mut prevented = false;
             if let Some(route) = click {
-                workbench.emit(id, "click", route.detail(&detail), cx);
+                prevented = workbench.emit(id, "click", route.detail(&detail), cx).prevented;
             }
             if event.click_count() == 2 {
                 if let Some(route) = double {
                     workbench.emit(id, "dblclick", route.detail(&detail), cx);
                 }
             }
-            if click == Some(Route::Delegated) || double == Some(Route::Delegated) {
+            if has_default && !prevented {
+                workbench.click_default(id, window, cx);
+            }
+            let delegated = click == Some(Route::Delegated) || double == Some(Route::Delegated);
+            if delegated || has_default {
                 cx.stop_propagation();
             }
         }))
+    }
+
+    /// Mouse handling for a text field: place the cursor, and drag to select.
+    fn wire_field(
+        &self,
+        element: gpui::Stateful<Div>,
+        id: NodeId,
+        node: &Node,
+        cx: &mut Context<Workbench>,
+    ) -> gpui::Stateful<Div> {
+        if !matches!(control_of(node), Some(Control::Text) | Some(Control::Multiline)) {
+            return element;
+        }
+        element
+            .cursor_text()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |workbench, event: &MouseDownEvent, _window, cx| {
+                    workbench.field_mouse_down(id, event.position, event.modifiers.shift);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |workbench, event: &MouseMoveEvent, _window, cx| {
+                workbench.field_mouse_move(id, event.position);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |workbench, _event: &MouseUpEvent, _window, _cx| {
+                    workbench.field_mouse_up(id);
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(move |workbench, _event: &MouseUpEvent, _window, _cx| {
+                    workbench.field_mouse_up(id);
+                }),
+            )
     }
 
     /// `mousedown`, `mouseup`, `pointerdown`, `pointerup` and `contextmenu`.

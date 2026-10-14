@@ -36,6 +36,7 @@ export interface NodeBackend {
   focus(node: SElement): void;
   scrollTo(node: SElement, left: number, top: number): void;
   observeSize(node: SElement): void;
+  select(node: SElement, start: number, end: number): void;
 }
 
 export type EventHandler = (event: any) => void;
@@ -48,6 +49,7 @@ const noBackend: NodeBackend = {
   focus() {},
   scrollTo() {},
   observeSize() {},
+  select() {},
 };
 
 let backend = noBackend;
@@ -183,6 +185,41 @@ export class SNode {
 
   cloneNode(_deep?: boolean): SNode {
     throw new Error(`cloneNode is not implemented for ${this.nodeName}`);
+  }
+
+  /** Where `other` is relative to this node, as the DOM's bit flags: 2 before, 4 after, 8 contains, 16 contained. */
+  compareDocumentPosition(other: SNode): number {
+    if (other === this) {
+      return 0;
+    }
+    const chain = (node: SNode): SNode[] => {
+      const path: SNode[] = [];
+      for (let current: SNode | null = node; current !== null; current = current.parentNode) {
+        path.unshift(current);
+      }
+      return path;
+    };
+    const mine = chain(this);
+    const theirs = chain(other);
+    if (mine[0] !== theirs[0]) {
+      return 1;
+    }
+    let depth = 0;
+    while (depth < mine.length && depth < theirs.length && mine[depth] === theirs[depth]) {
+      depth += 1;
+    }
+    if (depth === mine.length) {
+      return 16 | 4;
+    }
+    if (depth === theirs.length) {
+      return 8 | 2;
+    }
+    for (let sibling = mine[depth].nextSiblingNode; sibling !== null; sibling = sibling.nextSiblingNode) {
+      if (sibling === theirs[depth]) {
+        return 4;
+      }
+    }
+    return 2;
   }
 
   get textContent(): string {
@@ -515,6 +552,206 @@ export class SElement extends SNode {
 
   blur(): void {}
 
+  // ---- Form controls ----------------------------------------------------
+  // A control's state is an attribute, so the host sees what the app sets; what
+  // the user does arrives as an event that rewrites the attribute without echoing.
+
+  selectionStartValue = 0;
+  selectionEndValue = 0;
+
+  get value(): string {
+    if (this.tagName === "select") {
+      const chosen = this.selectedOptions[0] ?? this.options[0];
+      return chosen === undefined ? "" : chosen.value;
+    }
+    const stored = this.attributes.get("value");
+    if (stored !== undefined && stored !== null) {
+      return String(stored);
+    }
+    if (this.tagName === "option" || this.tagName === "textarea") {
+      return this.textContent.trim();
+    }
+    return "";
+  }
+
+  set value(next: unknown) {
+    const text = next === null || next === undefined ? "" : String(next);
+    if (this.tagName === "select") {
+      const match = this.options.find((option) => option.value === text);
+      this.selectedIndex = match === undefined ? -1 : this.options.indexOf(match);
+      return;
+    }
+    if (this.attributes.get("value") === text) {
+      return;
+    }
+    this.setAttribute("value", text);
+  }
+
+  get defaultValue(): string {
+    return this.textContent;
+  }
+
+  set defaultValue(next: unknown) {
+    this.setAttribute("defaultvalue", String(next));
+  }
+
+  get checked(): boolean {
+    const stored = this.attributes.get("checked");
+    return stored === true || stored === "true" || stored === "";
+  }
+
+  set checked(next: unknown) {
+    this.setAttribute("checked", Boolean(next));
+  }
+
+  get defaultChecked(): boolean {
+    return this.hasAttribute("defaultchecked");
+  }
+
+  set defaultChecked(next: unknown) {
+    this.setAttribute("defaultchecked", Boolean(next));
+  }
+
+  get selected(): boolean {
+    const stored = this.attributes.get("selected");
+    return stored === true || stored === "true" || stored === "";
+  }
+
+  set selected(next: unknown) {
+    const wanted = Boolean(next);
+    if (wanted && this.tagName === "option") {
+      const select = this.owningSelect();
+      if (select !== null && !select.multiple) {
+        for (const other of select.options) {
+          if (other !== this && other.selected) {
+            other.setAttribute("selected", false);
+          }
+        }
+      }
+    }
+    this.setAttribute("selected", wanted);
+  }
+
+  get type(): string {
+    const stored = this.attributes.get("type");
+    if (typeof stored === "string" && stored !== "") {
+      return stored.toLowerCase();
+    }
+    return this.tagName === "input" ? "text" : "";
+  }
+
+  set type(next: string) {
+    this.setAttribute("type", next);
+  }
+
+  get multiple(): boolean {
+    return this.hasAttribute("multiple") && this.attributes.get("multiple") !== false;
+  }
+
+  get selectionStart(): number {
+    return this.selectionStartValue;
+  }
+
+  set selectionStart(next: number) {
+    this.selectionStartValue = next;
+    backend.select(this, next, this.selectionEndValue);
+  }
+
+  get selectionEnd(): number {
+    return this.selectionEndValue;
+  }
+
+  set selectionEnd(next: number) {
+    this.selectionEndValue = next;
+    backend.select(this, this.selectionStartValue, next);
+  }
+
+  setSelectionRange(start: number, end: number): void {
+    this.selectionStartValue = start;
+    this.selectionEndValue = end;
+    backend.select(this, start, end);
+  }
+
+  select(): void {
+    this.setSelectionRange(0, this.value.length);
+  }
+
+  /** The `option` elements of a select, in order, wherever they sit inside it. */
+  get options(): SElement[] {
+    const found: SElement[] = [];
+    const visit = (node: SNode): void => {
+      for (let child = node.firstChildNode; child !== null; child = child.nextSiblingNode) {
+        if (child instanceof SElement && child.tagName === "option") {
+          found.push(child);
+          continue;
+        }
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+
+  get selectedOptions(): SElement[] {
+    return this.options.filter((option) => option.selected);
+  }
+
+  get selectedIndex(): number {
+    return this.options.findIndex((option) => option.selected);
+  }
+
+  set selectedIndex(index: number) {
+    this.options.forEach((option, position) => {
+      const wanted = position === index;
+      if (option.selected !== wanted) {
+        option.setAttribute("selected", wanted);
+      }
+    });
+  }
+
+  private owningSelect(): SElement | null {
+    for (let node = this.parentNode; node !== null; node = node.parentNode) {
+      if (node instanceof SElement && node.tagName === "select") {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  get form(): null {
+    return null;
+  }
+
+  get labels(): SElement[] {
+    return [];
+  }
+
+  get files(): null {
+    return null;
+  }
+
+  /** The first descendant matching a simple selector: a tag, class, id, attribute or `:checked`. */
+  querySelector(selector: string): SElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
+  querySelectorAll(selector: string): SElement[] {
+    const matches = simpleMatcher(selector);
+    const found: SElement[] = [];
+    const visit = (node: SNode): void => {
+      for (let child = node.firstChildNode; child !== null; child = child.nextSiblingNode) {
+        if (child instanceof SElement) {
+          if (matches(child)) {
+            found.push(child);
+          }
+          visit(child);
+        }
+      }
+    };
+    visit(this);
+    return found;
+  }
+
   getBoundingClientRect() {
     const width = this.offsetWidth;
     const height = this.offsetHeight;
@@ -555,14 +792,48 @@ export class SElement extends SNode {
   }
 }
 
+/** Builds a test for the handful of selectors Svelte's runtime and apps use. */
+function simpleMatcher(selector: string): (element: SElement) => boolean {
+  const alternatives = selector.split(",").map((part) => part.trim());
+  const tests = alternatives.map((part) => {
+    const tag = /^[a-zA-Z][\w-]*/.exec(part)?.[0];
+    const classes = [...part.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
+    const id = /#([\w-]+)/.exec(part)?.[1];
+    const attributes = [...part.matchAll(/\[([\w-]+)(?:=["']?([^\]"']*)["']?)?\]/g)];
+    const checked = part.includes(":checked");
+    return (element: SElement): boolean => {
+      if (tag !== undefined && element.tagName !== tag.toLowerCase()) {
+        return false;
+      }
+      if (classes.some((name) => !element.classList.contains(name))) {
+        return false;
+      }
+      if (id !== undefined && element.getAttribute("id") !== id) {
+        return false;
+      }
+      for (const [, name, expected] of attributes) {
+        const actual = element.getAttribute(name);
+        if (actual === null || (expected !== undefined && String(actual) !== expected)) {
+          return false;
+        }
+      }
+      if (checked) {
+        const isChecked = element.tagName === "option" ? element.selected : element.checked;
+        if (!isChecked) {
+          return false;
+        }
+      }
+      return true;
+    };
+  });
+  return (element) => tests.some((test) => test(element));
+}
+
 // Svelte writes some names as DOM properties rather than attributes —
 // `element.value = v`, `element.disabled = true` — because that is how a browser
 // element behaves. Nothing here is a browser element, so each of those names
 // gets an accessor that turns the write back into an attribute the host sees.
 const PROPERTY_ATTRIBUTES: Record<string, string> = {
-  value: "value",
-  checked: "checked",
-  selected: "selected",
   muted: "muted",
   volume: "volume",
   open: "open",
@@ -586,8 +857,6 @@ const PROPERTY_ATTRIBUTES: Record<string, string> = {
   noModule: "nomodule",
   playsInline: "playsinline",
   readOnly: "readonly",
-  defaultValue: "defaultvalue",
-  defaultChecked: "defaultchecked",
   srcObject: "srcobject",
   noValidate: "novalidate",
   allowFullscreen: "allowfullscreen",

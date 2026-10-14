@@ -9,10 +9,20 @@ use rquickjs::{CaughtError, Coerced, Context, Function, Object, Runtime, functio
 
 use crate::tree::{NodeId, Tree};
 
+/// What the app did with an event: whether it cancelled the default action, and
+/// any text a clipboard handler asked to be copied.
+#[derive(Default)]
+pub struct Outcome {
+    pub prevented: bool,
+    pub clipboard: Option<String>,
+}
+
 pub struct App {
     runtime: Runtime,
     context: Context,
     pub tree: Rc<RefCell<Tree>>,
+    /// What the system clipboard held when the host last looked, for `navigator.clipboard`.
+    pub clipboard: Rc<RefCell<String>>,
     /// Operations applied and batches received, for the stress report.
     pub counters: Rc<RefCell<Counters>>,
 }
@@ -30,10 +40,12 @@ impl App {
         let context = Context::full(&runtime).expect("quickjs context");
         let tree = Rc::new(RefCell::new(Tree::new()));
         let counters = Rc::new(RefCell::new(Counters::default()));
+        let clipboard = Rc::new(RefCell::new(String::new()));
         let app = Self {
             runtime,
             context,
             tree,
+            clipboard,
             counters,
         };
         app.install_host();
@@ -49,8 +61,12 @@ impl App {
     fn install_host(&self) {
         let tree = self.tree.clone();
         let counters = self.counters.clone();
+        let clipboard = self.clipboard.clone();
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
+            let read_clipboard = Function::new(ctx.clone(), move || clipboard.borrow().clone())
+                .expect("clipboard function");
+            host.set("clipboardText", read_clipboard).expect("set clipboardText");
             let apply = Function::new(ctx.clone(), move |batch: String| {
                 let operations = tree.borrow_mut().apply(&batch);
                 let mut counters = counters.borrow_mut();
@@ -95,17 +111,23 @@ impl App {
         });
     }
 
-    /// Reports an event on a node to the app.
-    pub fn event(&self, id: NodeId, kind: &str, detail: &str) {
+    /// Reports an event on a node to the app, and says what the app made of it.
+    pub fn event(&self, id: NodeId, kind: &str, detail: &str) -> Outcome {
+        let mut outcome = Outcome::default();
         self.context.with(|ctx| {
             let Ok(function) = ctx.globals().get::<_, Function>("__event") else {
                 return;
             };
-            if let Err(error) = function.call::<_, ()>((id, kind.to_string(), detail.to_string())) {
-                eprintln!("svelte-gpui: __event failed: {}", CaughtError::from_error(&ctx, error));
+            let result = function.call::<_, String>((id, kind.to_string(), detail.to_string()));
+            match result {
+                Ok(json) => outcome = parse_outcome(&json),
+                Err(error) => {
+                    eprintln!("svelte-gpui: __event failed: {}", CaughtError::from_error(&ctx, error));
+                }
             }
         });
         self.after_call();
+        outcome
     }
 
     /// Tells the app how big the host measured an element it asked about.
@@ -145,5 +167,15 @@ impl App {
             }
         });
         self.after_call();
+    }
+}
+
+fn parse_outcome(json: &str) -> Outcome {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Outcome::default();
+    };
+    Outcome {
+        prevented: value["prevented"].as_bool().unwrap_or(false),
+        clipboard: value["clipboard"].as_str().map(String::from),
     }
 }

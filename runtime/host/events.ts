@@ -25,10 +25,17 @@ interface HostEvent {
  * Delivers an event of `type` to the node with `id`, or to the document when
  * `id` is 0, and lets it bubble through the root, `document` and `window`.
  */
-export function dispatch(id: number, type: string, detail: Record<string, unknown>): void {
+export interface Outcome {
+  /** A handler called `preventDefault`, so the host must not do its default action. */
+  prevented: boolean;
+  /** Text a clipboard handler put on the clipboard, for the host to write. */
+  clipboard: string | null;
+}
+
+export function dispatch(id: number, type: string, detail: Record<string, unknown>): Outcome {
   const target: unknown = id === 0 ? fakeDocument : nodeFor(id);
   if (target === undefined) {
-    return;
+    return { prevented: false, clipboard: null };
   }
   if (target instanceof SElement) {
     rememberState(target, type, detail);
@@ -43,9 +50,19 @@ export function dispatch(id: number, type: string, detail: Record<string, unknow
   }
   path.push(fakeDocument, globalThis);
 
+  let written: string | null = null;
   const bubbles = detail.bubbles !== false;
   const event: HostEvent = {
     ...detail,
+    clipboardData: {
+      types: ["text/plain"],
+      files: [],
+      items: [],
+      getData: () => String(detail.clipboardText ?? ""),
+      setData: (_format: string, text: string) => {
+        written = String(text);
+      },
+    },
     type,
     target,
     currentTarget: null,
@@ -66,7 +83,7 @@ export function dispatch(id: number, type: string, detail: Record<string, unknow
 
   for (const stop of path) {
     if (stop !== target && !bubbles) {
-      return;
+      break;
     }
     const handlers = listenersOf(stop, type);
     event.currentTarget = stop;
@@ -74,9 +91,10 @@ export function dispatch(id: number, type: string, detail: Record<string, unknow
       handler.call(stop, event);
     }
     if (event.cancelBubble) {
-      return;
+      break;
     }
   }
+  return { prevented: event.defaultPrevented, clipboard: written };
 }
 
 function listenersOf(stop: unknown, type: string): EventHandler[] {
@@ -97,6 +115,26 @@ function rememberState(target: SElement, type: string, detail: Record<string, un
   if (type === "scroll") {
     target.scrollLeftValue = Number(detail.scrollLeft ?? 0);
     target.scrollTopValue = Number(detail.scrollTop ?? 0);
+    return;
+  }
+  if ((type === "input" || type === "change") && target.tagName === "select") {
+    const chosen = Number(detail.selectedIndex ?? -1);
+    target.options.forEach((option, index) => {
+      option.attributes.set("selected", index === chosen);
+    });
+    return;
+  }
+  if (type === "input" || type === "change") {
+    if (typeof detail.value === "string") {
+      target.attributes.set("value", detail.value);
+    }
+    if (typeof detail.checked === "boolean") {
+      target.attributes.set("checked", detail.checked);
+    }
+    if (typeof detail.selectionStart === "number") {
+      target.selectionStartValue = detail.selectionStart;
+      target.selectionEndValue = Number(detail.selectionEnd ?? detail.selectionStart);
+    }
     return;
   }
   if (type === "focus" || type === "focusin") {

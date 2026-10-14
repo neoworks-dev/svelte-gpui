@@ -4,9 +4,11 @@
 
 mod assets;
 mod css;
+mod forms;
 mod images;
 mod render;
 mod runtime;
+mod select;
 mod style;
 mod tree;
 
@@ -24,7 +26,7 @@ use gpui::{
 use css::Stylesheet;
 use images::{ImageState, Images};
 use render::{Interaction, Painter};
-use runtime::App as Svelte;
+use runtime::{App as Svelte, Outcome};
 use style::Resolver;
 use tree::{Command, Kind, NodeId, ROOT, Tree};
 
@@ -75,10 +77,10 @@ struct Workbench {
 
 impl Workbench {
     /// Reports an event on a node to the app, then redraws.
-    fn emit(&mut self, id: NodeId, kind: &str, detail: String, cx: &mut Context<Self>) {
+    fn emit(&mut self, id: NodeId, kind: &str, detail: String, cx: &mut Context<Self>) -> Outcome {
         let started = Instant::now();
         let before = self.svelte.counters.borrow().operations;
-        self.svelte.event(id, kind, &detail);
+        let outcome = self.svelte.event(id, kind, &detail);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
         if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
@@ -90,6 +92,7 @@ impl Workbench {
             );
         }
         cx.notify();
+        outcome
     }
 
     /// A plain click, which is what scripted runs use.
@@ -108,11 +111,56 @@ impl Workbench {
         None
     }
 
-    /// A key press, to whatever has focus and on up through `document` and `window`.
+    /// A key press: first to the app, up from whatever has focus, and then, unless the
+    /// app cancelled it, to the field that has focus or the clipboard shortcut it spells.
     fn key(&mut self, event: &KeyDownEvent, _down: bool, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.focused_node(window).unwrap_or(0);
-        let detail = key_detail(&event.keystroke, event.is_held);
-        self.emit(target, "keydown", detail, cx);
+        self.handle_key(target, &event.keystroke, event.is_held, cx);
+    }
+
+    /// The part of a key press after the target is known; scripted steps come here too.
+    fn handle_key(&mut self, target: NodeId, keystroke: &Keystroke, held: bool, cx: &mut Context<Self>) {
+        let command = keystroke.modifiers.control || keystroke.modifiers.platform;
+        let clipboard_event = match (command, keystroke.key.as_str()) {
+            (true, "c") => Some("copy"),
+            (true, "x") => Some("cut"),
+            (true, "v") => Some("paste"),
+            _ => None,
+        };
+        let detail = key_detail(keystroke, held);
+        if self.emit(target, "keydown", detail, cx).prevented {
+            return;
+        }
+        if let Some(kind) = clipboard_event {
+            self.clipboard_shortcut(kind, target, cx);
+            return;
+        }
+        if target != 0 && (self.field_key(target, keystroke, cx) || self.select_key(target, keystroke, cx)) {
+            cx.notify();
+        }
+    }
+
+    /// `copy`, `cut` and `paste`: the app sees them first, and may take over.
+    fn clipboard_shortcut(&mut self, kind: &str, target: NodeId, cx: &mut Context<Self>) {
+        let clipboard = self.read_clipboard(cx);
+        let selected = self.selected_text(target);
+        let detail = serde_json::json!({ "clipboardText": clipboard }).to_string();
+        let outcome = self.emit(target, kind, detail, cx);
+        if outcome.prevented {
+            if let Some(text) = outcome.clipboard {
+                self.write_clipboard(text, cx);
+            }
+            return;
+        }
+        match (kind, selected) {
+            ("copy", Some(text)) => self.write_clipboard(text, cx),
+            ("cut", Some(text)) => {
+                self.write_clipboard(text, cx);
+                self.cut_selection(target, cx);
+            }
+            ("paste", _) => self.paste_into(target, &clipboard, cx),
+            _ => {}
+        }
     }
 
     fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -126,7 +174,7 @@ impl Workbench {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let milliseconds = self.started.elapsed().as_secs_f64() * 1000.0;
         self.svelte.pump(milliseconds);
-        self.run_commands(window);
+        self.run_commands(window, cx);
         self.report_focus(window, cx);
         self.report_scroll(cx);
         self.report_sizes();
@@ -140,22 +188,33 @@ impl Workbench {
     }
 
     /// Does what the app asked: focus an element, or scroll one.
-    fn run_commands(&mut self, window: &mut Window) {
+    fn run_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let fresh: Vec<Command> = std::mem::take(&mut self.svelte.tree.borrow_mut().commands);
         for command in fresh {
             self.queued.push((command, 20));
         }
         let queued = std::mem::take(&mut self.queued);
         for (command, tries) in queued {
-            if !self.carry_out(&command, window) && tries > 0 {
+            if !self.carry_out(&command, window, cx) && tries > 0 {
                 self.queued.push((command, tries - 1));
             }
         }
     }
 
     /// Whether the command could be carried out yet; the element may not have been drawn.
-    fn carry_out(&self, command: &Command, window: &mut Window) -> bool {
+    fn carry_out(&mut self, command: &Command, window: &mut Window, cx: &mut Context<Self>) -> bool {
         match command {
+            Command::WriteClipboard(text) => {
+                self.write_clipboard(text.clone(), cx);
+                true
+            }
+            Command::Select(id, start, end) => {
+                if !self.interaction.fields.borrow().contains_key(id) {
+                    return false;
+                }
+                self.select_range(*id, *start, *end);
+                true
+            }
             Command::Focus(id) => {
                 let handles = self.interaction.focus.borrow();
                 let Some(handle) = handles.get(id) else {
@@ -184,10 +243,12 @@ impl Workbench {
         let before = self.focused;
         self.focused = now;
         if let Some(id) = before {
+            self.commit_change(id, cx);
             self.emit(id, "blur", "{\"bubbles\":false}".to_string(), cx);
             self.emit(id, "focusout", "{}".to_string(), cx);
         }
         if let Some(id) = now {
+            self.field_focused(id);
             self.emit(id, "focus", "{\"bubbles\":false}".to_string(), cx);
             self.emit(id, "focusin", "{}".to_string(), cx);
         }
@@ -288,17 +349,47 @@ impl Workbench {
     }
 
     /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor.
-    fn run_step(&mut self, step: &str, cx: &mut Context<Self>) {
+    fn run_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) {
         let mut parts = step.splitn(3, ':');
         let action = parts.next().unwrap_or("");
         let needle = parts.next().unwrap_or("");
-        let Some(id) = self.find_by_text(needle) else {
-            eprintln!("no element says {needle:?}");
+        let Some(id) = self.find_node(needle) else {
+            eprintln!("nothing matches {needle:?}");
             return;
         };
         match action {
             "click" => self.click(id, cx),
-            "focus" => self.queued.push((Command::Focus(id), 20)),
+            "focus" => {
+                let command = Command::Focus(id);
+                if !self.carry_out(&command, window, cx) {
+                    self.queued.push((command, 20));
+                }
+            }
+            "type" => {
+                let command = Command::Focus(id);
+                self.carry_out(&command, window, cx);
+                for character in parts.next().unwrap_or("").chars() {
+                    let text = character.to_string();
+                    let keystroke = Keystroke {
+                        modifiers: Default::default(),
+                        key: text.clone(),
+                        key_char: Some(text),
+                    };
+                    self.handle_key(id, &keystroke, false, cx);
+                }
+            }
+            "open" => self.toggle_select(id, cx),
+            "choose" => {
+                let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(0);
+                self.choose_option(id, index, cx);
+            }
+            "key" => {
+                let spelled = parts.next().unwrap_or("");
+                match Keystroke::parse(spelled) {
+                    Ok(keystroke) => self.handle_key(id, &keystroke, false, cx),
+                    Err(_) => eprintln!("cannot read keystroke {spelled:?}"),
+                }
+            }
             "scroll" => {
                 let pixels: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
                 let target = self.scrollable_ancestor(id);
@@ -321,6 +412,23 @@ impl Workbench {
             current = tree.nodes.get(&candidate).and_then(|node| node.parent);
         }
         id
+    }
+
+    /// An element by its text, or by `@attribute=value` such as `@placeholder=Your name`.
+    fn find_node(&self, needle: &str) -> Option<NodeId> {
+        let Some(query) = needle.strip_prefix('@') else {
+            return self.find_by_text(needle);
+        };
+        let (name, value) = query.split_once('=')?;
+        let tree = self.svelte.tree.borrow();
+        let mut matches: Vec<NodeId> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.attributes.get(name).map(String::as_str) == Some(value))
+            .map(|(id, _)| *id)
+            .collect();
+        matches.sort();
+        matches.first().copied()
     }
 
     /// The deepest element whose text contains `needle`, for scripted clicks.
@@ -450,6 +558,17 @@ fn number_flag(name: &str, default: u64) -> u64 {
 
 fn print_report(resolver: &Resolver, tree: &Tree) {
     println!("nodes in the host tree: {}", tree.nodes.len());
+    let mut controls: Vec<(&u32, &tree::Node)> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| matches!(&node.kind, Kind::Element { tag } if tag == "input" || tag == "select" || tag == "textarea"))
+        .collect();
+    controls.sort_by_key(|(id, _)| **id);
+    for (id, node) in controls {
+        let mut attributes: Vec<String> = node.attributes.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
+        attributes.sort();
+        println!("  control {id}: {}", attributes.join(" "));
+    }
     let skipped = resolver.sheet.skipped_selectors();
     println!("selectors left out: {}", skipped.len());
     for selector in skipped.iter().take(25) {
@@ -518,6 +637,9 @@ fn main() {
                             focus: RefCell::new(HashMap::new()),
                             scroll: RefCell::new(HashMap::new()),
                             sizes: Rc::new(RefCell::new(HashMap::new())),
+                            fields: Rc::new(RefCell::new(HashMap::new())),
+                            bounds: Rc::new(RefCell::new(HashMap::new())),
+                            open_select: RefCell::new(None),
                             images,
                         };
                         window.focus(&interaction.root_focus);
@@ -559,7 +681,7 @@ fn main() {
                     cx.background_executor().timer(Duration::from_millis(900)).await;
                     cx.update(|cx| {
                         window
-                            .update(cx, |workbench, _window, cx| workbench.run_step(&step, cx))
+                            .update(cx, |workbench, window, cx| workbench.run_step(&step, window, cx))
                             .ok();
                     })
                     .ok();
