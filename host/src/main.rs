@@ -3,8 +3,10 @@
 //! this side keeps a copy, styles it from a Tailwind stylesheet, and paints it.
 
 mod assets;
+mod bridge;
 mod css;
 mod forms;
+mod grid;
 mod images;
 mod render;
 mod runtime;
@@ -68,7 +70,7 @@ struct Workbench {
     /// The node that had focus at the last tick.
     focused: Option<NodeId>,
     last_scroll: HashMap<NodeId, (f32, f32)>,
-    sent_sizes: HashMap<NodeId, (f32, f32)>,
+    sent_sizes: HashMap<NodeId, (f32, f32, f32, f32)>,
     window_size: (f32, f32),
     /// The source each `img` has been told about, so `load` and `error` fire once.
     announced_images: HashMap<NodeId, String>,
@@ -218,6 +220,11 @@ impl Workbench {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let milliseconds = self.svelte.started.elapsed().as_secs_f64() * 1000.0;
         let busy = self.svelte.pump(milliseconds);
+        if let Some(bridge) = self.svelte.bridge.clone() {
+            for line in bridge.take() {
+                self.svelte.ipc(&line);
+            }
+        }
         self.run_commands(window, cx);
         self.report_focus(window, cx);
         self.report_scroll(cx);
@@ -355,21 +362,47 @@ impl Workbench {
 
     /// Tells the app the size of every element it asked about, when it changed.
     fn report_sizes(&mut self) {
-        let measured: Vec<(NodeId, (f32, f32))> = self
+        let measured: Vec<(NodeId, (f32, f32, f32, f32))> = self
             .interaction
-            .sizes
+            .bounds
             .borrow()
             .iter()
-            .map(|(id, size)| (*id, *size))
+            .map(|(id, bounds)| {
+                (
+                    *id,
+                    (
+                        f32::from(bounds.origin.x),
+                        f32::from(bounds.origin.y),
+                        f32::from(bounds.size.width),
+                        f32::from(bounds.size.height),
+                    ),
+                )
+            })
             .collect();
-        for (id, size) in measured {
-            let previous = self.sent_sizes.get(&id).copied();
-            let unchanged = matches!(previous, Some(old) if (old.0 - size.0).abs() < 0.5 && (old.1 - size.1).abs() < 0.5);
-            if unchanged || !self.svelte.tree.borrow().nodes.contains_key(&id) {
+        for (id, found) in measured {
+            let observed = self
+                .svelte
+                .tree
+                .borrow()
+                .nodes
+                .get(&id)
+                .map(|node| node.observed)
+                .unwrap_or(false);
+            if !observed {
                 continue;
             }
-            self.sent_sizes.insert(id, size);
-            self.svelte.size(id, size.0, size.1);
+            let unchanged = matches!(
+                self.sent_sizes.get(&id),
+                Some(old) if (old.0 - found.0).abs() < 0.5
+                    && (old.1 - found.1).abs() < 0.5
+                    && (old.2 - found.2).abs() < 0.5
+                    && (old.3 - found.3).abs() < 0.5
+            );
+            if unchanged {
+                continue;
+            }
+            self.sent_sizes.insert(id, found);
+            self.svelte.size(id, found.0, found.1, found.2, found.3);
         }
     }
 
@@ -548,6 +581,11 @@ impl Render for Workbench {
             .viewport
             .set((f32::from(viewport.width), f32::from(viewport.height)));
         self.interaction.scale.set(window.scale_factor());
+        let key = (f32::from(viewport.width) as u64) * 10_000 + f32::from(viewport.height) as u64;
+        if key != self.interaction.viewport_key.get() {
+            self.interaction.viewport_key.set(key);
+            css::set_viewport(f32::from(viewport.width), f32::from(viewport.height));
+        }
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
         let painter = Painter {
@@ -733,7 +771,8 @@ fn main() {
     let before = memory_megabytes();
     println!("malloc at start: {:.1} MB in use", heap_megabytes().0);
     let started = Instant::now();
-    let svelte = Svelte::start(&bundle);
+    let bridge = flag("--bridge").and_then(|path| bridge::Bridge::connect(&path));
+    let svelte = Svelte::start(&bundle, bridge);
     println!("malloc after the bundle ran: {:.1} MB in use", heap_megabytes().0);
     println!(
         "mounted in {:.0} ms, {} nodes; memory {:.1} MB RSS before, {:.1} after",
@@ -787,6 +826,7 @@ fn main() {
                             styles: RefCell::new((u64::MAX, HashMap::new())),
                             viewport: Rc::new(Cell::new((0.0, 0.0))),
                             scale: Cell::new(1.0),
+                            viewport_key: Cell::new(0),
                             bounds_changed: Rc::new(Cell::new(false)),
                             style_work: Cell::new((0, 0)),
                             images,

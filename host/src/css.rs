@@ -357,6 +357,16 @@ fn nested_selectors(prelude: &str, parents: &[String]) -> Vec<String> {
 
 // ---- Values ----------------------------------------------------------------
 
+thread_local! {
+    /// The window's size, which `vh` and `vw` are shares of.
+    static VIEWPORT: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((1280.0, 800.0)) };
+}
+
+/// Tells the length parser how big the window is.
+pub fn set_viewport(width: f32, height: f32) {
+    VIEWPORT.with(|viewport| viewport.set((width, height)));
+}
+
 /// A length that either has a size of its own or is a share of its parent's.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Length {
@@ -539,6 +549,10 @@ fn read_number(characters: &[char], start: usize) -> Option<(Token, usize)> {
         "" | "px" => (value, false),
         "rem" | "em" => (value * 16.0, false),
         "%" => (value, true),
+        "vh" | "dvh" | "svh" | "lvh" => (value / 100.0 * VIEWPORT.with(|viewport| viewport.get().1), false),
+        "vw" | "dvw" | "svw" | "lvw" => (value / 100.0 * VIEWPORT.with(|viewport| viewport.get().0), false),
+        "vmin" => (value / 100.0 * VIEWPORT.with(|viewport| viewport.get().0.min(viewport.get().1)), false),
+        "vmax" => (value / 100.0 * VIEWPORT.with(|viewport| viewport.get().0.max(viewport.get().1)), false),
         _ => return None,
     };
     Some((Token::Number(scaled, percent), at))

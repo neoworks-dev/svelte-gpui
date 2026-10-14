@@ -53,7 +53,31 @@ const body = new SElement("body");
 documentElement.appendChild(head);
 documentElement.appendChild(body);
 
+/** Where the app is mounted, which `document.querySelector` looks in as well as `<html>`. */
+const mountRoots: SElement[] = [];
+
+export function registerRoot(root: SElement): void {
+  mountRoots.push(root);
+}
+
+function queryAll(selector: string): SElement[] {
+  const found: SElement[] = [];
+  for (const root of [...mountRoots, documentElement]) {
+    found.push(...root.querySelectorAll(selector));
+  }
+  return found;
+}
+
 const fakeDocument = {
+  querySelector: (selector: string) => queryAll(selector)[0] ?? null,
+  querySelectorAll: (selector: string) => queryAll(selector),
+  getElementById: (id: string) => queryAll(`#${id}`)[0] ?? null,
+  getElementsByClassName: (name: string) => queryAll(`.${name}`),
+  getElementsByTagName: (tag: string) => queryAll(tag),
+  elementFromPoint: () => null,
+  elementsFromPoint: () => [] as SElement[],
+  getSelection: () => null,
+  execCommand: () => false,
   // `IS_XHTML` is derived from this once, at import time; anything with "xml"
   // in it would switch the runtime to XHTML-compliant tag casing.
   contentType: "text/html",
@@ -63,6 +87,16 @@ const fakeDocument = {
   body,
   activeElement: null as SNode | null,
   nodeType: 9,
+  fonts: {
+    ready: Promise.resolve(),
+    load: () => Promise.resolve([]),
+    check: () => true,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  },
+  hasFocus: () => true,
+  visibilityState: "visible",
+  hidden: false,
   createElement: (tag: string) => new SElement(tag),
   createElementNS: (_ns: string, tag: string) => new SElement(tag),
   createTextNode: (data = "") => new SText(data),
@@ -129,7 +163,15 @@ function install(): void {
   useClock(currentTime);
 
   globals.document = fakeDocument;
-  globals.navigator = { userAgent: "svelte-gpui" };
+  globals.navigator = {
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) svelte-gpui",
+    language: "en-US",
+    languages: ["en-US"],
+    platform: "Linux x86_64",
+    hardwareConcurrency: 4,
+    onLine: true,
+    maxTouchPoints: 0,
+  };
   globals.Node = SNode;
   globals.Element = SElement;
   globals.HTMLElement = SElement;

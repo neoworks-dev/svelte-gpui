@@ -31,6 +31,7 @@ const SCROLL_TO = 10;
 const OBSERVE_SIZE = 11;
 const SELECT = 12;
 const WRITE_CLIPBOARD = 13;
+const GRID = 14;
 
 export const ROOT_ID = 1;
 
@@ -39,6 +40,14 @@ let nextId = ROOT_ID + 1;
 let pending: unknown[][] = [];
 /** Nodes taken out of the tree during this batch; the ones still out at the end are gone. */
 let detached = new Set<SNode>();
+
+/** Sends the host an instruction about a grid it draws for a `<canvas>`, by the canvas's id. */
+export function gridOperation(node: SNode, ...parts: unknown[]): void {
+  if (node.hostId === 0) {
+    return;
+  }
+  pending.push([GRID, node.hostId, ...parts]);
+}
 
 /** Asks the host to measure an element and report its size. */
 export function observeSize(node: SElement): void {

@@ -1,3 +1,4 @@
+declare const console: { log(...args: unknown[]): void; error(...args: unknown[]): void };
 // The web platform pieces an app reaches for that a bare engine does not have.
 // Each is the smallest thing that behaves for what real code does with it: parse
 // a URL, encode a string, clone an object, cancel a request. Anything that needs
@@ -117,10 +118,8 @@ class HostURL {
     let text = String(input);
     const absolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(text);
     if (!absolute) {
-      if (base === undefined) {
-        throw new TypeError(`Invalid URL: ${text}`);
-      }
-      const parent = new HostURL(String(base));
+      // `new URL("./x", import.meta.url)` has no base in a bundle; files are relative to the root.
+      const parent = new HostURL(base === undefined || base === "" ? "file:///" : String(base));
       text = text.startsWith("/")
         ? `${parent.origin}${text}`
         : `${parent.origin}${parent.pathname.replace(/[^/]*$/, "")}${text}`;
@@ -382,3 +381,62 @@ class HostEventTarget {
 }
 
 define("EventTarget", HostEventTarget);
+
+// Code written for Node or Electron's preload reads `process`; the pieces it reads are here.
+define("process", {
+  env: {} as Record<string, string>,
+  platform: "linux",
+  arch: "x64",
+  versions: { node: "22.0.0" },
+  contextIsolated: false,
+  argv: [] as string[],
+  cwd: () => "/",
+  nextTick: (callback: (...args: unknown[]) => void, ...args: unknown[]) =>
+    globals.queueMicrotask(() => callback(...args)),
+  stdout: { write: (text: string) => console.log(text) },
+  stderr: { write: (text: string) => console.error(text) },
+});
+
+/** `localStorage` and `sessionStorage`, kept for the life of the window. */
+class MemoryStorage {
+  private readonly items = new Map<string, string>();
+
+  get length(): number {
+    return this.items.size;
+  }
+
+  getItem(key: string): string | null {
+    return this.items.get(String(key)) ?? null;
+  }
+
+  setItem(key: string, value: unknown): void {
+    this.items.set(String(key), String(value));
+  }
+
+  removeItem(key: string): void {
+    this.items.delete(String(key));
+  }
+
+  clear(): void {
+    this.items.clear();
+  }
+
+  key(index: number): string | null {
+    return [...this.items.keys()][index] ?? null;
+  }
+}
+
+define("localStorage", new MemoryStorage());
+define("sessionStorage", new MemoryStorage());
+
+/** A `Worker` that never runs anything: sandboxed plugins need a real one, and for now there is none. */
+class HostWorker {
+  onmessage: ((event: unknown) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  postMessage(): void {}
+  terminate(): void {}
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
+define("Worker", HostWorker);

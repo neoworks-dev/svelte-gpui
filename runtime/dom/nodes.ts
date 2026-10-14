@@ -520,6 +520,34 @@ export class SElement extends SNode {
     backend.attributeChanged(this, name, null);
   }
 
+  /** `element.dataset`: the `data-*` attributes, by camelCase name. */
+  get dataset(): Record<string, string> {
+    const kebab = (name: string): string =>
+      "data-" + name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return new Proxy({} as Record<string, string>, {
+      get: (_target, name) => {
+        if (typeof name !== "string") {
+          return undefined;
+        }
+        const value = this.getAttribute(kebab(name));
+        return value === null ? undefined : String(value);
+      },
+      set: (_target, name, value) => {
+        if (typeof name === "string") {
+          this.setAttribute(kebab(name), String(value));
+        }
+        return true;
+      },
+      deleteProperty: (_target, name) => {
+        if (typeof name === "string") {
+          this.removeAttribute(kebab(name));
+        }
+        return true;
+      },
+      has: (_target, name) => typeof name === "string" && this.hasAttribute(kebab(name)),
+    });
+  }
+
   get className(): string {
     const value = this.attributes.get("class");
     if (typeof value !== "string") {
@@ -567,6 +595,9 @@ export class SElement extends SNode {
   clientHeight = 0;
   offsetWidth = 0;
   offsetHeight = 0;
+  /** Where the host last measured the element in the window. */
+  boxLeft = 0;
+  boxTop = 0;
   scrollWidth = 0;
   scrollHeight = 0;
   scrollLeftValue = 0;
@@ -835,7 +866,36 @@ export class SElement extends SNode {
   getBoundingClientRect() {
     const width = this.offsetWidth;
     const height = this.offsetHeight;
-    return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height };
+    const left = this.boxLeft;
+    const top = this.boxTop;
+    return { x: left, y: top, top, left, right: left + width, bottom: top + height, width, height };
+  }
+
+  // ---- <canvas> ---------------------------------------------------------
+  // A canvas is drawn by the host from what an app sends it, not by a 2D context;
+  // the context here is only enough to measure text and to be asked for.
+
+  private canvasWidth = 300;
+  private canvasHeight = 150;
+
+  get width(): number {
+    return this.canvasWidth;
+  }
+
+  set width(value: number) {
+    this.canvasWidth = Number(value);
+  }
+
+  get height(): number {
+    return this.canvasHeight;
+  }
+
+  set height(value: number) {
+    this.canvasHeight = Number(value);
+  }
+
+  getContext(): CanvasStub {
+    return new CanvasStub();
   }
 
   override addEventListener(type: string, handler: EventHandler): void {
@@ -888,6 +948,45 @@ export class SElement extends SNode {
     }
     return copy;
   }
+}
+
+/** A 2D context that draws nothing and can measure text, through the host. */
+class CanvasStub {
+  font = "10px sans-serif";
+  fillStyle = "#000";
+  strokeStyle = "#000";
+  lineWidth = 1;
+  textBaseline = "alphabetic";
+  globalAlpha = 1;
+
+  measureText(text: string) {
+    const size = Number(/(\d+(?:\.\d+)?)px/.exec(this.font)?.[1] ?? 10);
+    const measured = (globalThis as any).host.measureText(size, String(text)) as number[];
+    return {
+      width: measured[0],
+      fontBoundingBoxAscent: measured[1],
+      fontBoundingBoxDescent: measured[2],
+      actualBoundingBoxAscent: measured[1],
+      actualBoundingBoxDescent: measured[2],
+    };
+  }
+
+  save(): void {}
+  restore(): void {}
+  beginPath(): void {}
+  moveTo(): void {}
+  lineTo(): void {}
+  rect(): void {}
+  clip(): void {}
+  stroke(): void {}
+  fill(): void {}
+  fillRect(): void {}
+  clearRect(): void {}
+  fillText(): void {}
+  drawImage(): void {}
+  scale(): void {}
+  translate(): void {}
+  setTransform(): void {}
 }
 
 /** Builds a test for the handful of selectors Svelte's runtime and apps use. */

@@ -1,6 +1,6 @@
 // Order matters: the DOM globals have to exist before Svelte's client runtime
 // is evaluated, and this is the module every entry point imports first.
-import { busy, pump } from "./dom/globals";
+import { busy, pump, registerRoot } from "./dom/globals";
 
 import { flushSync, mount } from "svelte";
 import { SElement } from "./dom/nodes";
@@ -19,6 +19,7 @@ export function start(Component: unknown, props: Record<string, unknown> = {}): 
   installResizeObserver();
   const root = new SElement("#root");
   adoptRoot(root);
+  registerRoot(root);
 
   const settle = (): void => {
     flushSync();
@@ -35,8 +36,8 @@ export function start(Component: unknown, props: Record<string, unknown> = {}): 
     settle();
     return JSON.stringify(outcome);
   };
-  globals.__size = (id: number, width: number, height: number): void => {
-    reportSize(id, width, height);
+  globals.__size = (id: number, left: number, top: number, width: number, height: number): void => {
+    reportSize(id, left, top, width, height);
     settle();
   };
   globals.__window = (width: number, height: number): void => {

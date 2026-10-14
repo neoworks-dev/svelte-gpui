@@ -54,6 +54,8 @@ pub struct Interaction {
     pub styles: RefCell<(u64, HashMap<NodeId, Rc<Computed>>)>,
     /// The window's size when the frame began, for skipping what is far off screen.
     pub viewport: Rc<Cell<(f32, f32)>>,
+    /// Changes whenever the window's size does, so styles that mention `vh` are worked out again.
+    pub viewport_key: Cell<u64>,
     /// The window's scale factor, for choosing how large to decode an image.
     pub scale: Cell<f32>,
     /// Set when an image has been measured for the first time or has moved, so one more frame follows.
@@ -533,14 +535,15 @@ impl Painter<'_> {
             text.to_string()
         };
         // Text may shrink below its full length and wrap, as it does in a flex row.
-        div().min_w_0().child(SharedString::from(shown)).into_any_element()
+        text_box(shown, inherited.font_size)
     }
 
     /// The style of a node, worked out once per version of the tree.
     fn computed(&self, id: NodeId) -> Rc<Computed> {
         let mut cache = self.interaction.styles.borrow_mut();
-        if cache.0 != self.tree.version {
-            cache.0 = self.tree.version;
+        let key = self.tree.version ^ (self.interaction.viewport_key.get() << 32);
+        if cache.0 != key {
+            cache.0 = key;
             cache.1.clear();
         }
         if let Some(found) = cache.1.get(&id) {
@@ -586,7 +589,12 @@ impl Painter<'_> {
 
         let mut element = apply_style(div(), style);
         if self.holds_only_text(node) {
-            element = element.min_w_0();
+            // Text that is one word cannot wrap, so it keeps its length; longer text may shrink.
+            let text = self.tree.text_content(id);
+            let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
+            if text.chars().any(char::is_whitespace) {
+                element = element.min_w(px(longest as f32 * inherited.font_size * 0.6));
+            }
         }
         let tag = match &node.kind {
             Kind::Element { tag } => tag.as_str(),
@@ -595,6 +603,7 @@ impl Painter<'_> {
         match tag {
             "svg" => element = self.svg_content(element, id, node, style, inherited),
             "img" => element = self.image_content(element, id, node, style),
+            "canvas" => element = self.canvas_content(element, id),
             "select" => element = self.select_content(element, id, node, style, inherited, cx),
             "input" | "textarea" => match control_of(node) {
                 Some(Control::Text) | Some(Control::Multiline) => {
@@ -712,6 +721,19 @@ impl Painter<'_> {
                 .children
                 .iter()
                 .all(|child| matches!(self.tree.nodes.get(child).map(|n| &n.kind), Some(Kind::Text { .. })))
+    }
+
+    /// A `<canvas>` the app drew a text grid for is painted by the host from that grid.
+    fn canvas_content(&self, element: Div, id: NodeId) -> Div {
+        let Some(model) = self.tree.grids.get(&id).cloned() else {
+            return element;
+        };
+        let layer = canvas(
+            |bounds, _, _| bounds,
+            move |bounds, _, window, cx| model.borrow().paint(bounds, window, cx),
+        )
+        .size_full();
+        element.child(layer)
     }
 
     /// An invisible layer that records how big its parent came out.
@@ -1585,6 +1607,23 @@ fn pointer_detail(
         clicks,
         modifier_fields(modifiers)
     )
+}
+
+/// A run of text that can shrink and wrap, but not below its longest word, which GPUI
+/// cannot work out for itself and would otherwise break between letters.
+fn text_box(shown: String, font_size: f32) -> AnyElement {
+    let longest = shown
+        .split_whitespace()
+        .map(|word| word.chars().count())
+        .max()
+        .unwrap_or(0);
+    let mut text = div();
+    if shown.chars().any(char::is_whitespace) {
+        text = text.min_w(px(longest as f32 * font_size * 0.6));
+    } else {
+        text = text.whitespace_nowrap();
+    }
+    text.child(SharedString::from(shown)).into_any_element()
 }
 
 /// Whether a box is more than a screen away from the window.

@@ -18,6 +18,8 @@ pub struct Outcome {
 }
 
 pub struct App {
+    /// The link to Grove's main process, when there is one.
+    pub bridge: Option<crate::bridge::Bridge>,
     /// The moment the app started; its clock counts milliseconds from here.
     pub started: std::time::Instant,
     runtime: Runtime,
@@ -37,13 +39,43 @@ pub struct Counters {
 
 impl App {
     /// Evaluates the bundle, which mounts the component and sends its first batch.
-    pub fn start(bundle: &str) -> Self {
+    pub fn start(bundle: &str, bridge: Option<crate::bridge::Bridge>) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
+        // A promise nobody catches would otherwise fail without a word.
+        runtime.set_host_promise_rejection_tracker(Some(Box::new(|_ctx, _promise, reason, handled| {
+            if handled {
+                return;
+            }
+            let text = reason
+                .get::<Coerced<String>>()
+                .map(|value| value.0)
+                .unwrap_or_else(|_| "an error".to_string());
+            let stack = reason
+                .as_exception()
+                .and_then(|exception| exception.stack())
+                .unwrap_or_default();
+            let keys: Vec<String> = reason
+                .as_object()
+                .map(|object| {
+                    object
+                        .keys::<String>()
+                        .filter_map(|key| key.ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let fallback = reason
+                .as_object()
+                .and_then(|object| object.get::<_, Coerced<String>>("stack").ok())
+                .map(|value| value.0)
+                .unwrap_or_default();
+            eprintln!("svelte-gpui: unhandled rejection: {text} keys={keys:?}\n{stack}{fallback}");
+        })));
         let context = Context::full(&runtime).expect("quickjs context");
         let tree = Rc::new(RefCell::new(Tree::new()));
         let counters = Rc::new(RefCell::new(Counters::default()));
         let clipboard = Rc::new(RefCell::new(String::new()));
         let app = Self {
+            bridge,
             started: std::time::Instant::now(),
             runtime,
             context,
@@ -66,8 +98,21 @@ impl App {
         let counters = self.counters.clone();
         let clipboard = self.clipboard.clone();
         let started = self.started;
+        let bridge = self.bridge.clone();
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
+            let send = Function::new(ctx.clone(), move |line: String| {
+                if let Some(bridge) = &bridge {
+                    bridge.send(&line);
+                }
+            })
+            .expect("ipc function");
+            host.set("ipc", send).expect("set ipc");
+            let measure = Function::new(ctx.clone(), |size: f64, text: String| -> Vec<f64> {
+                measure_text(size as f32, &text)
+            })
+            .expect("measureText function");
+            host.set("measureText", measure).expect("set measureText");
             let now = Function::new(ctx.clone(), move || started.elapsed().as_secs_f64() * 1000.0)
                 .expect("now function");
             host.set("now", now).expect("set now");
@@ -137,13 +182,26 @@ impl App {
         outcome
     }
 
+    /// Hands the app a line from the main process: a reply, or an event.
+    pub fn ipc(&self, line: &str) {
+        self.context.with(|ctx| {
+            let Ok(function) = ctx.globals().get::<_, Function>("__ipc") else {
+                return;
+            };
+            if let Err(error) = function.call::<_, ()>((line.to_string(),)) {
+                eprintln!("svelte-gpui: __ipc failed: {}", CaughtError::from_error(&ctx, error));
+            }
+        });
+        self.after_call();
+    }
+
     /// Tells the app how big the host measured an element it asked about.
-    pub fn size(&self, id: NodeId, width: f32, height: f32) {
+    pub fn size(&self, id: NodeId, left: f32, top: f32, width: f32, height: f32) {
         self.context.with(|ctx| {
             let Ok(function) = ctx.globals().get::<_, Function>("__size") else {
                 return;
             };
-            if let Err(error) = function.call::<_, ()>((id, width as f64, height as f64)) {
+            if let Err(error) = function.call::<_, ()>((id, left as f64, top as f64, width as f64, height as f64)) {
                 eprintln!("svelte-gpui: __size failed: {}", CaughtError::from_error(&ctx, error));
             }
         });
@@ -191,4 +249,25 @@ fn parse_outcome(json: &str) -> Outcome {
         prevented: value["prevented"].as_bool().unwrap_or(false),
         clipboard: value["clipboard"].as_str().map(String::from),
     }
+}
+
+/// Width, ascent and descent of some text in the bundled monospace font, for code that
+/// measures a cell before it draws. The same face the grid is drawn with.
+fn measure_text(size: f32, text: &str) -> Vec<f64> {
+    let bytes: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
+    let Ok(face) = ttf_parser::Face::parse(bytes, 0) else {
+        return vec![(size * 0.6 * text.chars().count() as f32) as f64, (size * 0.8) as f64, (size * 0.2) as f64];
+    };
+    let units = face.units_per_em() as f32;
+    let mut width = 0.0;
+    for character in text.chars() {
+        let advance = face
+            .glyph_index(character)
+            .and_then(|glyph| face.glyph_hor_advance(glyph))
+            .unwrap_or((units * 0.6) as u16);
+        width += advance as f32 / units * size;
+    }
+    let ascent = face.ascender() as f32 / units * size;
+    let descent = -(face.descender() as f32) / units * size;
+    vec![width as f64, ascent as f64, descent as f64]
 }

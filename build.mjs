@@ -108,6 +108,7 @@ export async function build(options) {
       ...options.alias,
     },
     define: options.define,
+    external: options.external,
     loader: options.loader,
     plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin, ...(options.plugins ?? [])],
     logLevel: "info",

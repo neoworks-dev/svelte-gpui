@@ -52,11 +52,13 @@ export function installResizeObserver(): void {
 }
 
 /** Records a measured size on the element and tells whoever is watching. */
-export function reportSize(id: number, width: number, height: number): void {
+export function reportSize(id: number, left: number, top: number, width: number, height: number): void {
   const node = nodeFor(id);
   if (!(node instanceof SElement)) {
     return;
   }
+  node.boxLeft = left;
+  node.boxTop = top;
   node.clientWidth = width;
   node.offsetWidth = width;
   node.clientHeight = height;
