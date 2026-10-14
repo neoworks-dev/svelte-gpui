@@ -115,6 +115,44 @@ Electron pane, the label pills and avatars render, `checked:bg-action` follows t
 checkbox, and a real Space on a focused checkbox ran click, `input` and `change`,
 Svelte's `bind:checked`, and the component's own `{#if checked}` check icon.
 
+## Grove's whole GitHub pane
+
+`examples/grove-pane` builds `GithubPane.svelte` with its real store, `store.svelte.ts`,
+and everything that store imports: the app store, layout, dialogs, markdown and the
+rest, 1.2 MB of bundle. What it cannot have is the main process, so
+`src/fake.ts` stands in for `window.workbench`: the GitHub calls the pane makes on
+load are answered from `fixtures.json`, which `node fixtures.mjs` writes from the
+real `neoworks-dev/grove` issues and pull requests with `gh` (reading only), and
+every other call answers with an empty promise.
+
+It runs: the tabs with their counts, the search box, the filter bar, 42 issues, a
+selected thread with its labels, assignees, participants and actions, and the
+comment box. Comment bodies are Grove's own markdown, rendered by `marked`, and
+drawn with the typography plugin's descendant selectors.
+
+What that took, beyond the earlier examples:
+
+- A web platform layer for a bare engine (`runtime/dom/polyfills.ts`): `URL`,
+  `URLSearchParams`, `TextEncoder`, `atob`, `structuredClone`, `AbortController`,
+  `EventTarget` and a few more. Grove's code reaches for them at import time.
+- DOM members Svelte and the UI library use: `children`, `closest`, `matches`,
+  `compareDocumentPosition`, `scrollTo`, `Event` and `CustomEvent`.
+- `{@html}`: markup parsed into nodes that were never announced is announced when
+  it is inserted.
+- A real selector engine (`host/src/selector.rs`) for the compiled stylesheet:
+  descendant and child combinators, `:where()`, `:is()` and `:not()`, attribute
+  tests, first and last child, and nested rules, which Tailwind 4 writes for its
+  typography plugin. Before, nested declarations leaked onto their parent.
+- Inline text flow: a paragraph of text and inline elements is drawn as one
+  wrapping text with a run per element, so `<code>` and `<strong>` sit in the line
+  as they do in a browser. Padding and borders on inline elements are dropped.
+
+`--report` over the pane: three classes with no rule, which are the markers `group`
+and `peer` and `-space-x-1`, and three that only a `::placeholder` rule styles.
+
+Known costs: with a thread open the tree has 2,650 nodes, styles are resolved for
+every node on every frame (9 ms on average), and the process is 370 MB PSS.
+
 ## Testing without a pointer
 
 `--do click:TEXT`, `--do focus:TEXT` and `--do scroll:TEXT:PIXELS` act on the
@@ -198,6 +236,44 @@ marks a sibling and has no rule. Four checks on screen: the rows match the
 Electron pane, the label pills and avatars render, `checked:bg-action` follows the
 checkbox, and a real Space on a focused checkbox ran click, `input` and `change`,
 Svelte's `bind:checked`, and the component's own `{#if checked}` check icon.
+
+## Grove's whole GitHub pane
+
+`examples/grove-pane` builds `GithubPane.svelte` with its real store, `store.svelte.ts`,
+and everything that store imports: the app store, layout, dialogs, markdown and the
+rest, 1.2 MB of bundle. What it cannot have is the main process, so
+`src/fake.ts` stands in for `window.workbench`: the GitHub calls the pane makes on
+load are answered from `fixtures.json`, which `node fixtures.mjs` writes from the
+real `neoworks-dev/grove` issues and pull requests with `gh` (reading only), and
+every other call answers with an empty promise.
+
+It runs: the tabs with their counts, the search box, the filter bar, 42 issues, a
+selected thread with its labels, assignees, participants and actions, and the
+comment box. Comment bodies are Grove's own markdown, rendered by `marked`, and
+drawn with the typography plugin's descendant selectors.
+
+What that took, beyond the earlier examples:
+
+- A web platform layer for a bare engine (`runtime/dom/polyfills.ts`): `URL`,
+  `URLSearchParams`, `TextEncoder`, `atob`, `structuredClone`, `AbortController`,
+  `EventTarget` and a few more. Grove's code reaches for them at import time.
+- DOM members Svelte and the UI library use: `children`, `closest`, `matches`,
+  `compareDocumentPosition`, `scrollTo`, `Event` and `CustomEvent`.
+- `{@html}`: markup parsed into nodes that were never announced is announced when
+  it is inserted.
+- A real selector engine (`host/src/selector.rs`) for the compiled stylesheet:
+  descendant and child combinators, `:where()`, `:is()` and `:not()`, attribute
+  tests, first and last child, and nested rules, which Tailwind 4 writes for its
+  typography plugin. Before, nested declarations leaked onto their parent.
+- Inline text flow: a paragraph of text and inline elements is drawn as one
+  wrapping text with a run per element, so `<code>` and `<strong>` sit in the line
+  as they do in a browser. Padding and borders on inline elements are dropped.
+
+`--report` over the pane: three classes with no rule, which are the markers `group`
+and `peer` and `-space-x-1`, and three that only a `::placeholder` rule styles.
+
+Known costs: with a thread open the tree has 2,650 nodes, styles are resolved for
+every node on every frame (9 ms on average), and the process is 370 MB PSS.
 
 ## Testing without a pointer
 

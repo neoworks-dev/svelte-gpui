@@ -7,6 +7,7 @@ declare const console: { error(...args: unknown[]): void };
 // They are built here from a single clock the host pumps with `__pump(now)`.
 
 import "./parse";
+import "./polyfills";
 import { animating, installAnimate, stepAnimations, useClock } from "./animate";
 import {
   type EventHandler,

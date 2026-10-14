@@ -97,6 +97,50 @@ export class SNode {
     return out;
   }
 
+  /** The element children, in order. */
+  get children(): SNode[] {
+    return this.childNodes.filter((child) => child.nodeType === ELEMENT_NODE);
+  }
+
+  get childElementCount(): number {
+    return this.children.length;
+  }
+
+  get firstElementChild(): SNode | null {
+    return this.children[0] ?? null;
+  }
+
+  get lastElementChild(): SNode | null {
+    const all = this.children;
+    return all[all.length - 1] ?? null;
+  }
+
+  get parentElement(): SNode | null {
+    const parent = this.parentNode;
+    if (parent !== null && parent.nodeType === ELEMENT_NODE) {
+      return parent;
+    }
+    return null;
+  }
+
+  get nextElementSibling(): SNode | null {
+    for (let sibling = this.nextSiblingNode; sibling !== null; sibling = sibling.nextSiblingNode) {
+      if (sibling.nodeType === ELEMENT_NODE) {
+        return sibling;
+      }
+    }
+    return null;
+  }
+
+  get previousElementSibling(): SNode | null {
+    for (let sibling = this.prevSiblingNode; sibling !== null; sibling = sibling.prevSiblingNode) {
+      if (sibling.nodeType === ELEMENT_NODE) {
+        return sibling;
+      }
+    }
+    return null;
+  }
+
   get isConnected(): boolean {
     let node: SNode = this;
     while (node.parentNode !== null) {
@@ -751,6 +795,42 @@ export class SElement extends SNode {
     visit(this);
     return found;
   }
+
+  /** Whether the element matches a simple selector. */
+  matches(selector: string): boolean {
+    return simpleMatcher(selector)(this);
+  }
+
+  /** The element itself or the nearest ancestor that matches. */
+  closest(selector: string): SElement | null {
+    const matches = simpleMatcher(selector);
+    for (let node: SNode | null = this; node !== null; node = node.parentNode) {
+      if (node instanceof SElement && matches(node)) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  scrollTo(first: number | { left?: number; top?: number }, second?: number): void {
+    if (typeof first === "object") {
+      this.scrollLeft = first.left ?? this.scrollLeftValue;
+      this.scrollTop = first.top ?? this.scrollTopValue;
+      return;
+    }
+    this.scrollLeft = first;
+    this.scrollTop = second ?? this.scrollTopValue;
+  }
+
+  scrollBy(first: number | { left?: number; top?: number }, second?: number): void {
+    if (typeof first === "object") {
+      this.scrollTo(this.scrollLeftValue + (first.left ?? 0), this.scrollTopValue + (first.top ?? 0));
+      return;
+    }
+    this.scrollTo(this.scrollLeftValue + first, this.scrollTopValue + (second ?? 0));
+  }
+
+  scrollIntoView(): void {}
 
   getBoundingClientRect() {
     const width = this.offsetWidth;

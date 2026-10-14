@@ -92,6 +92,43 @@ function forget(node: SNode): void {
   }
 }
 
+/**
+ * Announces a node that was built without being announced, with everything under
+ * it. Markup parsed for `{@html}` and `innerHTML` is built that way, since the
+ * parser also builds the moulds Svelte clones, and a mould is never drawn.
+ */
+function announce(node: SNode): void {
+  if (node.hostId !== 0 || node.nodeType === COMMENT_NODE) {
+    return;
+  }
+  if (node instanceof SText) {
+    const id = register(node);
+    pending.push([CREATE_TEXT, id, node.data]);
+    return;
+  }
+  const element = node as SElement;
+  if (element.tagName === "template") {
+    return;
+  }
+  const id = register(element);
+  pending.push([CREATE_ELEMENT, id, element.tagName]);
+  for (const [name, value] of element.attributes) {
+    pending.push([SET_ATTRIBUTE, id, name, normalize(value)]);
+  }
+  for (const [name, value] of element.style.declarations) {
+    pending.push([SET_STYLE, id, name, value]);
+  }
+  for (const type of element.listeners.keys()) {
+    pending.push([LISTEN, id, type]);
+  }
+  for (let child = element.firstChildNode; child !== null; child = child.nextSiblingNode) {
+    announce(child);
+    if (child.hostId !== 0) {
+      pending.push([INSERT, id, child.hostId, 0]);
+    }
+  }
+}
+
 /** The next sibling the host knows about, skipping comment anchors. */
 function hostSiblingAfter(ref: SNode | null): number {
   let sibling = ref;
@@ -190,11 +227,15 @@ export function install(): void {
   setMirror({
     inserted(child: SNode, before: SNode | null): void {
       detached.delete(child);
-      if (child.nodeType === COMMENT_NODE || child.hostId === 0) {
+      if (child.nodeType === COMMENT_NODE) {
         return;
       }
       const parent = child.parentNode;
       if (parent === null || parent.hostId === 0) {
+        return;
+      }
+      announce(child);
+      if (child.hostId === 0) {
         return;
       }
       pending.push([INSERT, parent.hostId, child.hostId, hostSiblingAfter(before)]);

@@ -9,6 +9,7 @@ mod images;
 mod render;
 mod runtime;
 mod select;
+mod selector;
 mod style;
 mod tree;
 
@@ -616,6 +617,13 @@ fn number_flag(name: &str, default: u64) -> u64 {
 
 fn print_report(resolver: &Resolver, tree: &Tree) {
     println!("nodes in the host tree: {}", tree.nodes.len());
+    let mut tags: std::collections::BTreeMap<&str, usize> = Default::default();
+    for node in tree.nodes.values() {
+        if let Kind::Element { tag } = &node.kind {
+            *tags.entry(tag.as_str()).or_default() += 1;
+        }
+    }
+    println!("tags: {}", tags.iter().map(|(tag, count)| format!("{tag}={count}")).collect::<Vec<_>>().join(" "));
     let mut controls: Vec<(&u32, &tree::Node)> = tree
         .nodes
         .iter()

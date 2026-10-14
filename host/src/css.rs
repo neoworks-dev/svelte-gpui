@@ -8,25 +8,7 @@ use std::ops::Range;
 
 use gpui::Rgba;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Pseudo {
-    None,
-    Hover,
-    /// `:hover` on an ancestor carrying this class, as Tailwind's `group-hover:` writes it.
-    GroupHover(String),
-    Focus,
-    Disabled,
-    Checked,
-    /// A pseudo-class this engine does not model, so the rule never applies.
-    Other,
-}
-
-#[derive(Debug, Clone)]
-pub struct Selector {
-    pub tag: Option<String>,
-    pub classes: Vec<String>,
-    pub pseudo: Pseudo,
-}
+pub use crate::selector::{Pseudo, Selector};
 
 #[derive(Debug, Clone)]
 pub struct Rule {
@@ -39,6 +21,10 @@ pub struct Stylesheet {
     pub rules: Vec<Rule>,
     by_class: HashMap<String, Vec<usize>>,
     by_tag: HashMap<String, Vec<usize>>,
+    /// Rules whose element has neither a class nor a tag to look them up by.
+    unindexed: Vec<usize>,
+    /// Every class a kept rule mentions, in any part of its selector.
+    kept_classes: HashSet<String>,
     /// Custom properties from `:root`, which every `var()` falls back to.
     pub variables: HashMap<String, String>,
     /// Declarations that apply to the whole document, from `html`, `body` and `:root`.
@@ -54,12 +40,17 @@ impl Stylesheet {
         let cleaned = strip_comments(source);
         sheet.parse_block(&cleaned);
         for (index, rule) in sheet.rules.iter().enumerate() {
-            for class in &rule.selector.classes {
+            for compound in &rule.selector.compounds {
+                sheet.kept_classes.extend(compound.classes.iter().cloned());
+            }
+            let subject = rule.selector.subject();
+            for class in &subject.classes {
                 sheet.by_class.entry(class.clone()).or_default().push(index);
             }
-            if rule.selector.classes.is_empty() {
-                if let Some(tag) = &rule.selector.tag {
-                    sheet.by_tag.entry(tag.clone()).or_default().push(index);
+            if subject.classes.is_empty() {
+                match &subject.tag {
+                    Some(tag) => sheet.by_tag.entry(tag.clone()).or_default().push(index),
+                    None => sheet.unindexed.push(index),
                 }
             }
         }
@@ -72,6 +63,10 @@ impl Stylesheet {
             Some(indices) => indices,
             None => &[],
         }
+    }
+
+    pub fn unindexed_rules(&self) -> &[usize] {
+        &self.unindexed
     }
 
     pub fn rules_for_tag(&self, tag: &str) -> &[usize] {
@@ -106,6 +101,11 @@ impl Stylesheet {
     }
 
     fn handle_rule(&mut self, prelude: &str, body: &str) {
+        self.handle_nested(prelude, body, &[]);
+    }
+
+    /// A style rule, with the selectors of the rules it is nested in already in `parents`.
+    fn handle_nested(&mut self, prelude: &str, body: &str, parents: &[String]) {
         if let Some(at_rule) = prelude.strip_prefix('@') {
             let name = at_rule.split_whitespace().next().unwrap_or("");
             let wanted = match name {
@@ -113,14 +113,35 @@ impl Stylesheet {
                 "media" => prelude.contains("hover: hover") || prelude.contains("hover:hover"),
                 _ => false,
             };
-            if wanted {
+            if !wanted {
+                return;
+            }
+            if parents.is_empty() {
                 self.parse_block(body);
+                return;
+            }
+            // A media query nested in a rule applies to that rule's own selector.
+            let (declarations, nested) = split_body(body);
+            self.add_rule(parents, &declarations);
+            for (inner_prelude, inner_body) in nested {
+                self.handle_nested(&inner_prelude, &inner_body, parents);
             }
             return;
         }
-        let declarations = parse_declarations(body);
-        for selector_text in split_top_level(prelude, ',') {
-            self.add_selector(selector_text.trim(), &declarations);
+        let selectors = nested_selectors(prelude, parents);
+        let (declarations, nested) = split_body(body);
+        self.add_rule(&selectors, &declarations);
+        for (inner_prelude, inner_body) in nested {
+            self.handle_nested(&inner_prelude, &inner_body, &selectors);
+        }
+    }
+
+    fn add_rule(&mut self, selectors: &[String], declarations: &[(String, String)]) {
+        if declarations.is_empty() {
+            return;
+        }
+        for selector_text in selectors {
+            self.add_selector(selector_text.trim(), declarations);
         }
     }
 
@@ -129,7 +150,7 @@ impl Stylesheet {
             self.take_root(declarations);
             return;
         }
-        match parse_selector(text) {
+        match Selector::parse(text) {
             Some(selector) => self.rules.push(Rule {
                 selector,
                 declarations: declarations.to_vec(),
@@ -160,7 +181,7 @@ impl Stylesheet {
 
     /// Whether any rule that was kept mentions the class.
     pub fn has_rule_for(&self, class: &str) -> bool {
-        self.by_class.contains_key(class)
+        self.kept_classes.contains(class)
     }
 
     /// Selectors that were left out, for a coverage report.
@@ -257,109 +278,81 @@ pub fn split_top_level(text: &str, separator: char) -> Vec<&str> {
     parts
 }
 
-pub fn parse_declarations(body: &str) -> Vec<(String, String)> {
+/// The declarations of a rule body, and the rules nested inside it as (prelude, body).
+fn split_body(body: &str) -> (Vec<(String, String)>, Vec<(String, String)>) {
     let mut declarations = Vec::new();
-    for part in split_top_level(body, ';') {
-        let Some(colon) = part.find(':') else {
-            continue;
+    let mut nested = Vec::new();
+    let mut rest = body;
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        let Some(stop) = first_unquoted(rest, &['{', ';']) else {
+            push_declaration(rest, &mut declarations);
+            break;
         };
-        let name = part[..colon].trim().to_string();
-        let value = part[colon + 1..]
-            .replace("!important", "")
-            .trim()
-            .to_string();
-        if name.is_empty() || value.is_empty() || name.contains('{') {
+        if rest.as_bytes()[stop] == b';' {
+            push_declaration(&rest[..stop], &mut declarations);
+            rest = &rest[stop + 1..];
             continue;
         }
-        declarations.push((name, value));
+        let Some(range) = matching_brace(rest, stop) else {
+            break;
+        };
+        nested.push((rest[..stop].trim().to_string(), rest[range.clone()].to_string()));
+        rest = &rest[range.end + 1..];
     }
-    declarations
+    (declarations, nested)
 }
 
-/// Reads one compound selector: an optional tag, classes, and at most one pseudo-class.
-fn parse_selector(text: &str) -> Option<Selector> {
-    if text.contains("::") || text.contains('>') || text.contains('+') || text.contains('~') {
-        return None;
-    }
-    let (compound, pseudo) = split_group_hover(text)?;
-    if compound.contains(' ') {
-        return None;
-    }
-
-    let mut selector = Selector {
-        tag: None,
-        classes: Vec::new(),
-        pseudo,
-    };
-    let characters: Vec<char> = compound.chars().collect();
-    let mut at = 0;
-    let mut name = String::new();
-    let mut mode = 't';
-    let mut flush = |mode: char, name: &mut String, selector: &mut Selector| {
-        if name.is_empty() {
-            return;
-        }
-        match mode {
-            't' => selector.tag = Some(name.clone()),
-            '.' => selector.classes.push(name.clone()),
-            ':' => selector.pseudo = pseudo_named(name),
+/// The first of `stops` outside parentheses.
+fn first_unquoted(text: &str, stops: &[char]) -> Option<usize> {
+    let mut depth = 0;
+    for (index, character) in text.char_indices() {
+        match character {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ if depth == 0 && stops.contains(&character) => return Some(index),
             _ => {}
         }
-        name.clear();
+    }
+    None
+}
+
+fn push_declaration(text: &str, declarations: &mut Vec<(String, String)>) {
+    let Some(colon) = text.find(':') else {
+        return;
     };
-    while at < characters.len() {
-        let character = characters[at];
-        match character {
-            '\\' => {
-                at += 1;
-                if let Some(escaped) = characters.get(at) {
-                    name.push(*escaped);
-                }
+    let name = text[..colon].trim().to_string();
+    let value = text[colon + 1..].replace("!important", "").trim().to_string();
+    if name.is_empty() || value.is_empty() {
+        return;
+    }
+    declarations.push((name, value));
+}
+
+/// Each selector of a nested rule, with `&` standing for a parent and no `&` meaning
+/// "inside the parent".
+fn nested_selectors(prelude: &str, parents: &[String]) -> Vec<String> {
+    let items: Vec<String> = split_top_level(prelude, ',')
+        .iter()
+        .map(|item| item.trim().to_string())
+        .collect();
+    if parents.is_empty() {
+        return items;
+    }
+    let mut combined = Vec::new();
+    for parent in parents {
+        for item in &items {
+            if item.contains('&') {
+                combined.push(item.replace('&', parent));
+            } else {
+                combined.push(format!("{parent} {item}"));
             }
-            '.' | ':' => {
-                flush(mode, &mut name, &mut selector);
-                mode = character;
-            }
-            '*' if name.is_empty() && mode == 't' => {
-                return None;
-            }
-            '[' | '(' | ')' | ']' => return None,
-            _ => name.push(character),
         }
-        at += 1;
     }
-    flush(mode, &mut name, &mut selector);
-    if selector.pseudo == Pseudo::Focus && selector.classes.is_empty() {
-        return None;
-    }
-    if selector.tag.is_none() && selector.classes.is_empty() {
-        return None;
-    }
-    Some(selector)
-}
-
-fn pseudo_named(name: &str) -> Pseudo {
-    match name {
-        "hover" => Pseudo::Hover,
-        "focus" | "focus-visible" | "focus-within" => Pseudo::Focus,
-        "disabled" => Pseudo::Disabled,
-        "checked" => Pseudo::Checked,
-        _ => Pseudo::Other,
-    }
-}
-
-/// Splits Tailwind's `.x:is(:where(.group):hover *)` into `.x` and a group-hover pseudo.
-fn split_group_hover(text: &str) -> Option<(String, Pseudo)> {
-    let Some(start) = text.find(":is(:where(.") else {
-        return Some((text.to_string(), Pseudo::None));
-    };
-    let after = &text[start + ":is(:where(.".len()..];
-    let group_end = after.find(')')?;
-    let group = after[..group_end].to_string();
-    if !after[group_end..].starts_with("):hover *)") && !after[group_end..].starts_with("):hover *") {
-        return None;
-    }
-    Some((text[..start].to_string(), Pseudo::GroupHover(group)))
+    combined
 }
 
 // ---- Values ----------------------------------------------------------------
@@ -374,6 +367,8 @@ pub enum Length {
 /// Resolves `var()` references against a set of custom properties.
 pub struct Variables<'a> {
     pub root: &'a HashMap<String, String>,
+    /// Custom properties declared in the rule being applied, which win over the root's.
+    pub local: Option<&'a HashMap<String, String>>,
 }
 
 impl Variables<'_> {
@@ -397,6 +392,9 @@ impl Variables<'_> {
     fn resolve_reference(&self, inner: &str) -> String {
         let parts = split_top_level(inner, ',');
         let name = parts[0].trim();
+        if let Some(value) = self.local.and_then(|local| local.get(name)) {
+            return value.clone();
+        }
         if let Some(value) = self.root.get(name) {
             return value.clone();
         }

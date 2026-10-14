@@ -107,6 +107,8 @@ export async function build(options) {
       "esm-env": here("./runtime/esm-env.ts"),
       ...options.alias,
     },
+    define: options.define,
+    loader: options.loader,
     plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin, ...(options.plugins ?? [])],
     logLevel: "info",
   });

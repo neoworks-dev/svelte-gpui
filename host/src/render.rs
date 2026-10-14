@@ -164,6 +164,10 @@ struct Inherited {
     font_size: f32,
     /// The text colour in force, which an `svg` is tinted with.
     colour: Rgba,
+    weight: f32,
+    italic: bool,
+    mono: bool,
+    underline: bool,
 }
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
@@ -194,6 +198,10 @@ impl Painter<'_> {
             uppercase: false,
             font_size: DEFAULT_FONT_SIZE,
             colour: root.color.unwrap_or(gpui::rgb(0xfafafa)),
+            weight: 400.0,
+            italic: false,
+            mono: false,
+            underline: false,
         };
         if let Some(size) = root.font_size {
             element = element.text_size(px(size));
@@ -243,6 +251,11 @@ impl Painter<'_> {
                 }
             }
             Flow::Inline => {
+                let all: Vec<&Piece> = pieces.iter().collect();
+                if let Some(flowed) = self.text_flow(&all, true, true, inherited) {
+                    elements.push(flowed);
+                    return elements;
+                }
                 let last = pieces.len().saturating_sub(1);
                 for (index, piece) in pieces.iter().enumerate() {
                     if let Piece::Text(data) = piece {
@@ -328,6 +341,11 @@ impl Painter<'_> {
             return;
         }
         let first_in_block = out.is_empty();
+        if let Some(flowed) = self.text_flow(run, first_in_block, at_end, inherited) {
+            run.clear();
+            out.push(flowed);
+            return;
+        }
         let mut items: Vec<AnyElement> = Vec::new();
         let last = run.len() - 1;
         for (index, piece) in run.iter().enumerate() {
@@ -359,6 +377,122 @@ impl Painter<'_> {
         }
     }
 
+    /// A run of text and inline text elements drawn as one wrapping paragraph, each element's
+    /// weight, colour and font applied to its stretch of the text. None when something in
+    /// the run is not text, such as an icon or a control, and it needs a box of its own.
+    fn text_flow(
+        &self,
+        run: &[&Piece],
+        trim_start: bool,
+        trim_end: bool,
+        inherited: Inherited,
+    ) -> Option<AnyElement> {
+        let mut text = String::new();
+        let mut runs: Vec<gpui::TextRun> = Vec::new();
+        let last = run.len().saturating_sub(1);
+        for (index, piece) in run.iter().enumerate() {
+            match piece {
+                Piece::Text(data) => {
+                    let collapsed = collapse(data, trim_start && index == 0, trim_end && index == last);
+                    self.push_run(&mut text, &mut runs, &collapsed, inherited);
+                }
+                Piece::Node(id) => self.flow_element(*id, inherited, &mut text, &mut runs)?,
+            }
+        }
+        if text.trim().is_empty() {
+            return None;
+        }
+        let styled = StyledText::new(SharedString::from(text)).with_runs(runs);
+        Some(div().min_w_0().child(styled).into_any_element())
+    }
+
+    fn push_run(&self, text: &mut String, runs: &mut Vec<gpui::TextRun>, piece: &str, inherited: Inherited) {
+        self.push_styled(text, runs, piece, inherited, None);
+    }
+
+    fn push_styled(
+        &self,
+        text: &mut String,
+        runs: &mut Vec<gpui::TextRun>,
+        piece: &str,
+        inherited: Inherited,
+        background: Option<Rgba>,
+    ) {
+        if piece.is_empty() {
+            return;
+        }
+        let mut font = gpui::font(if inherited.mono { MONO } else { SANS });
+        font.weight = FontWeight(inherited.weight);
+        if inherited.italic {
+            font.style = gpui::FontStyle::Italic;
+        }
+        let underline = inherited.underline.then(|| gpui::UnderlineStyle {
+            thickness: px(1.0),
+            color: Some(inherited.colour.into()),
+            wavy: false,
+        });
+        let text_piece = if inherited.uppercase { piece.to_uppercase() } else { piece.to_string() };
+        text.push_str(&text_piece);
+        runs.push(gpui::TextRun {
+            len: text_piece.len(),
+            font,
+            color: inherited.colour.into(),
+            background_color: background.map(Hsla::from),
+            underline,
+            strikethrough: None,
+        });
+    }
+
+    /// Adds an inline element's text to a paragraph; false if it holds anything but text.
+    fn flow_element(
+        &self,
+        id: NodeId,
+        inherited: Inherited,
+        text: &mut String,
+        runs: &mut Vec<gpui::TextRun>,
+    ) -> Option<()> {
+        let node = self.tree.nodes.get(&id)?;
+        let Kind::Element { tag } = &node.kind else {
+            return None;
+        };
+        if tag == "br" {
+            self.push_run(text, runs, "\n", inherited);
+            return Some(());
+        }
+        if matches!(tag.as_str(), "img" | "svg" | "input" | "select" | "textarea" | "button" | "label") {
+            return None;
+        }
+        let computed = self.computed(id);
+        let style = &computed.style;
+        if style.display == Display::None {
+            return Some(());
+        }
+        // Padding, borders and rounding of an inline element are lost in running text;
+        // what matters is that the paragraph wraps as one.
+        if style.display != Display::Inline || !computed.hover.is_empty() || style.pointer {
+            return None;
+        }
+        let here = Inherited {
+            uppercase: inherited.uppercase || style.uppercase,
+            font_size: inherited.font_size,
+            colour: style.color.unwrap_or(inherited.colour),
+            weight: style.font_weight.unwrap_or(inherited.weight),
+            italic: style.italic || inherited.italic,
+            mono: style.mono.unwrap_or(inherited.mono),
+            underline: style.underline || inherited.underline,
+        };
+        for piece in self.expand_contents(self.pieces(id)) {
+            match piece {
+                Piece::Text(data) => {
+                    let collapsed = collapse(&data, false, false);
+                    self.push_styled(text, runs, &collapsed, here, style.background);
+                }
+                Piece::Node(child) => self.flow_element(child, here, text, runs)?,
+            }
+        }
+        Some(())
+    }
+
     fn piece(
         &self,
         piece: &Piece,
@@ -387,22 +521,16 @@ impl Painter<'_> {
         } else {
             text.to_string()
         };
-        div().child(SharedString::from(shown)).into_any_element()
+        // Text may shrink below its full length and wrap, as it does in a flex row.
+        let mut text = div().child(SharedString::from(shown));
+        if std::env::var("SG_NO_TEXT_DIV_MINW").is_err() {
+            text = text.min_w_0();
+        }
+        text.into_any_element()
     }
 
     fn computed(&self, id: NodeId) -> Computed {
-        let Some(node) = self.tree.nodes.get(&id) else {
-            return self.resolver.compute("div", "", &[], Default::default());
-        };
-        let tag = match &node.kind {
-            Kind::Element { tag } => tag.as_str(),
-            Kind::Text { .. } => "span",
-        };
-        let state = crate::style::ElementState {
-            checked: node.attributes.get("checked").map(String::as_str) == Some("true"),
-            disabled: node.attributes.contains_key("disabled"),
-        };
-        self.resolver.compute(tag, attribute(node, "class"), &node.style, state)
+        self.resolver.compute(self.tree, id)
     }
 
     /// One element, with its children, or nothing when it is not displayed.
@@ -423,13 +551,25 @@ impl Painter<'_> {
             self.ease_style(id, &mut computed);
         }
         let style = &computed.style;
+        if let Ok(wanted) = std::env::var("SG_DEBUG_TAG") {
+            if matches!(&node.kind, Kind::Element { tag } if *tag == wanted) {
+                println!("{wanted} class={:?}\n  {:?}", attribute(node, "class"), style);
+            }
+        }
         let inherited = Inherited {
             uppercase: inherited.uppercase || style.uppercase,
             font_size: style.font_size.unwrap_or(inherited.font_size),
             colour: style.color.unwrap_or(inherited.colour),
+            weight: style.font_weight.unwrap_or(inherited.weight),
+            italic: style.italic || inherited.italic,
+            mono: style.mono.unwrap_or(inherited.mono),
+            underline: style.underline || inherited.underline,
         };
 
         let mut element = apply_style(div(), style);
+        if self.holds_only_text(node) && std::env::var("SG_NO_TEXT_MINW").is_err() {
+            element = element.min_w_0();
+        }
         let tag = match &node.kind {
             Kind::Element { tag } => tag.as_str(),
             Kind::Text { .. } => "",
@@ -545,6 +685,15 @@ impl Painter<'_> {
         }
         computed.hover = HoverStyle::default();
         computed.group_hover = HoverStyle::default();
+    }
+
+    /// Whether an element's children are all text, so it can shrink and let the text wrap.
+    fn holds_only_text(&self, node: &Node) -> bool {
+        !node.children.is_empty()
+            && node
+                .children
+                .iter()
+                .all(|child| matches!(self.tree.nodes.get(child).map(|n| &n.kind), Some(Kind::Text { .. })))
     }
 
     /// An invisible layer that records how big its parent came out.

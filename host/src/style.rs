@@ -2,9 +2,11 @@
 //! GPUI element can take. Which rules apply comes from the stylesheet; what a
 //! declaration means is decided here, one property at a time.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gpui::Rgba;
+
+use crate::tree::{Kind, NodeId, Tree};
 
 use crate::css::{
     Length, Pseudo, Rule, Stylesheet, Variables, parse_colour, parse_length, parse_number,
@@ -242,16 +244,28 @@ impl Resolver {
         style
     }
 
-    pub fn compute(
-        &self,
-        tag: &str,
-        class_attribute: &str,
-        inline: &[(String, String)],
-        state: ElementState,
-    ) -> Computed {
+    pub fn compute(&self, tree: &Tree, id: NodeId) -> Computed {
+        let Some(node) = tree.nodes.get(&id) else {
+            return Computed {
+                style: Style::default(),
+                hover: HoverStyle::default(),
+                group_hover: HoverStyle::default(),
+            };
+        };
+        let tag = match &node.kind {
+            Kind::Element { tag } => tag.as_str(),
+            Kind::Text { .. } => "span",
+        };
+        let class_attribute = node.attributes.get("class").map(String::as_str).unwrap_or("");
+        let state = ElementState {
+            checked: node.attributes.get("checked").map(String::as_str) == Some("true"),
+            disabled: node.attributes.contains_key("disabled"),
+        };
+        let inline = &node.style;
         let classes: Vec<&str> = class_attribute.split_whitespace().collect();
         let mut indices: Vec<usize> = Vec::new();
         indices.extend_from_slice(self.sheet.rules_for_tag(tag));
+        indices.extend_from_slice(self.sheet.unindexed_rules());
         for class in &classes {
             indices.extend_from_slice(self.sheet.rules_for_class(class));
         }
@@ -267,7 +281,7 @@ impl Resolver {
         let mut group_style = Style::default();
         for index in indices {
             let rule = &self.sheet.rules[index];
-            if !matches_element(rule, tag, &classes) {
+            if !rule.selector.matches(tree, id) {
                 continue;
             }
             match &rule.selector.pseudo {
@@ -288,14 +302,22 @@ impl Resolver {
     }
 
     fn apply_all(&self, style: &mut Style, rule: &Rule) {
+        let local: HashMap<String, String> = rule
+            .declarations
+            .iter()
+            .filter(|(name, _)| name.starts_with("--"))
+            .cloned()
+            .collect();
+        let overlay = if local.is_empty() { None } else { Some(&local) };
         for (name, value) in &rule.declarations {
-            self.apply(style, name, value);
+            self.apply_with(style, name, value, overlay);
         }
     }
 
-    fn variables(&self) -> Variables<'_> {
+    fn variables<'a>(&'a self, local: Option<&'a HashMap<String, String>>) -> Variables<'a> {
         Variables {
             root: &self.sheet.variables,
+            local,
         }
     }
 
@@ -305,10 +327,14 @@ impl Resolver {
 
     /// Applies one declaration to a style.
     pub fn apply(&self, style: &mut Style, name: &str, raw_value: &str) {
+        self.apply_with(style, name, raw_value, None);
+    }
+
+    fn apply_with(&self, style: &mut Style, name: &str, raw_value: &str, local: Option<&HashMap<String, String>>) {
         if name.starts_with("--") || IGNORED.contains(&name) {
             return;
         }
-        let value = self.variables().substitute(raw_value);
+        let value = self.variables(local).substitute(raw_value);
         let value = value.trim();
         if value.is_empty() {
             return;
@@ -769,8 +795,16 @@ fn hover_of(style: &Style) -> HoverStyle {
 fn default_for_tag(tag: &str) -> Style {
     let mut style = Style::default();
     match tag {
-        "span" | "a" | "b" | "i" | "em" | "strong" | "small" | "code" | "label" | "svg" | "img"
+        "span" | "a" | "small" | "code" | "label" | "svg" | "img"
         | "kbd" | "sub" | "sup" | "abbr" | "time" => style.display = Display::Inline,
+        "strong" | "b" => {
+            style.display = Display::Inline;
+            style.font_weight = Some(700.0);
+        }
+        "em" | "i" | "cite" => {
+            style.display = Display::Inline;
+            style.italic = true;
+        }
         "button" | "input" | "select" | "textarea" => {
             style.display = Display::Inline;
             style.align_items = Some(Align::Center);
@@ -782,18 +816,6 @@ fn default_for_tag(tag: &str) -> Style {
         _ => {}
     }
     style
-}
-
-fn matches_element(rule: &Rule, tag: &str, classes: &[&str]) -> bool {
-    if let Some(required) = &rule.selector.tag {
-        if required != tag {
-            return false;
-        }
-    }
-    rule.selector
-        .classes
-        .iter()
-        .all(|class| classes.contains(&class.as_str()))
 }
 
 fn align_of(value: &str) -> Option<Align> {
@@ -821,7 +843,8 @@ fn justify_of(value: &str) -> Option<Justify> {
 fn font_weight(value: &str) -> Option<f32> {
     match value {
         "normal" => Some(400.0),
-        "bold" => Some(700.0),
+        "bold" | "bolder" => Some(700.0),
+        "lighter" => Some(300.0),
         _ => parse_number(value),
     }
 }
@@ -903,7 +926,9 @@ fn side_of(name: &str, base: &str) -> Option<Side> {
         "right" => Some(Side::One(1)),
         "bottom" => Some(Side::One(2)),
         "left" => Some(Side::One(3)),
-        "inline" | "inline-start" | "inline-end" if base != "border" => Some(Side::Inline),
+        "inline-start" if base != "border" => Some(Side::One(3)),
+        "inline-end" if base != "border" => Some(Side::One(1)),
+        "inline" if base != "border" => Some(Side::Inline),
         "block" | "block-start" | "block-end" if base != "border" => Some(Side::Block),
         _ if base == "border" => {
             let side = suffix.split('-').next()?;
