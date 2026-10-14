@@ -599,6 +599,9 @@ impl Workbench {
 
     /// Writes text to the system clipboard and keeps the copy the app can read.
     pub fn write_clipboard(&mut self, text: String, cx: &mut Context<Self>) {
+        if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
+            println!("clipboard write: {text:?}");
+        }
         *self.svelte.clipboard.borrow_mut() = text.clone();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }

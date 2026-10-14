@@ -81,6 +81,7 @@ impl Workbench {
         let started = Instant::now();
         let before = self.svelte.counters.borrow().operations;
         let outcome = self.svelte.event(id, kind, &detail);
+        self.write_requested_clipboard(cx);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
         if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
@@ -93,6 +94,22 @@ impl Workbench {
         }
         cx.notify();
         outcome
+    }
+
+    /// Copies what the app just asked to, while the input that caused it is still current:
+    /// Wayland only accepts a clipboard write that follows a real input event.
+    fn write_requested_clipboard(&mut self, cx: &mut Context<Self>) {
+        let mut writes: Vec<String> = Vec::new();
+        self.svelte.tree.borrow_mut().commands.retain(|command| match command {
+            Command::WriteClipboard(text) => {
+                writes.push(text.clone());
+                false
+            }
+            _ => true,
+        });
+        for text in writes {
+            self.write_clipboard(text, cx);
+        }
     }
 
     /// A plain click, which is what scripted runs use.
