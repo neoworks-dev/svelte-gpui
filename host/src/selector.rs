@@ -242,7 +242,8 @@ fn parse_group_hover(text: &str) -> Option<Selector> {
     let start = text.find(":is(:where(.")?;
     let after = &text[start + ":is(:where(.".len()..];
     let group_end = after.find(')')?;
-    let group = after[..group_end].to_string();
+    // `group\/name` is the escaped spelling of the class `group/name`.
+    let group = after[..group_end].replace('\\', "");
     if !after[group_end..].starts_with("):hover *)") {
         return None;
     }
@@ -513,6 +514,14 @@ mod tests {
         assert_eq!(selector.compounds.len(), 2);
         assert_eq!(selector.compounds[0].classes, vec!["prose"]);
         assert_eq!(selector.subject().tag.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn reads_a_named_group() {
+        let selector =
+            Selector::parse(r".group-hover\/gutter\:bg-line-strong:is(:where(.group\/gutter):hover *)").expect("supported");
+        assert_eq!(selector.pseudo, Pseudo::GroupHover("group/gutter".into()));
+        assert_eq!(selector.subject().classes, vec!["group-hover/gutter:bg-line-strong"]);
     }
 
     #[test]

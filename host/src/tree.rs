@@ -65,6 +65,7 @@ const OBSERVE_SIZE: i64 = 11;
 const SELECT: i64 = 12;
 const WRITE_CLIPBOARD: i64 = 13;
 const GRID: i64 = 14;
+const UNLISTEN_GLOBAL: i64 = 15;
 
 impl Tree {
     pub fn new() -> Self {
@@ -137,6 +138,9 @@ impl Tree {
                 } else if let Some(node) = self.nodes.get_mut(&id) {
                     node.listeners.insert(event);
                 }
+            }
+            UNLISTEN_GLOBAL => {
+                self.global_listeners.remove(&text_at(parts, 2));
             }
             SET_STYLE => self.set_style(id, parts),
             DROP => self.drop_subtree(id),

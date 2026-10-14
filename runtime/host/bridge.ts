@@ -33,6 +33,7 @@ const OBSERVE_SIZE = 11;
 const SELECT = 12;
 const WRITE_CLIPBOARD = 13;
 const GRID = 14;
+const UNLISTEN_GLOBAL = 15;
 
 export const ROOT_ID = 1;
 
@@ -223,13 +224,22 @@ export function install(): void {
     },
   });
 
-  // The host only reports pointer movement and release to `document` and `window` when
-  // one of them has asked, and an id of 0 stands for that pair.
+  // The host only reports pointer movement and release to `document` and `window` while
+  // one of them has a listener, and an id of 0 stands for that pair.
+  const listening = (type: string): boolean =>
+    (documentTarget.listeners.get(type)?.size ?? 0) + (windowTarget.listeners.get(type)?.size ?? 0) > 0;
   for (const target of [documentTarget, windowTarget]) {
     const add = target.addEventListener.bind(target);
+    const remove = target.removeEventListener.bind(target);
     target.addEventListener = (type: string, handler: EventHandler): void => {
       add(type, handler);
       pending.push([LISTEN, 0, type]);
+    };
+    target.removeEventListener = (type: string, handler: EventHandler): void => {
+      remove(type, handler);
+      if (!listening(type)) {
+        pending.push([UNLISTEN_GLOBAL, 0, type]);
+      }
     };
   }
 

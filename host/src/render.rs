@@ -151,6 +151,94 @@ pub struct Painter<'a> {
     pub tree: &'a Tree,
     pub resolver: &'a Resolver,
     pub interaction: &'a Interaction,
+    /// The focused element and everything above it, which must stay in the frame.
+    pub focus_chain: HashSet<NodeId>,
+    /// How many nodes each element holds, worked out as they are asked for.
+    weights: RefCell<HashMap<NodeId, usize>>,
+}
+
+/// Elements holding at least this many nodes are measured, and not built while far from the window.
+const CULL_WEIGHT: usize = 16;
+
+impl<'a> Painter<'a> {
+    pub fn new(
+        tree: &'a Tree,
+        resolver: &'a Resolver,
+        interaction: &'a Interaction,
+        focused: Option<NodeId>,
+    ) -> Self {
+        let mut focus_chain = HashSet::new();
+        let mut current = focused;
+        while let Some(id) = current {
+            focus_chain.insert(id);
+            current = tree.nodes.get(&id).and_then(|node| node.parent);
+        }
+        Self {
+            tree,
+            resolver,
+            interaction,
+            focus_chain,
+            weights: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// How many nodes are under `id`, itself included.
+    fn weight(&self, id: NodeId) -> usize {
+        if let Some(known) = self.weights.borrow().get(&id) {
+            return *known;
+        }
+        let Some(node) = self.tree.nodes.get(&id) else {
+            return 0;
+        };
+        let weight = 1 + node.children.iter().map(|child| self.weight(*child)).sum::<usize>();
+        self.weights.borrow_mut().insert(id, weight);
+        weight
+    }
+
+    /// A stand-in for a large element that was last seen far from the window: the same box
+    /// without what is inside it, which costs layout time the page can do without. It is built
+    /// in full again as soon as it comes near.
+    fn culled(&self, id: NodeId, node: &Node, style: &Style) -> Option<AnyElement> {
+        // What scrolls is measured by a layer that scrolls with it, so its box is not where it looks.
+        if style.scroll_x || style.scroll_y {
+            return None;
+        }
+        if node.observed || self.focus_chain.contains(&id) || self.weight(id) < CULL_WEIGHT {
+            return None;
+        }
+        let bounds = *self.interaction.bounds.borrow().get(&id)?;
+        if !is_far_for_culling(bounds, self.interaction.viewport.get()) {
+            return None;
+        }
+        if std::env::var("SVELTE_GPUI_CULL_LOG").is_ok() {
+            eprintln!("culled {id} weight {} at {:?} view {:?}", self.weight(id), bounds, self.interaction.viewport.get());
+        }
+        let height = bounds.size.height;
+        let stand_in = apply_style(div(), style).h(height).flex_shrink_0();
+        Some(stand_in.child(self.measure_extent(id)).into_any_element())
+    }
+
+    /// An invisible layer that records where its parent is, and asks for another frame
+    /// when the parent crosses into or out of the part of the page that gets built.
+    fn measure_extent(&self, id: NodeId) -> AnyElement {
+        let placed = self.interaction.bounds.clone();
+        let changed = self.interaction.bounds_changed.clone();
+        let viewport = self.interaction.viewport.clone();
+        canvas(
+            move |bounds, _, _| {
+                let view = viewport.get();
+                let before = placed.borrow_mut().insert(id, bounds);
+                let was_far = before.map(|old| is_far_for_culling(old, view));
+                if was_far != Some(is_far_for_culling(bounds, view)) {
+                    changed.set(true);
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute().top_0().left_0()
+        .size_full()
+        .into_any_element()
+    }
 }
 
 /// How an element lays out the text and elements inside it.
@@ -583,6 +671,9 @@ impl Painter<'_> {
         if computed.style.display == Display::None {
             return None;
         }
+        if let Some(stand_in) = self.culled(id, node, &computed.style) {
+            return Some(stand_in);
+        }
         let eased = computed.style.transition.duration_ms > 0.0
             && (computed.style.transition.colours || computed.style.transition.opacity);
         if eased {
@@ -639,19 +730,21 @@ impl Painter<'_> {
         let is_select = matches!(&node.kind, Kind::Element { tag } if tag == "select");
         if node.observed || is_select {
             element = element.child(self.measure(id));
+        } else if self.weight(id) >= CULL_WEIGHT && !style.scroll_x && !style.scroll_y {
+            element = element.child(self.measure_extent(id));
         }
         Some(self.interactive(element, id, node, style, &computed, eased, cx))
     }
 
-    /// Whether an ancestor marked `group` has the pointer over it.
-    fn in_hovered_group(&self, id: NodeId) -> bool {
+    /// Whether an ancestor carrying the class `group` (or `group/name`) has the pointer over it.
+    fn in_hovered_group(&self, id: NodeId, group: &str) -> bool {
         let hovered = self.interaction.hovered.borrow();
         let mut current = self.tree.nodes.get(&id).and_then(|node| node.parent);
         while let Some(candidate) = current {
             let Some(node) = self.tree.nodes.get(&candidate) else {
                 return false;
             };
-            let grouped = attribute(node, "class").split_whitespace().any(|name| name == "group");
+            let grouped = attribute(node, "class").split_whitespace().any(|name| name == group);
             if grouped && hovered.contains(&candidate) {
                 return true;
             }
@@ -664,9 +757,12 @@ impl Painter<'_> {
     /// ones. Elements that ease take hover through here rather than GPUI's own refinement.
     fn ease_style(&self, id: NodeId, computed: &mut Computed) {
         let hovered = self.interaction.hovered.borrow().contains(&id);
-        let grouped = self.in_hovered_group(id);
+        let mut states: Vec<(bool, &HoverStyle)> = vec![(hovered, &computed.hover)];
+        for (group, hover) in &computed.group_hover {
+            states.push((self.in_hovered_group(id, group), hover));
+        }
         let style = &mut computed.style;
-        for (active, hover) in [(hovered, &computed.hover), (grouped, &computed.group_hover)] {
+        for (active, hover) in states {
             if !active {
                 continue;
             }
@@ -723,7 +819,7 @@ impl Painter<'_> {
             style.opacity = Some(shown.opacity);
         }
         computed.hover = HoverStyle::default();
-        computed.group_hover = HoverStyle::default();
+        computed.group_hover.clear();
     }
 
     /// Whether an element's children are all text, so it can shrink and let the text wrap.
@@ -761,6 +857,8 @@ impl Painter<'_> {
             |_, _, _, _| {},
         )
         .absolute()
+        .top_0()
+        .left_0()
         .size_full()
         .into_any_element()
     }
@@ -915,6 +1013,8 @@ impl Painter<'_> {
             |_, _, _, _| {},
         )
         .absolute()
+        .top_0()
+        .left_0()
         .size_full()
         .into_any_element()
     }
@@ -1309,9 +1409,14 @@ impl Painter<'_> {
         cx: &mut Context<Workbench>,
     ) -> AnyElement {
         let mut element = element.id(id as usize);
-        let grouped = attribute(node, "class").split_whitespace().any(|name| name == "group");
-        if grouped {
-            element = element.group("group");
+        let groups: Vec<String> = attribute(node, "class")
+            .split_whitespace()
+            .filter(|name| *name == "group" || name.starts_with("group/"))
+            .map(str::to_string)
+            .collect();
+        let grouped = !groups.is_empty();
+        if let Some(group) = groups.first() {
+            element = element.group(group.clone());
         }
         if eased || grouped {
             element = element.on_hover(cx.listener(move |workbench, hovered: &bool, _window, cx| {
@@ -1339,9 +1444,12 @@ impl Painter<'_> {
             let hover = computed.hover.clone();
             element = element.hover(move |refinement| apply_hover(refinement, &hover));
         }
-        if !computed.group_hover.is_empty() {
-            let hover = computed.group_hover.clone();
-            element = element.group_hover("group", move |refinement| apply_hover(refinement, &hover));
+        for (group, hover) in &computed.group_hover {
+            if hover.is_empty() {
+                continue;
+            }
+            let hover = hover.clone();
+            element = element.group_hover(group.clone(), move |refinement| apply_hover(refinement, &hover));
         }
         let element = self.wire_field(element, id, node, cx);
         let element = self.wire_clicks(element, id, node, cx);
@@ -1636,6 +1744,18 @@ fn text_box(shown: String, font_size: f32) -> AnyElement {
         text = text.whitespace_nowrap();
     }
     text.child(SharedString::from(shown)).into_any_element()
+}
+
+/// Whether a box is more than half a screen away from the window.
+fn is_far_for_culling(bounds: Bounds<gpui::Pixels>, window: (f32, f32)) -> bool {
+    let (width, height) = window;
+    if width <= 0.0 || height <= 0.0 {
+        return false;
+    }
+    f32::from(bounds.bottom()) < -height * 0.5
+        || f32::from(bounds.top()) > height * 1.5
+        || f32::from(bounds.right()) < -width * 0.5
+        || f32::from(bounds.left()) > width * 1.5
 }
 
 /// Whether a box is more than a screen away from the window.

@@ -68,6 +68,60 @@ function queryAll(selector: string): SElement[] {
   return found;
 }
 
+const SHOW_ELEMENT = 1;
+const SHOW_TEXT = 4;
+const SHOW_COMMENT = 128;
+
+/** `NodeFilter` as far as `createTreeWalker` reads it: which kinds of node to visit. */
+const NodeFilterLite = {
+  SHOW_ALL: 0xffffffff,
+  SHOW_ELEMENT,
+  SHOW_TEXT,
+  SHOW_COMMENT,
+  FILTER_ACCEPT: 1,
+  FILTER_REJECT: 2,
+  FILTER_SKIP: 3,
+};
+
+/** Walks the nodes under a root in document order, visiting the kinds `whatToShow` names. */
+class TreeWalkerLite {
+  currentNode: SNode;
+
+  constructor(
+    readonly root: SNode,
+    private readonly whatToShow: number,
+  ) {
+    this.currentNode = root;
+  }
+
+  nextNode(): SNode | null {
+    for (let node = this.following(this.currentNode); node !== null; node = this.following(node)) {
+      if (this.shows(node)) {
+        this.currentNode = node;
+        return node;
+      }
+    }
+    return null;
+  }
+
+  private shows(node: SNode): boolean {
+    return (this.whatToShow & (1 << (node.nodeType - 1))) !== 0;
+  }
+
+  /** The node after `node` in document order, staying inside the root. */
+  private following(node: SNode): SNode | null {
+    if (node.firstChildNode !== null) {
+      return node.firstChildNode;
+    }
+    for (let current: SNode | null = node; current !== null && current !== this.root; current = current.parentNode) {
+      if (current.nextSiblingNode !== null) {
+        return current.nextSiblingNode;
+      }
+    }
+    return null;
+  }
+}
+
 const fakeDocument = {
   querySelector: (selector: string) => queryAll(selector)[0] ?? null,
   querySelectorAll: (selector: string) => queryAll(selector),
@@ -105,6 +159,7 @@ const fakeDocument = {
   createTextNode: (data = "") => new SText(data),
   createComment: (data = "") => new SComment(data),
   createDocumentFragment: () => new SFragment(),
+  createTreeWalker: (root: SNode, whatToShow = 0xffffffff) => new TreeWalkerLite(root, whatToShow),
   importNode: (node: SNode, deep?: boolean) => node.cloneNode(deep),
   addEventListener: (type: string, handler: EventHandler) =>
     documentTarget.addEventListener(type, handler),
@@ -169,6 +224,7 @@ function install(): void {
   useClock(currentTime);
 
   globals.document = fakeDocument;
+  globals.NodeFilter = NodeFilterLite;
   globals.navigator = {
     userAgent: "Mozilla/5.0 (X11; Linux x86_64) svelte-gpui",
     language: "en-US",

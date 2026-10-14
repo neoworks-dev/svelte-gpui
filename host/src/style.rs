@@ -194,8 +194,9 @@ impl HoverStyle {
 pub struct Computed {
     pub style: Style,
     pub hover: HoverStyle,
-    /// Changes while an ancestor carrying the `group` class is hovered.
-    pub group_hover: HoverStyle,
+    /// Changes while an ancestor carrying a group class (`group`, or `group/name`) is hovered,
+    /// by the class's name.
+    pub group_hover: Vec<(String, HoverStyle)>,
 }
 
 /// Properties that matter for animation or input affordances and nothing for a still frame.
@@ -250,7 +251,7 @@ impl Resolver {
             return Computed {
                 style: Style::default(),
                 hover: HoverStyle::default(),
-                group_hover: HoverStyle::default(),
+                group_hover: Vec::new(),
             };
         };
         let tag = match &node.kind {
@@ -276,10 +277,10 @@ impl Resolver {
         let mut computed = Computed {
             style: default_for_tag(tag),
             hover: HoverStyle::default(),
-            group_hover: HoverStyle::default(),
+            group_hover: Vec::new(),
         };
         let mut hover_style = Style::default();
-        let mut group_style = Style::default();
+        let mut group_styles: Vec<(String, Style)> = Vec::new();
         for index in indices {
             let rule = &self.sheet.rules[index];
             if !rule.selector.matches(tree, id) {
@@ -288,7 +289,17 @@ impl Resolver {
             match &rule.selector.pseudo {
                 Pseudo::None => self.apply_all(&mut computed.style, rule),
                 Pseudo::Hover => self.apply_all(&mut hover_style, rule),
-                Pseudo::GroupHover(_) => self.apply_all(&mut group_style, rule),
+                Pseudo::GroupHover(group) => {
+                    let position = group_styles.iter().position(|(name, _)| name == group);
+                    let position = match position {
+                        Some(position) => position,
+                        None => {
+                            group_styles.push((group.clone(), Style::default()));
+                            group_styles.len() - 1
+                        }
+                    };
+                    self.apply_all(&mut group_styles[position].1, rule);
+                }
                 Pseudo::Checked if state.checked => self.apply_all(&mut computed.style, rule),
                 Pseudo::Disabled if state.disabled => self.apply_all(&mut computed.style, rule),
                 Pseudo::Checked | Pseudo::Focus | Pseudo::Disabled | Pseudo::Other => {}
@@ -299,7 +310,10 @@ impl Resolver {
         }
         centre_control_content(tag, &mut computed.style);
         computed.hover = hover_of(&hover_style);
-        computed.group_hover = hover_of(&group_style);
+        computed.group_hover = group_styles
+            .iter()
+            .map(|(name, style)| (name.clone(), hover_of(style)))
+            .collect();
         computed
     }
 

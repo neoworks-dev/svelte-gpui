@@ -142,10 +142,18 @@ impl Workbench {
     }
 
     /// Sends an event to `document` and `window`, for each type of them that has a listener.
+    /// Pointer movement is constant, so the window only redraws when the app changed something.
     fn report_globally(&mut self, kinds: &[&str], detail: String, cx: &mut Context<Self>) {
         for kind in kinds {
-            if self.svelte.tree.borrow().global_listeners.contains(*kind) {
-                self.emit(0, kind, detail.clone(), cx);
+            if !self.svelte.tree.borrow().global_listeners.contains(*kind) {
+                continue;
+            }
+            let before = self.svelte.counters.borrow().operations;
+            self.svelte.event(0, kind, &detail);
+            self.write_requested_clipboard(cx);
+            self.stats.events += 1;
+            if self.svelte.counters.borrow().operations != before {
+                cx.notify();
             }
         }
     }
@@ -644,11 +652,7 @@ impl Render for Workbench {
         }
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
-        let painter = Painter {
-            tree: &tree,
-            resolver: &self.resolver,
-            interaction: &self.interaction,
-        };
+        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused);
         let document = painter.document(cx);
         let wanted = self.frame_target;
         if wanted > 0 && self.frame_times.len() < wanted {
@@ -751,8 +755,40 @@ fn number_flag(name: &str, default: u64) -> u64 {
     flag(name).and_then(|value| value.parse().ok()).unwrap_or(default)
 }
 
+/// How many nodes sit under `id`, itself included.
+fn subtree_size(tree: &Tree, id: NodeId) -> usize {
+    let Some(node) = tree.nodes.get(&id) else {
+        return 0;
+    };
+    1 + node.children.iter().map(|child| subtree_size(tree, *child)).sum::<usize>()
+}
+
+/// The outline of the tree down to `depth`, with what each branch weighs, for finding what is slow.
+fn print_outline(tree: &Tree, id: NodeId, depth: usize, limit: usize) {
+    let Some(node) = tree.nodes.get(&id) else {
+        return;
+    };
+    let Kind::Element { tag } = &node.kind else {
+        return;
+    };
+    let size = subtree_size(tree, id);
+    if size < 40 {
+        return;
+    }
+    let class = node.attributes.get("class").map(String::as_str).unwrap_or("");
+    println!("{}{} {} {}", "  ".repeat(depth), size, tag, &class[..class.len().min(90)]);
+    if depth < limit {
+        for child in &node.children {
+            print_outline(tree, *child, depth + 1, limit);
+        }
+    }
+}
+
 fn print_report(resolver: &Resolver, tree: &Tree) {
     println!("nodes in the host tree: {}", tree.nodes.len());
+    if std::env::var("SVELTE_GPUI_OUTLINE").is_ok() {
+        print_outline(tree, ROOT, 0, 14);
+    }
     let mut tags: std::collections::BTreeMap<&str, usize> = Default::default();
     for node in tree.nodes.values() {
         if let Kind::Element { tag } = &node.kind {
