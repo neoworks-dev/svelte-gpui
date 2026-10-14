@@ -1,3 +1,4 @@
+declare const console: { error(...args: unknown[]): void };
 // Svelte's client runtime reads `document`, `window` and the node constructors
 // at module-evaluation time, so this must be the first import in any entry
 // point — before anything that pulls in `svelte/internal/client`.
@@ -6,7 +7,39 @@
 // They are built here from a single clock the host pumps with `__pump(now)`.
 
 import "./parse";
-import { SComment, SElement, SFragment, SNode, SText } from "./nodes";
+import {
+  type EventHandler,
+  SComment,
+  SElement,
+  SFragment,
+  SNode,
+  SText,
+} from "./nodes";
+
+/** `document` and `window` take listeners too; the host reports events to them. */
+export class EventTargetLite {
+  readonly listeners = new Map<string, Set<EventHandler>>();
+
+  addEventListener(type: string, handler: EventHandler): void {
+    let handlers = this.listeners.get(type);
+    if (handlers === undefined) {
+      handlers = new Set();
+      this.listeners.set(type, handlers);
+    }
+    handlers.add(handler);
+  }
+
+  removeEventListener(type: string, handler: EventHandler): void {
+    this.listeners.get(type)?.delete(handler);
+  }
+
+  dispatchEvent(): boolean {
+    return true;
+  }
+}
+
+export const documentTarget = new EventTargetLite();
+export const windowTarget = new EventTargetLite();
 
 const globals = globalThis as any;
 
@@ -26,7 +59,7 @@ const fakeDocument = {
   documentElement,
   head,
   body,
-  activeElement: null,
+  activeElement: null as SNode | null,
   nodeType: 9,
   createElement: (tag: string) => new SElement(tag),
   createElementNS: (_ns: string, tag: string) => new SElement(tag),
@@ -34,10 +67,14 @@ const fakeDocument = {
   createComment: (data = "") => new SComment(data),
   createDocumentFragment: () => new SFragment(),
   importNode: (node: SNode, deep?: boolean) => node.cloneNode(deep),
-  addEventListener: () => {},
-  removeEventListener: () => {},
+  addEventListener: (type: string, handler: EventHandler) =>
+    documentTarget.addEventListener(type, handler),
+  removeEventListener: (type: string, handler: EventHandler) =>
+    documentTarget.removeEventListener(type, handler),
   dispatchEvent: () => true,
 };
+
+export { fakeDocument };
 
 interface Timer {
   due: number;
@@ -126,10 +163,22 @@ function install(): void {
   globals.window = globals;
   Object.assign(globals, {
     trustedTypes: undefined,
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (type: string, handler: EventHandler) =>
+      windowTarget.addEventListener(type, handler),
+    removeEventListener: (type: string, handler: EventHandler) =>
+      windowTarget.removeEventListener(type, handler),
     dispatchEvent: () => true,
     getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    matchMedia: () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+    getSelection: () => null,
+    scrollTo: () => {},
+    innerWidth: 0,
+    innerHeight: 0,
+    devicePixelRatio: 1,
   });
 }
 

@@ -54,14 +54,62 @@ The hello example: a counter, a conditional, a keyed list, and a class directive
 Svelte's fine-grained updates survive the bridge: the counter click sends the
 one text node that changed, not a new tree.
 
+## Events
+
+An element only gets a GPUI handler for an event type that something listens
+for. Svelte delegates `click`, `mousedown`, `keydown` and friends to one
+listener on the mount root, so the host learns they matter from the root's
+listener list, and every element reports them: the deepest one under the pointer
+sends the event and stops it, and the app bubbles it from there. Events Svelte
+does not delegate (`mouseenter`, `scroll`, `wheel`, `focus`, `load`) go only to
+the element that asked, without bubbling.
+
+| Event | Source in the host |
+|---|---|
+| `click`, `dblclick` | GPUI click, including Enter and Space on a focused button |
+| `mousedown`, `mouseup`, `pointerdown`, `pointerup`, `contextmenu` | GPUI mouse buttons |
+| `mouseenter`, `mouseleave`, `mouseover`, `mouseout` and the pointer spellings | GPUI hover |
+| `mousemove`, `pointermove` | GPUI mouse move, only where listened for |
+| `wheel` | GPUI scroll wheel, only on elements that listen, so scrolling still works |
+| `scroll` | the scroll position of `overflow: auto` boxes, checked every tick |
+| `keydown`, `keyup` | the focused element, then up through `document` and `window` |
+| `focus`, `blur`, `focusin`, `focusout` | focus handles on `tabindex`, buttons, links and inputs |
+| `load`, `error` | an `img` whose source settled |
+| `resize` | the window |
+
+`bind:clientWidth`, `ResizeObserver` and `svelte:window bind:innerWidth` work: the
+host measures observed elements after layout and reports changes. Assigning
+`scrollTop` or calling `focus()` in the app reaches the host as a command.
+
+## svg and img
+
+An `svg` is serialised from its subtree, registered as an asset, and drawn by
+GPUI tinted with the inherited text colour, so Phosphor's components work as
+they are and `text-green` colours them. An `img` takes a file path, a `data:`
+URL or an `http(s)` URL; remote ones are fetched on a thread into
+`~/.cache/svelte-gpui/images`, and `load` or `error` fires when they settle.
+`rounded-full` clips images, and `object-cover` sets the fit.
+
+## Testing without a pointer
+
+`--do click:TEXT`, `--do focus:TEXT` and `--do scroll:TEXT:PIXELS` act on the
+deepest element containing that text. Focus and scroll go through the same
+command path an app's `focus()` and `scrollTop` use, and real keys can be sent
+to the window with `hyprctl dispatch hl.dsp.send_shortcut`. In the events example
+a real `z` reached the focused element's handler and `svelte:window`'s, a
+scroll reached `onscroll`, and `bind:clientWidth` reported 642 for a 668 pixel
+window. Hover, mouse buttons and clicks were seen in the logs as real events,
+because the pointer strayed onto the test display; the wheel was not exercised.
+
 ## Not done
 
-- No `svg`, `img`, `input`, `textarea` or `select`. Phosphor icons are `svg`, so
-  most of Grove's components need `svg` first.
+- No `input`, `textarea` or `select`, so no `input`, `change` or `beforeinput`.
+  Text entry needs an editable element with IME handling.
+- No touch, drag, clipboard or `animationend` events.
+- Svelte's `transition:` directives need `element.animate()`, which is not
+  shimmed, and CSS transitions are ignored, so changes snap.
 - Inline flow is approximated: runs of text and inline elements share a wrapping
   row, but there is no real inline layout across elements.
 - GPUI draws one border colour per element, so a side with its own colour is a
   strip drawn on top.
 - Nothing has been run against Grove's own components or stylesheet yet.
-- Clicks only. No hover events to Svelte, no keyboard, no focus, no scrolling
-  events, no transitions.

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022"],
+    "types": [],
+    "typeRoots": [],
+    "paths": { "@neoworks/svelte-gpui": ["./runtime/index.ts"] }
+  },
+  "include": ["runtime"]
+}

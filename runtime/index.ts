@@ -1,11 +1,12 @@
 // Order matters: the DOM globals have to exist before Svelte's client runtime
 // is evaluated, and this is the module every entry point imports first.
-import { pump } from "./dom/globals";
+import { pump, windowTarget } from "./dom/globals";
 
 import { flushSync, mount } from "svelte";
 import { SElement } from "./dom/nodes";
 import { adoptRoot, flush, install } from "./host/bridge";
 import { dispatch } from "./host/events";
+import { installResizeObserver, reportSize } from "./host/resize";
 
 declare const host: { apply(batch: string): void };
 
@@ -15,6 +16,7 @@ declare const host: { apply(batch: string): void };
  */
 export function start(Component: unknown, props: Record<string, unknown> = {}): void {
   install();
+  installResizeObserver();
   const root = new SElement("#root");
   adoptRoot(root);
 
@@ -30,6 +32,16 @@ export function start(Component: unknown, props: Record<string, unknown> = {}): 
   globals.__settle = settle;
   globals.__event = (id: number, type: string, detail: string): void => {
     dispatch(id, type, JSON.parse(detail));
+    settle();
+  };
+  globals.__size = (id: number, width: number, height: number): void => {
+    reportSize(id, width, height);
+    settle();
+  };
+  globals.__window = (width: number, height: number): void => {
+    globals.innerWidth = width;
+    globals.innerHeight = height;
+    dispatch(0, "resize", { bubbles: true });
     settle();
   };
   globals.__pump = (clock: number): void => {

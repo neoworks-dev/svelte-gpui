@@ -4,23 +4,29 @@
 
 mod assets;
 mod css;
+mod images;
 mod render;
 mod runtime;
 mod style;
 mod tree;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, Application, Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions,
-    prelude::*, px, size,
+    App, Application, Bounds, Context, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, Render,
+    Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
 };
 
 use css::Stylesheet;
-use render::Painter;
+use images::{ImageState, Images};
+use render::{Interaction, Painter};
 use runtime::App as Svelte;
 use style::Resolver;
-use tree::{Kind, NodeId, ROOT, Tree};
+use tree::{Command, Kind, NodeId, ROOT, Tree};
 
 /// Resident and proportional memory of this process in megabytes, from /proc.
 fn memory_megabytes() -> (f64, f64) {
@@ -52,35 +58,269 @@ struct Stats {
 struct Workbench {
     svelte: Svelte,
     resolver: Resolver,
+    interaction: Interaction,
     started: Instant,
     seen_version: u64,
     stats: Stats,
+    /// The node that had focus at the last tick.
+    focused: Option<NodeId>,
+    last_scroll: HashMap<NodeId, (f32, f32)>,
+    sent_sizes: HashMap<NodeId, (f32, f32)>,
+    window_size: (f32, f32),
+    /// The source each `img` has been told about, so `load` and `error` fire once.
+    announced_images: HashMap<NodeId, String>,
+    /// Requests for elements that did not exist yet when the app asked, with tries left.
+    queued: Vec<(Command, u8)>,
 }
 
 impl Workbench {
-    /// Reports a click on a node to the app, then redraws.
-    fn click(&mut self, id: NodeId, cx: &mut Context<Self>) {
+    /// Reports an event on a node to the app, then redraws.
+    fn emit(&mut self, id: NodeId, kind: &str, detail: String, cx: &mut Context<Self>) {
         let started = Instant::now();
         let before = self.svelte.counters.borrow().operations;
-        self.svelte.event(id, "click", "{}");
-        if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
-            let after = self.svelte.counters.borrow().operations;
-            println!("click on node {id}: {} operations, {:.2} ms", after - before, started.elapsed().as_secs_f64() * 1000.0);
-        }
+        self.svelte.event(id, kind, &detail);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
+        if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
+            let after = self.svelte.counters.borrow().operations;
+            println!(
+                "{kind} on node {id}: {} operations, {:.2} ms",
+                after - before,
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
         cx.notify();
     }
 
-    /// Advances the app's clock and redraws if anything changed.
-    fn tick(&mut self, cx: &mut Context<Self>) {
+    /// A plain click, which is what scripted runs use.
+    fn click(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        self.emit(id, "click", "{}".to_string(), cx);
+    }
+
+    /// The element that has keyboard focus, if it is one the app made.
+    fn focused_node(&self, window: &Window) -> Option<NodeId> {
+        let handles = self.interaction.focus.borrow();
+        for (id, handle) in handles.iter() {
+            if handle.is_focused(window) {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    /// A key press, to whatever has focus and on up through `document` and `window`.
+    fn key(&mut self, event: &KeyDownEvent, _down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.focused_node(window).unwrap_or(0);
+        let detail = key_detail(&event.keystroke, event.is_held);
+        self.emit(target, "keydown", detail, cx);
+    }
+
+    fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.focused_node(window).unwrap_or(0);
+        let detail = key_detail(&event.keystroke, false);
+        self.emit(target, "keyup", detail, cx);
+    }
+
+    /// Advances the app's clock, carries requests out, reports what the window learned,
+    /// and redraws if anything changed.
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let milliseconds = self.started.elapsed().as_secs_f64() * 1000.0;
         self.svelte.pump(milliseconds);
+        self.run_commands(window);
+        self.report_focus(window, cx);
+        self.report_scroll(cx);
+        self.report_sizes();
+        self.report_images(cx);
+        self.report_window(window);
         let version = self.svelte.tree.borrow().version;
         if version != self.seen_version {
             self.seen_version = version;
             cx.notify();
         }
+    }
+
+    /// Does what the app asked: focus an element, or scroll one.
+    fn run_commands(&mut self, window: &mut Window) {
+        let fresh: Vec<Command> = std::mem::take(&mut self.svelte.tree.borrow_mut().commands);
+        for command in fresh {
+            self.queued.push((command, 20));
+        }
+        let queued = std::mem::take(&mut self.queued);
+        for (command, tries) in queued {
+            if !self.carry_out(&command, window) && tries > 0 {
+                self.queued.push((command, tries - 1));
+            }
+        }
+    }
+
+    /// Whether the command could be carried out yet; the element may not have been drawn.
+    fn carry_out(&self, command: &Command, window: &mut Window) -> bool {
+        match command {
+            Command::Focus(id) => {
+                let handles = self.interaction.focus.borrow();
+                let Some(handle) = handles.get(id) else {
+                    return false;
+                };
+                window.focus(handle);
+                true
+            }
+            Command::ScrollTo(id, left, top) => {
+                let handles = self.interaction.scroll.borrow();
+                let Some(handle) = handles.get(id) else {
+                    return false;
+                };
+                handle.set_offset(point(px(-left), px(-top)));
+                true
+            }
+        }
+    }
+
+    /// Sends `blur` and `focus` when focus moved since the last tick.
+    fn report_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let now = self.focused_node(window);
+        if now == self.focused {
+            return;
+        }
+        let before = self.focused;
+        self.focused = now;
+        if let Some(id) = before {
+            self.emit(id, "blur", "{\"bubbles\":false}".to_string(), cx);
+            self.emit(id, "focusout", "{}".to_string(), cx);
+        }
+        if let Some(id) = now {
+            self.emit(id, "focus", "{\"bubbles\":false}".to_string(), cx);
+            self.emit(id, "focusin", "{}".to_string(), cx);
+        }
+    }
+
+    /// Sends `scroll` for the scrollable elements that listen and have moved.
+    fn report_scroll(&mut self, cx: &mut Context<Self>) {
+        let mut moved: Vec<(NodeId, f32, f32, f32, f32)> = Vec::new();
+        {
+            let handles = self.interaction.scroll.borrow();
+            let tree = self.svelte.tree.borrow();
+            for (id, handle) in handles.iter() {
+                let Some(node) = tree.nodes.get(id) else {
+                    continue;
+                };
+                if !node.listeners.contains("scroll") {
+                    continue;
+                }
+                let offset = handle.offset();
+                let current = (-f32::from(offset.x), -f32::from(offset.y));
+                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0));
+                if (current.0 - previous.0).abs() < 0.5 && (current.1 - previous.1).abs() < 0.5 {
+                    continue;
+                }
+                let content = handle.max_offset();
+                moved.push((*id, current.0, current.1, f32::from(content.width), f32::from(content.height)));
+            }
+        }
+        for (id, left, top, extra_width, extra_height) in moved {
+            self.last_scroll.insert(id, (left, top));
+            let detail = format!(
+                "{{\"bubbles\":false,\"scrollLeft\":{left},\"scrollTop\":{top},\"scrollWidth\":{extra_width},\"scrollHeight\":{extra_height}}}"
+            );
+            self.emit(id, "scroll", detail, cx);
+        }
+    }
+
+    /// Tells the app the size of every element it asked about, when it changed.
+    fn report_sizes(&mut self) {
+        let measured: Vec<(NodeId, (f32, f32))> = self
+            .interaction
+            .sizes
+            .borrow()
+            .iter()
+            .map(|(id, size)| (*id, *size))
+            .collect();
+        for (id, size) in measured {
+            let previous = self.sent_sizes.get(&id).copied();
+            let unchanged = matches!(previous, Some(old) if (old.0 - size.0).abs() < 0.5 && (old.1 - size.1).abs() < 0.5);
+            if unchanged || !self.svelte.tree.borrow().nodes.contains_key(&id) {
+                continue;
+            }
+            self.sent_sizes.insert(id, size);
+            self.svelte.size(id, size.0, size.1);
+        }
+    }
+
+    /// Fires `load` or `error` on each image once its source has settled.
+    fn report_images(&mut self, cx: &mut Context<Self>) {
+        let mut outcomes: Vec<(NodeId, String, bool)> = Vec::new();
+        {
+            let tree = self.svelte.tree.borrow();
+            for (id, node) in tree.nodes.iter() {
+                let Kind::Element { tag } = &node.kind else {
+                    continue;
+                };
+                if tag != "img" {
+                    continue;
+                }
+                let Some(source) = node.attributes.get("src") else {
+                    continue;
+                };
+                if self.announced_images.get(id) == Some(source) {
+                    continue;
+                }
+                match self.interaction.images.state(source) {
+                    ImageState::Loading => {}
+                    ImageState::Ready(_) => outcomes.push((*id, source.clone(), true)),
+                    ImageState::Failed => outcomes.push((*id, source.clone(), false)),
+                }
+            }
+        }
+        for (id, source, loaded) in outcomes {
+            self.announced_images.insert(id, source);
+            let kind = if loaded { "load" } else { "error" };
+            self.emit(id, kind, "{\"bubbles\":false}".to_string(), cx);
+        }
+    }
+
+    fn report_window(&mut self, window: &Window) {
+        let size = window.viewport_size();
+        let current = (f32::from(size.width), f32::from(size.height));
+        if current == self.window_size {
+            return;
+        }
+        self.window_size = current;
+        self.svelte.window(current.0, current.1);
+    }
+
+    /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor.
+    fn run_step(&mut self, step: &str, cx: &mut Context<Self>) {
+        let mut parts = step.splitn(3, ':');
+        let action = parts.next().unwrap_or("");
+        let needle = parts.next().unwrap_or("");
+        let Some(id) = self.find_by_text(needle) else {
+            eprintln!("no element says {needle:?}");
+            return;
+        };
+        match action {
+            "click" => self.click(id, cx),
+            "focus" => self.queued.push((Command::Focus(id), 20)),
+            "scroll" => {
+                let pixels: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+                let target = self.scrollable_ancestor(id);
+                self.queued.push((Command::ScrollTo(target, 0.0, pixels), 20));
+            }
+            _ => eprintln!("unknown step {step:?}"),
+        }
+        cx.notify();
+    }
+
+    /// The closest element at or above `id` that scrolls.
+    fn scrollable_ancestor(&self, id: NodeId) -> NodeId {
+        let tree = self.svelte.tree.borrow();
+        let handles = self.interaction.scroll.borrow();
+        let mut current = Some(id);
+        while let Some(candidate) = current {
+            if handles.contains_key(&candidate) {
+                return candidate;
+            }
+            current = tree.nodes.get(&candidate).and_then(|node| node.parent);
+        }
+        id
     }
 
     /// The deepest element whose text contains `needle`, for scripted clicks.
@@ -112,6 +352,7 @@ impl Render for Workbench {
         let painter = Painter {
             tree: &tree,
             resolver: &self.resolver,
+            interaction: &self.interaction,
         };
         let document = painter.document(cx);
         let elapsed = started.elapsed().as_secs_f64();
@@ -120,6 +361,68 @@ impl Render for Workbench {
         self.stats.worst_render_seconds = self.stats.worst_render_seconds.max(elapsed);
         document
     }
+}
+
+/// The DOM's name for a key: `Enter`, `ArrowLeft`, or the character typed.
+fn dom_key(keystroke: &Keystroke) -> String {
+    let named = match keystroke.key.as_str() {
+        "enter" => Some("Enter"),
+        "escape" => Some("Escape"),
+        "backspace" => Some("Backspace"),
+        "delete" => Some("Delete"),
+        "tab" => Some("Tab"),
+        "left" => Some("ArrowLeft"),
+        "right" => Some("ArrowRight"),
+        "up" => Some("ArrowUp"),
+        "down" => Some("ArrowDown"),
+        "home" => Some("Home"),
+        "end" => Some("End"),
+        "pageup" => Some("PageUp"),
+        "pagedown" => Some("PageDown"),
+        "space" => Some(" "),
+        _ => None,
+    };
+    if let Some(name) = named {
+        return name.to_string();
+    }
+    let held = keystroke.modifiers.control || keystroke.modifiers.alt || keystroke.modifiers.platform;
+    if let (Some(text), false) = (&keystroke.key_char, held) {
+        return text.clone();
+    }
+    if keystroke.key.chars().count() == 1 && keystroke.modifiers.shift {
+        return keystroke.key.to_uppercase();
+    }
+    keystroke.key.clone()
+}
+
+/// The DOM's `code` for a key, which names the physical key.
+fn dom_code(keystroke: &Keystroke) -> String {
+    let key = dom_key(keystroke);
+    if key == " " {
+        return "Space".to_string();
+    }
+    if keystroke.key.len() == 1 {
+        let character = keystroke.key.chars().next().unwrap_or(' ');
+        if character.is_ascii_alphabetic() {
+            return format!("Key{}", character.to_ascii_uppercase());
+        }
+        if character.is_ascii_digit() {
+            return format!("Digit{character}");
+        }
+    }
+    key
+}
+
+fn key_detail(keystroke: &Keystroke, repeat: bool) -> String {
+    let key = dom_key(keystroke).replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        "{{\"key\":\"{key}\",\"code\":\"{}\",\"repeat\":{repeat},\"ctrlKey\":{},\"shiftKey\":{},\"altKey\":{},\"metaKey\":{}}}",
+        dom_code(keystroke),
+        keystroke.modifiers.control,
+        keystroke.modifiers.shift,
+        keystroke.modifiers.alt,
+        keystroke.modifiers.platform
+    )
 }
 
 fn flag(name: &str) -> Option<String> {
@@ -182,7 +485,16 @@ fn main() {
         memory_megabytes().0
     );
     let resolver = Resolver::new(Stylesheet::parse(&stylesheet));
-    let clicks = flags("--click-text");
+    let assets_dir = match flag("--assets") {
+        Some(path) => PathBuf::from(path),
+        None => std::env::current_dir().unwrap_or_default(),
+    };
+    let images = Images::new(assets_dir);
+    // Scripted steps for when nobody can click: `click:TEXT`, `focus:TEXT`, `scroll:TEXT:PIXELS`.
+    let mut steps = flags("--do");
+    for text in flags("--click-text") {
+        steps.push(format!("click:{text}"));
+    }
     let exit_after = flag("--exit-after-ms").and_then(|value| value.parse::<u64>().ok());
     let report = std::env::args().any(|argument| argument == "--report");
 
@@ -199,13 +511,30 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     ..Default::default()
                 },
-                |_, cx| {
-                    cx.new(|_| Workbench {
-                        svelte,
-                        resolver,
-                        started: Instant::now(),
-                        seen_version: 0,
-                        stats: Stats::default(),
+                |window, cx| {
+                    cx.new(|cx| {
+                        let interaction = Interaction {
+                            root_focus: cx.focus_handle(),
+                            focus: RefCell::new(HashMap::new()),
+                            scroll: RefCell::new(HashMap::new()),
+                            sizes: Rc::new(RefCell::new(HashMap::new())),
+                            images,
+                        };
+                        window.focus(&interaction.root_focus);
+                        Workbench {
+                            svelte,
+                            resolver,
+                            interaction,
+                            started: Instant::now(),
+                            seen_version: 0,
+                            stats: Stats::default(),
+                            focused: None,
+                            last_scroll: HashMap::new(),
+                            sent_sizes: HashMap::new(),
+                            window_size: (0.0, 0.0),
+                            announced_images: HashMap::new(),
+                            queued: Vec::new(),
+                        }
                     })
                 },
             )
@@ -216,7 +545,7 @@ fn main() {
         cx.spawn(async move |cx| {
             loop {
                 cx.background_executor().timer(Duration::from_millis(33)).await;
-                if cx.update(|cx| window.update(cx, |workbench, _window, cx| workbench.tick(cx)).ok()).is_err() {
+                if cx.update(|cx| window.update(cx, |workbench, window, cx| workbench.tick(window, cx)).ok()).is_err() {
                     return;
                 }
             }
@@ -224,16 +553,13 @@ fn main() {
         .detach();
 
         // Scripted clicks, one after another, for when nobody can click.
-        if !clicks.is_empty() {
+        if !steps.is_empty() {
             cx.spawn(async move |cx| {
-                for needle in clicks {
+                for step in steps {
                     cx.background_executor().timer(Duration::from_millis(900)).await;
                     cx.update(|cx| {
                         window
-                            .update(cx, |workbench, _window, cx| match workbench.find_by_text(&needle) {
-                                Some(id) => workbench.click(id, cx),
-                                None => eprintln!("no element says {needle:?}"),
-                            })
+                            .update(cx, |workbench, _window, cx| workbench.run_step(&step, cx))
                             .ok();
                     })
                     .ok();

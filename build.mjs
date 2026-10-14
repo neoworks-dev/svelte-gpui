@@ -44,6 +44,10 @@ const sveltePlugin = {
         dev: false,
       });
       for (const warning of warnings) {
+        // Accessibility advice is about a browser's assistive tools, which this is not.
+        if (warning.code.startsWith("a11y_")) {
+          continue;
+        }
         console.warn(`${args.path}: ${warning.message}`);
       }
       return { contents: js.code, loader: "js" };
@@ -96,7 +100,7 @@ export async function build(options) {
     format: "iife",
     platform: "neutral",
     target: "es2022",
-    conditions: ["browser", "production", "default"],
+    conditions: ["svelte", "browser", "production", "default"],
     mainFields: ["browser", "module", "main"],
     alias: {
       "@neoworks/svelte-gpui": here("./runtime/index.ts"),

@@ -51,6 +51,15 @@ pub enum Justify {
 /// The four sides, in CSS order: top, right, bottom, left.
 pub type Sides<T> = [T; 4];
 
+/// How an image fills its box: `object-fit`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Fit {
+    #[default]
+    Contain,
+    Cover,
+    Fill,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Style {
     pub display: Display,
@@ -76,7 +85,9 @@ pub struct Style {
     pub inset: Sides<Option<Dimension>>,
     pub clip_x: bool,
     pub clip_y: bool,
+    pub scroll_x: bool,
     pub scroll_y: bool,
+    pub fit: Fit,
     pub background: Option<Rgba>,
     pub color: Option<Rgba>,
     pub opacity: Option<f32>,
@@ -136,7 +147,7 @@ const IGNORED: &[&str] = &[
     "border-bottom-style", "border-left-style", "--tw-border-style", "visibility",
     "tab-size", "-webkit-text-size-adjust", "-webkit-tap-highlight-color", "font-variation-settings",
     "text-wrap", "text-wrap-mode", "resize", "caret-color", "accent-color", "fill", "stroke",
-    "stroke-width", "flex-shrink-0", "object-fit", "text-transform-none", "transform",
+    "stroke-width", "flex-shrink-0", "text-transform-none", "transform",
     "translate", "scale", "rotate", "filter", "backdrop-filter", "box-shadow", "--tw-shadow",
     "mask", "mix-blend-mode", "background-image", "place-items", "place-content", "isolation",
     "contain", "text-indent", "hyphens", "white-space-collapse", "font-variant-numeric",
@@ -309,6 +320,7 @@ impl Resolver {
         let clipped = matches!(value, "hidden" | "clip" | "auto" | "scroll");
         if horizontal {
             style.clip_x = clipped;
+            style.scroll_x = matches!(value, "auto" | "scroll");
         }
         if vertical {
             style.clip_y = clipped;
@@ -405,6 +417,13 @@ impl Resolver {
             "opacity" => style.opacity = parse_number(value),
             "border-radius" => self.apply_radius(style, value),
             "cursor" => style.pointer = value == "pointer",
+            "object-fit" => {
+                style.fit = match value {
+                    "cover" => Fit::Cover,
+                    "fill" => Fit::Fill,
+                    _ => Fit::Contain,
+                };
+            }
             "border-width" => {
                 let widths = self.pixel_sides(value);
                 for side in 0..4 {

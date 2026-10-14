@@ -441,6 +441,12 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
             ')' => tokens.push(Token::Close),
             '*' | '/' | '+' => tokens.push(Token::Operator(character)),
             '-' if !starts_number(&characters, at, &tokens) => tokens.push(Token::Operator('-')),
+            _ if characters[at..].starts_with(&['i', 'n', 'f', 'i', 'n', 'i', 't', 'y']) => {
+                // Tailwind's `rounded-full` is `calc(infinity * 1px)`.
+                tokens.push(Token::Number(9999.0, false));
+                at += "infinity".len();
+                continue;
+            }
             _ => {
                 let (token, next) = read_number(&characters, at)?;
                 tokens.push(token);

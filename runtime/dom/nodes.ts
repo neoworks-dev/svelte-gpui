@@ -33,6 +33,9 @@ export interface NodeBackend {
   attributeChanged(node: SElement, name: string, value: unknown): void;
   styleChanged(node: SElement, property: string, value: string | null): void;
   listenerAdded(node: SElement, type: string, handler: EventHandler): void;
+  focus(node: SElement): void;
+  scrollTo(node: SElement, left: number, top: number): void;
+  observeSize(node: SElement): void;
 }
 
 export type EventHandler = (event: any) => void;
@@ -42,6 +45,9 @@ const noBackend: NodeBackend = {
   attributeChanged() {},
   styleChanged() {},
   listenerAdded() {},
+  focus() {},
+  scrollTo() {},
+  observeSize() {},
 };
 
 let backend = noBackend;
@@ -475,10 +481,44 @@ export class SElement extends SNode {
     parseInto(target, html);
   }
 
-  focus(): void {}
+  /** Layout as the host last measured it; zero until the host reports. */
+  clientWidth = 0;
+  clientHeight = 0;
+  offsetWidth = 0;
+  offsetHeight = 0;
+  scrollWidth = 0;
+  scrollHeight = 0;
+  scrollLeftValue = 0;
+  scrollTopValue = 0;
+
+  get scrollTop(): number {
+    return this.scrollTopValue;
+  }
+
+  set scrollTop(value: number) {
+    this.scrollTopValue = value;
+    backend.scrollTo(this, this.scrollLeftValue, value);
+  }
+
+  get scrollLeft(): number {
+    return this.scrollLeftValue;
+  }
+
+  set scrollLeft(value: number) {
+    this.scrollLeftValue = value;
+    backend.scrollTo(this, value, this.scrollTopValue);
+  }
+
+  focus(): void {
+    backend.focus(this);
+  }
+
   blur(): void {}
+
   getBoundingClientRect() {
-    return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    const width = this.offsetWidth;
+    const height = this.offsetHeight;
+    return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height };
   }
 
   override addEventListener(type: string, handler: EventHandler): void {

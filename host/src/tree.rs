@@ -23,12 +23,23 @@ pub struct Node {
     /// Inline declarations, in the order they were set.
     pub style: Vec<(String, String)>,
     pub listeners: HashSet<String>,
+    /// The app asked to hear about this element's size (`bind:clientWidth`).
+    pub observed: bool,
+}
+
+/// Something the app asked the host to do that is not a change to the tree.
+#[derive(Debug, Clone)]
+pub enum Command {
+    Focus(NodeId),
+    ScrollTo(NodeId, f32, f32),
 }
 
 pub struct Tree {
     pub nodes: HashMap<NodeId, Node>,
     /// Bumped by every change; a frame only rebuilds styles when it moved.
     pub version: u64,
+    /// Requests from the app, taken by the window on its next tick.
+    pub commands: Vec<Command>,
 }
 
 // Operation codes; runtime/host/bridge.ts sends the same numbers.
@@ -41,12 +52,16 @@ const REMOVE: i64 = 5;
 const LISTEN: i64 = 6;
 const SET_STYLE: i64 = 7;
 const DROP: i64 = 8;
+const FOCUS: i64 = 9;
+const SCROLL_TO: i64 = 10;
+const OBSERVE_SIZE: i64 = 11;
 
 impl Tree {
     pub fn new() -> Self {
         let mut tree = Self {
             nodes: HashMap::new(),
             version: 0,
+            commands: Vec::new(),
         };
         tree.nodes.insert(
             ROOT,
@@ -57,6 +72,7 @@ impl Tree {
                 attributes: HashMap::new(),
                 style: Vec::new(),
                 listeners: HashSet::new(),
+                observed: false,
             },
         );
         tree
@@ -110,6 +126,17 @@ impl Tree {
             }
             SET_STYLE => self.set_style(id, parts),
             DROP => self.drop_subtree(id),
+            FOCUS => self.commands.push(Command::Focus(id)),
+            SCROLL_TO => {
+                let left = parts.get(2).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                let top = parts.get(3).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                self.commands.push(Command::ScrollTo(id, left, top));
+            }
+            OBSERVE_SIZE => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.observed = true;
+                }
+            }
             _ => eprintln!("svelte-gpui: unknown operation {code}"),
         }
     }
@@ -124,6 +151,7 @@ impl Tree {
                 attributes: HashMap::new(),
                 style: Vec::new(),
                 listeners: HashSet::new(),
+                observed: false,
             },
         );
     }

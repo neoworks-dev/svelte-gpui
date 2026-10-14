@@ -13,6 +13,7 @@ import {
   setBackend,
 } from "../dom/nodes";
 
+declare const console: { error(...args: unknown[]): void };
 declare const host: { apply(batch: string): void };
 
 // Operation codes; the host's `ops.rs` reads the same numbers.
@@ -25,6 +26,9 @@ const REMOVE = 5;
 const LISTEN = 6;
 const SET_STYLE = 7;
 const DROP = 8;
+const FOCUS = 9;
+const SCROLL_TO = 10;
+const OBSERVE_SIZE = 11;
 
 export const ROOT_ID = 1;
 
@@ -33,6 +37,14 @@ let nextId = ROOT_ID + 1;
 let pending: unknown[][] = [];
 /** Nodes taken out of the tree during this batch; the ones still out at the end are gone. */
 let detached = new Set<SNode>();
+
+/** Asks the host to measure an element and report its size. */
+export function observeSize(node: SElement): void {
+  if (node.hostId === 0) {
+    return;
+  }
+  pending.push([OBSERVE_SIZE, node.hostId]);
+}
 
 export function nodeFor(id: number): SNode | undefined {
   return nodes.get(id);
@@ -131,6 +143,27 @@ export function install(): void {
         return;
       }
       pending.push([LISTEN, node.hostId, type]);
+    },
+
+    focus(node: SElement): void {
+      if (node.hostId === 0) {
+        return;
+      }
+      pending.push([FOCUS, node.hostId]);
+    },
+
+    scrollTo(node: SElement, left: number, top: number): void {
+      if (node.hostId === 0) {
+        return;
+      }
+      pending.push([SCROLL_TO, node.hostId, left, top]);
+    },
+
+    observeSize(node: SElement): void {
+      if (node.hostId === 0) {
+        return;
+      }
+      pending.push([OBSERVE_SIZE, node.hostId]);
     },
   });
 

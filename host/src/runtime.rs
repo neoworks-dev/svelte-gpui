@@ -108,6 +108,32 @@ impl App {
         self.after_call();
     }
 
+    /// Tells the app how big the host measured an element it asked about.
+    pub fn size(&self, id: NodeId, width: f32, height: f32) {
+        self.context.with(|ctx| {
+            let Ok(function) = ctx.globals().get::<_, Function>("__size") else {
+                return;
+            };
+            if let Err(error) = function.call::<_, ()>((id, width as f64, height as f64)) {
+                eprintln!("svelte-gpui: __size failed: {}", CaughtError::from_error(&ctx, error));
+            }
+        });
+        self.after_call();
+    }
+
+    /// Tells the app the window's size, which `window.innerWidth` and `resize` report.
+    pub fn window(&self, width: f32, height: f32) {
+        self.context.with(|ctx| {
+            let Ok(function) = ctx.globals().get::<_, Function>("__window") else {
+                return;
+            };
+            if let Err(error) = function.call::<_, ()>((width as f64, height as f64)) {
+                eprintln!("svelte-gpui: __window failed: {}", CaughtError::from_error(&ctx, error));
+            }
+        });
+        self.after_call();
+    }
+
     /// Advances the app's clock, which runs due timers and animation frames.
     pub fn pump(&self, now_milliseconds: f64) {
         self.context.with(|ctx| {
