@@ -45,6 +45,8 @@ pub struct Tree {
     pub version: u64,
     /// Requests from the app, taken by the window on its next tick.
     pub commands: Vec<Command>,
+    /// Event types `document` or `window` listen for, which the app reports under id 0.
+    pub global_listeners: std::collections::HashSet<String>,
 }
 
 // Operation codes; runtime/host/bridge.ts sends the same numbers.
@@ -71,6 +73,7 @@ impl Tree {
             grids: HashMap::new(),
             version: 0,
             commands: Vec::new(),
+            global_listeners: std::collections::HashSet::new(),
         };
         tree.nodes.insert(
             ROOT,
@@ -129,7 +132,9 @@ impl Tree {
             REMOVE => self.detach(id),
             LISTEN => {
                 let event = text_at(parts, 2);
-                if let Some(node) = self.nodes.get_mut(&id) {
+                if id == 0 {
+                    self.global_listeners.insert(event);
+                } else if let Some(node) = self.nodes.get_mut(&id) {
                     node.listeners.insert(event);
                 }
             }

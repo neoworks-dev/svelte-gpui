@@ -440,3 +440,152 @@ class HostWorker {
 }
 
 define("Worker", HostWorker);
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+interface DateFormatOptions {
+  weekday?: "long" | "short" | "narrow";
+  year?: "numeric" | "2-digit";
+  month?: "long" | "short" | "narrow" | "numeric" | "2-digit";
+  day?: "numeric" | "2-digit";
+  hour?: "numeric" | "2-digit";
+  minute?: "numeric" | "2-digit";
+  second?: "numeric" | "2-digit";
+  hour12?: boolean;
+}
+
+/** English-only `Intl.DateTimeFormat`, enough for labels like "October 2026" or "Mon". */
+class HostDateTimeFormat {
+  private readonly options: DateFormatOptions;
+
+  constructor(_locale?: unknown, options: DateFormatOptions = {}) {
+    const hasField = ["weekday", "year", "month", "day", "hour", "minute", "second"].some(
+      (field) => (options as Record<string, unknown>)[field] !== undefined,
+    );
+    this.options = hasField ? options : { ...options, year: "numeric", month: "numeric", day: "numeric" };
+  }
+
+  format(date: Date | number = new Date()): string {
+    return this.formatToParts(date).map((part) => part.value).join("");
+  }
+
+  formatToParts(input: Date | number = new Date()): { type: string; value: string }[] {
+    const date = new Date(input);
+    const { weekday, year, month, day, hour, minute, second, hour12 } = this.options;
+    const two = (value: number): string => String(value).padStart(2, "0");
+    const parts: { type: string; value: string }[] = [];
+    const literal = (value: string): void => {
+      parts.push({ type: "literal", value });
+    };
+    const textual = month === "long" || month === "short" || month === "narrow";
+
+    if (weekday !== undefined) {
+      const name = WEEKDAYS[date.getDay()];
+      parts.push({ type: "weekday", value: weekday === "long" ? name : weekday === "short" ? name.slice(0, 3) : name[0] });
+      if (month !== undefined || day !== undefined || year !== undefined) {
+        literal(", ");
+      }
+    }
+    if (textual) {
+      const name = MONTHS[date.getMonth()];
+      parts.push({ type: "month", value: month === "long" ? name : month === "short" ? name.slice(0, 3) : name[0] });
+      if (day !== undefined) {
+        literal(" ");
+        parts.push({ type: "day", value: day === "2-digit" ? two(date.getDate()) : String(date.getDate()) });
+      }
+      if (year !== undefined) {
+        literal(day !== undefined ? ", " : " ");
+        parts.push({ type: "year", value: year === "2-digit" ? two(date.getFullYear() % 100) : String(date.getFullYear()) });
+      }
+    } else {
+      const fields: { type: string; value: string }[] = [];
+      if (month !== undefined) {
+        fields.push({ type: "month", value: month === "2-digit" ? two(date.getMonth() + 1) : String(date.getMonth() + 1) });
+      }
+      if (day !== undefined) {
+        fields.push({ type: "day", value: day === "2-digit" ? two(date.getDate()) : String(date.getDate()) });
+      }
+      if (year !== undefined) {
+        fields.push({ type: "year", value: year === "2-digit" ? two(date.getFullYear() % 100) : String(date.getFullYear()) });
+      }
+      fields.forEach((field, index) => {
+        if (index > 0) {
+          literal("/");
+        }
+        parts.push(field);
+      });
+    }
+    if (hour !== undefined || minute !== undefined || second !== undefined) {
+      if (parts.length > 0) {
+        literal(", ");
+      }
+      const twelve = hour12 === true;
+      const hours = twelve ? date.getHours() % 12 || 12 : date.getHours();
+      const clock: string[] = [];
+      if (hour !== undefined) {
+        clock.push(hour === "2-digit" || !twelve ? two(hours) : String(hours));
+      }
+      if (minute !== undefined) {
+        clock.push(two(date.getMinutes()));
+      }
+      if (second !== undefined) {
+        clock.push(two(date.getSeconds()));
+      }
+      parts.push({ type: "time", value: clock.join(":") });
+      if (twelve) {
+        literal(" ");
+        parts.push({ type: "dayPeriod", value: date.getHours() < 12 ? "AM" : "PM" });
+      }
+    }
+    return parts;
+  }
+
+  resolvedOptions(): Record<string, unknown> {
+    return { locale: "en-US", calendar: "gregory", numberingSystem: "latn", timeZone: "UTC", ...this.options };
+  }
+}
+
+/** `Intl.NumberFormat` for plain decimals, with thousands separators. */
+class HostNumberFormat {
+  private readonly options: { minimumFractionDigits?: number; maximumFractionDigits?: number };
+
+  constructor(_locale?: unknown, options: { minimumFractionDigits?: number; maximumFractionDigits?: number } = {}) {
+    this.options = options;
+  }
+
+  format(value: number | bigint): string {
+    const maximum = this.options.maximumFractionDigits ?? Math.max(3, this.options.minimumFractionDigits ?? 0);
+    const minimum = this.options.minimumFractionDigits ?? 0;
+    const fixed = Number(value).toFixed(maximum);
+    let [whole, fraction = ""] = fixed.split(".");
+    while (fraction.length > minimum && fraction.endsWith("0")) {
+      fraction = fraction.slice(0, -1);
+    }
+    const sign = whole.startsWith("-") ? "-" : "";
+    const digits = whole.replace("-", "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return sign + digits + (fraction === "" ? "" : "." + fraction);
+  }
+
+  resolvedOptions(): Record<string, unknown> {
+    return { locale: "en-US", ...this.options };
+  }
+}
+
+class HostCollator {
+  compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+}
+
+class HostPluralRules {
+  select(count: number): string {
+    return count === 1 ? "one" : "other";
+  }
+}
+
+define("Intl", {
+  DateTimeFormat: HostDateTimeFormat,
+  NumberFormat: HostNumberFormat,
+  Collator: HostCollator,
+  PluralRules: HostPluralRules,
+  getCanonicalLocales: (locale?: string | string[]) => (locale === undefined ? [] : [locale].flat()),
+});

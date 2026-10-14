@@ -4,6 +4,7 @@
 // runtime works and sent as one batch when it has finished.
 
 import { setMirror } from "../dom/hooks";
+import { documentTarget, windowTarget } from "../dom/globals";
 import {
   type EventHandler,
   COMMENT_NODE,
@@ -221,6 +222,16 @@ export function install(): void {
       pending.push([SELECT, node.hostId, start, end]);
     },
   });
+
+  // The host only reports pointer movement and release to `document` and `window` when
+  // one of them has asked, and an id of 0 stands for that pair.
+  for (const target of [documentTarget, windowTarget]) {
+    const add = target.addEventListener.bind(target);
+    target.addEventListener = (type: string, handler: EventHandler): void => {
+      add(type, handler);
+      pending.push([LISTEN, 0, type]);
+    };
+  }
 
   // `navigator.clipboard` reads what the host last saw and writes through it.
   (globalThis as any).navigator.clipboard = {

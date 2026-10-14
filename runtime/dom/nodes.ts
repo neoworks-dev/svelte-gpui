@@ -62,7 +62,6 @@ export class SNode {
   nodeType = 0;
   nodeName = "#node";
   parentNode: SNode | null = null;
-  ownerDocument: unknown = null;
   /** The host's id for this node, or 0 when it is only a mould or a comment. */
   hostId = 0;
 
@@ -901,7 +900,11 @@ export class SElement extends SNode {
     this.canvasHeight = Number(value);
   }
 
-  getContext(): CanvasStub {
+  /** A 2D context that draws nothing; there is no GL, so those ask for a context and get none. */
+  getContext(kind = "2d"): CanvasStub | null {
+    if (kind !== "2d") {
+      return null;
+    }
     return new CanvasStub();
   }
 

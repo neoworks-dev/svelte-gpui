@@ -297,6 +297,7 @@ impl Resolver {
         for (name, value) in inline {
             self.apply(&mut computed.style, name, value);
         }
+        centre_control_content(tag, &mut computed.style);
         computed.hover = hover_of(&hover_style);
         computed.group_hover = hover_of(&group_style);
         computed
@@ -793,6 +794,21 @@ fn hover_of(style: &Style) -> HoverStyle {
     }
 }
 
+/// A control that is not a flex container centres what it holds, as browsers do for a
+/// button; one that is a flex container lays its children out from the start, unless the
+/// stylesheet says otherwise.
+fn centre_control_content(tag: &str, style: &mut Style) {
+    if !matches!(tag, "button" | "input" | "select" | "textarea") || style.display == Display::Flex {
+        return;
+    }
+    if style.align_items.is_none() {
+        style.align_items = Some(Align::Center);
+    }
+    if style.justify.is_none() {
+        style.justify = Some(Justify::Center);
+    }
+}
+
 fn default_for_tag(tag: &str) -> Style {
     let mut style = Style::default();
     match tag {
@@ -808,8 +824,7 @@ fn default_for_tag(tag: &str) -> Style {
         }
         "button" | "input" | "select" | "textarea" => {
             style.display = Display::Inline;
-            style.align_items = Some(Align::Center);
-            style.justify = Some(Justify::Center);
+            style.center_text = tag == "button";
         }
         "head" | "script" | "style" | "template" | "title" | "meta" | "link" => {
             style.display = Display::None;

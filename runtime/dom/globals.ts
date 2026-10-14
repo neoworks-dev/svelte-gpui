@@ -81,6 +81,9 @@ const fakeDocument = {
   // `IS_XHTML` is derived from this once, at import time; anything with "xml"
   // in it would switch the runtime to XHTML-compliant tag casing.
   contentType: "text/html",
+  get defaultView() {
+    return globalThis;
+  },
   baseURI: "file:///",
   documentElement,
   head,
@@ -109,6 +112,9 @@ const fakeDocument = {
     documentTarget.removeEventListener(type, handler),
   dispatchEvent: () => true,
 };
+
+// Every node belongs to the one document; libraries start from `element.ownerDocument`.
+Object.defineProperty(SNode.prototype, "ownerDocument", { get: () => fakeDocument, configurable: true });
 
 export { fakeDocument };
 
@@ -316,7 +322,8 @@ function computedStyle(element: SElement): Record<string, unknown> {
 }
 
 function reportError(error: unknown): void {
-  console.error("svelte-gpui: microtask failed:", error);
+  const stack = error instanceof Error ? error.stack : undefined;
+  console.error("svelte-gpui: microtask failed:", error, stack === undefined ? "" : `\n${stack}`);
 }
 
 install();

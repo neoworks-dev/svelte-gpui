@@ -203,6 +203,18 @@ impl Painter<'_> {
             }))
             .on_key_up(cx.listener(|workbench, event, window, cx| {
                 workbench.key_up(event, window, cx);
+            }))
+            .capture_any_mouse_up(cx.listener(|workbench, event: &MouseUpEvent, _window, cx| {
+                workbench.report_release(event, cx);
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|workbench, event: &MouseUpEvent, _window, cx| {
+                    workbench.report_release(event, cx);
+                }),
+            )
+            .on_mouse_move(cx.listener(|workbench, event: &MouseMoveEvent, _window, cx| {
+                workbench.report_motion(event, cx);
             }));
         if let Some(colour) = root.color {
             element = element.text_color(colour);
@@ -1593,7 +1605,7 @@ fn modifier_fields(modifiers: gpui::Modifiers) -> String {
 }
 
 /// The fields a DOM mouse event carries.
-fn pointer_detail(
+pub fn pointer_detail(
     position: gpui::Point<gpui::Pixels>,
     modifiers: gpui::Modifiers,
     button: i32,

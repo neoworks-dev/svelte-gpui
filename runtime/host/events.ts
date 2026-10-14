@@ -32,6 +32,13 @@ export interface Outcome {
   clipboard: string | null;
 }
 
+/**
+ * Pointer movement and release reach `document` and `window` straight from the host,
+ * wherever the pointer is, so a drag keeps going when it leaves the element that began
+ * it. The elements' own events therefore stop at the root.
+ */
+const REPORTED_GLOBALLY = new Set(["mousemove", "mouseup", "pointermove", "pointerup"]);
+
 export function dispatch(id: number, type: string, detail: Record<string, unknown>): Outcome {
   const target: unknown = id === 0 ? fakeDocument : nodeFor(id);
   if (target === undefined) {
@@ -48,7 +55,9 @@ export function dispatch(id: number, type: string, detail: Record<string, unknow
   if (!(target instanceof SNode)) {
     path.push(target);
   }
-  path.push(fakeDocument, globalThis);
+  if (id === 0 || !REPORTED_GLOBALLY.has(type)) {
+    path.push(fakeDocument, globalThis);
+  }
 
   let written: string | null = null;
   const bubbles = detail.bubbles !== false;

@@ -129,6 +129,40 @@ impl Workbench {
         }
     }
 
+    /// Tells `document` and `window` about a button release anywhere in the window, which a
+    /// drag needs to end even when the pointer is no longer over what it started on.
+    fn report_release(&mut self, event: &gpui::MouseUpEvent, cx: &mut Context<Self>) {
+        let button = match event.button {
+            gpui::MouseButton::Left => 0,
+            gpui::MouseButton::Middle => 1,
+            _ => 2,
+        };
+        let detail = render::pointer_detail(event.position, event.modifiers, button, event.click_count);
+        self.report_globally(&["mouseup", "pointerup"], detail, cx);
+    }
+
+    /// Sends an event to `document` and `window`, for each type of them that has a listener.
+    fn report_globally(&mut self, kinds: &[&str], detail: String, cx: &mut Context<Self>) {
+        for kind in kinds {
+            if self.svelte.tree.borrow().global_listeners.contains(*kind) {
+                self.emit(0, kind, detail.clone(), cx);
+            }
+        }
+    }
+
+    /// Tells `document` and `window` where the pointer is, when one of them listens.
+    fn report_motion(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
+        let pressed = match event.pressed_button {
+            Some(gpui::MouseButton::Left) => 1,
+            Some(gpui::MouseButton::Middle) => 4,
+            Some(_) => 2,
+            None => 0,
+        };
+        let detail = render::pointer_detail(event.position, event.modifiers, 0, 0);
+        let detail = format!("{},\"buttons\":{}}}", &detail[..detail.len() - 1], pressed);
+        self.report_globally(&["mousemove", "pointermove"], detail, cx);
+    }
+
     /// A plain click, which is what scripted runs use.
     fn click(&mut self, id: NodeId, cx: &mut Context<Self>) {
         self.emit(id, "click", "{}".to_string(), cx);
@@ -466,6 +500,10 @@ impl Workbench {
             eprintln!("nothing matches {needle:?}");
             return;
         };
+        if matches!(action, "down" | "move" | "up") {
+            self.run_pointer_step(action, id, parts.next().unwrap_or("0,0"), cx);
+            return;
+        }
         match action {
             "click" => self.click(id, cx),
             "focus" => {
@@ -519,6 +557,21 @@ impl Workbench {
             _ => eprintln!("unknown step {step:?}"),
         }
         cx.notify();
+    }
+
+    /// `down` presses on an element, `move` and `up` are what the window reports wherever the
+    /// pointer is; the argument is the position as `x,y`.
+    fn run_pointer_step(&mut self, action: &str, id: NodeId, at: &str, cx: &mut Context<Self>) {
+        let (x, y) = at.split_once(',').unwrap_or(("0", "0"));
+        let position = gpui::point(gpui::px(x.parse().unwrap_or(0.0)), gpui::px(y.parse().unwrap_or(0.0)));
+        let detail = render::pointer_detail(position, Default::default(), 0, 1);
+        match action {
+            "down" => {
+                self.emit(id, "mousedown", detail, cx);
+            }
+            "move" => self.report_globally(&["mousemove", "pointermove"], detail, cx),
+            _ => self.report_globally(&["mouseup", "pointerup"], detail, cx),
+        }
     }
 
     /// The closest element at or above `id` that scrolls.

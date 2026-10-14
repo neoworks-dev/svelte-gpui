@@ -16,6 +16,9 @@
   let focused = $state('nothing');
   let lastKey = $state('none');
   let globalKey = $state('none');
+  let windowMoves = $state(0);
+  let windowReleases = $state(0);
+  let lastWindowPoint = $state('none');
   let windowWidth = $state(0);
   let imageNote = $state('waiting');
   let brokenNote = $state('waiting');
@@ -28,6 +31,8 @@
 
 <svelte:window
   onkeydown={(event) => (globalKey = event.key)}
+  onmousemove={(event) => { windowMoves += 1; lastWindowPoint = event.clientX + ',' + event.clientY; }}
+  onmouseup={() => (windowReleases += 1)}
   bind:innerWidth={windowWidth}
 />
 
@@ -73,6 +78,7 @@
   <div class="text-dim">
     focused: <span class="font-mono text-green">{focused}</span>
     window key: <span class="font-mono text-green">{globalKey}</span>
+    window moves <span class="font-mono text-green">{windowMoves}</span> releases <span class="font-mono text-green">{windowReleases}</span> at <span class="font-mono text-green">{lastWindowPoint}</span>
     window width: <span class="font-mono text-green">{windowWidth}</span>
   </div>
 
