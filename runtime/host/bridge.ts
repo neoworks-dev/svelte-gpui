@@ -116,11 +116,11 @@ function announce(node: SNode): void {
     return;
   }
   const element = node as SElement;
-  if (element.tagName === "template") {
+  if (element.localName === "template") {
     return;
   }
   const id = register(element);
-  pending.push([CREATE_ELEMENT, id, element.tagName]);
+  pending.push([CREATE_ELEMENT, id, element.localName]);
   for (const [name, value] of element.attributes) {
     pending.push([SET_ATTRIBUTE, id, name, normalize(value)]);
   }
@@ -169,7 +169,7 @@ export function install(): void {
         pending.push([CREATE_TEXT, id, node.data]);
         return;
       }
-      pending.push([CREATE_ELEMENT, id, (node as SElement).tagName]);
+      pending.push([CREATE_ELEMENT, id, (node as SElement).localName]);
     },
 
     attributeChanged(node: SElement, name: string, value: unknown): void {

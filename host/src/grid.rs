@@ -185,14 +185,9 @@ impl GridModel {
         window: &mut Window,
         cx: &mut gpui::App,
     ) {
-        let family = self
-            .family
-            .split(',')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .trim_matches(['"', '\''])
-            .to_string();
+        // The face is the bundled monospace font whatever the page names: a name this
+        // host has not loaded would fall back to a proportional font and lose the grid.
+        let family = crate::render::MONO.to_string();
         let mut face = font(SharedString::from(family));
         if flags & BOLD != 0 {
             face.weight = FontWeight::BOLD;

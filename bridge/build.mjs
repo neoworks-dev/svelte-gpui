@@ -14,6 +14,16 @@ const dependencies = Object.keys({ ...manifest.dependencies, ...manifest.devDepe
   (name) => name !== "@neoworks/extension-system",
 );
 
+// Dynamic imports in the bundle resolve from where the bundle sits, not through
+// NODE_PATH, so Grove's node_modules is linked beside it.
+import { existsSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
+mkdirSync(here("./dist"), { recursive: true });
+const link = here("./dist/node_modules");
+if (existsSync(link)) {
+  rmSync(link, { force: true });
+}
+symlinkSync(`${grove}/node_modules`, link);
+
 await esbuild.build({
   entryPoints: [here("./server.ts")],
   outfile: here("./dist/server.cjs"),

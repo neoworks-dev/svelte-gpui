@@ -475,7 +475,14 @@ export class SStyle {
 
 export class SElement extends SNode {
   override nodeType = ELEMENT_NODE;
-  readonly tagName: string;
+  /** The lowercase name, which is what the host and selectors use. */
+  readonly localName: string;
+
+  /** The name as the DOM reports an HTML element's: uppercase. */
+  get tagName(): string {
+    return this.localName.toUpperCase();
+  }
+
   readonly attributes = new Map<string, unknown>();
   readonly style: SStyle;
   readonly listeners = new Map<string, Set<EventHandler>>();
@@ -483,7 +490,7 @@ export class SElement extends SNode {
 
   constructor(tagName: string) {
     super();
-    this.tagName = tagName;
+    this.localName = tagName;
     this.nodeName = tagName.toUpperCase();
     this.style = new SStyle(this);
     if (tagName === "template") {
@@ -635,7 +642,7 @@ export class SElement extends SNode {
   selectionEndValue = 0;
 
   get value(): string {
-    if (this.tagName === "select") {
+    if (this.localName === "select") {
       const chosen = this.selectedOptions[0] ?? this.options[0];
       return chosen === undefined ? "" : chosen.value;
     }
@@ -643,7 +650,7 @@ export class SElement extends SNode {
     if (stored !== undefined && stored !== null) {
       return String(stored);
     }
-    if (this.tagName === "option" || this.tagName === "textarea") {
+    if (this.localName === "option" || this.localName === "textarea") {
       return this.textContent.trim();
     }
     return "";
@@ -651,7 +658,7 @@ export class SElement extends SNode {
 
   set value(next: unknown) {
     const text = next === null || next === undefined ? "" : String(next);
-    if (this.tagName === "select") {
+    if (this.localName === "select") {
       const match = this.options.find((option) => option.value === text);
       this.selectedIndex = match === undefined ? -1 : this.options.indexOf(match);
       return;
@@ -694,7 +701,7 @@ export class SElement extends SNode {
 
   set selected(next: unknown) {
     const wanted = Boolean(next);
-    if (wanted && this.tagName === "option") {
+    if (wanted && this.localName === "option") {
       const select = this.owningSelect();
       if (select !== null && !select.multiple) {
         for (const other of select.options) {
@@ -712,7 +719,7 @@ export class SElement extends SNode {
     if (typeof stored === "string" && stored !== "") {
       return stored.toLowerCase();
     }
-    return this.tagName === "input" ? "text" : "";
+    return this.localName === "input" ? "text" : "";
   }
 
   set type(next: string) {
@@ -756,7 +763,7 @@ export class SElement extends SNode {
     const found: SElement[] = [];
     const visit = (node: SNode): void => {
       for (let child = node.firstChildNode; child !== null; child = child.nextSiblingNode) {
-        if (child instanceof SElement && child.tagName === "option") {
+        if (child instanceof SElement && child.localName === "option") {
           found.push(child);
           continue;
         }
@@ -786,7 +793,7 @@ export class SElement extends SNode {
 
   private owningSelect(): SElement | null {
     for (let node = this.parentNode; node !== null; node = node.parentNode) {
-      if (node instanceof SElement && node.tagName === "select") {
+      if (node instanceof SElement && node.localName === "select") {
         return node;
       }
     }
@@ -931,7 +938,7 @@ export class SElement extends SNode {
   }
 
   override cloneNode(deep?: boolean): SElement {
-    const copy = new SElement(this.tagName);
+    const copy = new SElement(this.localName);
     for (const [name, value] of this.attributes) {
       copy.setAttribute(name, value);
     }
@@ -999,7 +1006,7 @@ function simpleMatcher(selector: string): (element: SElement) => boolean {
     const attributes = [...part.matchAll(/\[([\w-]+)(?:=["']?([^\]"']*)["']?)?\]/g)];
     const checked = part.includes(":checked");
     return (element: SElement): boolean => {
-      if (tag !== undefined && element.tagName !== tag.toLowerCase()) {
+      if (tag !== undefined && element.localName !== tag.toLowerCase()) {
         return false;
       }
       if (classes.some((name) => !element.classList.contains(name))) {
@@ -1015,7 +1022,7 @@ function simpleMatcher(selector: string): (element: SElement) => boolean {
         }
       }
       if (checked) {
-        const isChecked = element.tagName === "option" ? element.selected : element.checked;
+        const isChecked = element.localName === "option" ? element.selected : element.checked;
         if (!isChecked) {
           return false;
         }

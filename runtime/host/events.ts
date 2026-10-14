@@ -117,7 +117,7 @@ function rememberState(target: SElement, type: string, detail: Record<string, un
     target.scrollTopValue = Number(detail.scrollTop ?? 0);
     return;
   }
-  if ((type === "input" || type === "change") && target.tagName === "select") {
+  if ((type === "input" || type === "change") && target.localName === "select") {
     const chosen = Number(detail.selectedIndex ?? -1);
     target.options.forEach((option, index) => {
       option.attributes.set("selected", index === chosen);

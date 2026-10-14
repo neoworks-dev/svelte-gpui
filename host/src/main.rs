@@ -545,7 +545,10 @@ impl Workbench {
         let mut matches: Vec<NodeId> = tree
             .nodes
             .iter()
-            .filter(|(_, node)| node.attributes.get(name).map(String::as_str) == Some(value))
+            .filter(|(_, node)| match (&node.kind, name) {
+                (Kind::Element { tag }, "tag") => tag == value,
+                _ => node.attributes.get(name).map(String::as_str) == Some(value),
+            })
             .map(|(id, _)| *id)
             .collect();
         matches.sort();

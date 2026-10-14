@@ -132,16 +132,36 @@ function appendText(parent: SNode, text: string): void {
   parent.appendChild(new SText(unescape(text)));
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  amp: "&",
+  nbsp: "\u00a0",
+  copy: "\u00a9",
+  middot: "\u00b7",
+  hellip: "\u2026",
+  ndash: "\u2013",
+  mdash: "\u2014",
+  laquo: "\u00ab",
+  raquo: "\u00bb",
+};
+
+/** Decodes the character references Svelte leaves in a template: named, decimal and hex. */
 function unescape(value: string): string {
   if (!value.includes("&")) {
     return value;
   }
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
-    .replaceAll("&amp;", "&");
+  return value.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body: string) => {
+    if (body.startsWith("#x") || body.startsWith("#X")) {
+      return String.fromCodePoint(parseInt(body.slice(2), 16));
+    }
+    if (body.startsWith("#")) {
+      return String.fromCodePoint(parseInt(body.slice(1), 10));
+    }
+    return NAMED_ENTITIES[body] ?? whole;
+  });
 }
 
 function firstSpace(source: string): number {
