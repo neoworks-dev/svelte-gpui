@@ -51,6 +51,56 @@ pub enum Justify {
 /// The four sides, in CSS order: top, right, bottom, left.
 pub type Sides<T> = [T; 4];
 
+/// A CSS timing function: a cubic Bezier through (0,0) and (1,1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Easing(pub f32, pub f32, pub f32, pub f32);
+
+impl Easing {
+    pub const EASE: Easing = Easing(0.25, 0.1, 0.25, 1.0);
+    pub const LINEAR: Easing = Easing(0.0, 0.0, 1.0, 1.0);
+
+    /// The eased progress for linear progress `time`, between 0 and 1.
+    pub fn at(&self, time: f32) -> f32 {
+        if *self == Easing::LINEAR {
+            return time;
+        }
+        let Easing(x1, y1, x2, y2) = *self;
+        let curve = |a: f32, b: f32, t: f32| 3.0 * a * (1.0 - t).powi(2) * t + 3.0 * b * (1.0 - t) * t * t + t.powi(3);
+        let mut t = time;
+        for _ in 0..8 {
+            let error = curve(x1, x2, t) - time;
+            let slope = (curve(x1, x2, t + 1e-3) - curve(x1, x2, t - 1e-3)) / 2e-3;
+            if slope.abs() < 1e-6 {
+                break;
+            }
+            t = (t - error / slope).clamp(0.0, 1.0);
+        }
+        curve(y1, y2, t)
+    }
+}
+
+/// What a `transition` declares: which properties ease, and how.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transition {
+    pub colours: bool,
+    pub opacity: bool,
+    pub duration_ms: f32,
+    pub delay_ms: f32,
+    pub easing: Easing,
+}
+
+impl Default for Transition {
+    fn default() -> Self {
+        Self {
+            colours: false,
+            opacity: false,
+            duration_ms: 0.0,
+            delay_ms: 0.0,
+            easing: Easing::EASE,
+        }
+    }
+}
+
 /// How an image fills its box: `object-fit`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Fit {
@@ -88,6 +138,9 @@ pub struct Style {
     pub scroll_x: bool,
     pub scroll_y: bool,
     pub fit: Fit,
+    /// `transform: translate(...)`, in pixels; the only transform a div can take.
+    pub translate: (f32, f32),
+    pub transition: Transition,
     pub background: Option<Rgba>,
     pub color: Option<Rgba>,
     pub opacity: Option<f32>,
@@ -137,8 +190,7 @@ pub struct Computed {
 
 /// Properties that matter for animation or input affordances and nothing for a still frame.
 const IGNORED: &[&str] = &[
-    "transition", "transition-property", "transition-duration", "transition-timing-function",
-    "animation", "user-select", "pointer-events", "outline", "outline-style", "outline-width",
+    "transition-behavior", "animation", "user-select", "pointer-events", "outline", "outline-style", "outline-width",
     "outline-color", "outline-offset", "box-sizing", "will-change", "scrollbar-width",
     "-webkit-user-select", "appearance", "-webkit-appearance", "z-index", "list-style",
     "text-decoration-line", "text-underline-offset", "letter-spacing", "word-break",
@@ -147,8 +199,8 @@ const IGNORED: &[&str] = &[
     "border-bottom-style", "border-left-style", "--tw-border-style", "visibility",
     "tab-size", "-webkit-text-size-adjust", "-webkit-tap-highlight-color", "font-variation-settings",
     "text-wrap", "text-wrap-mode", "resize", "caret-color", "accent-color", "fill", "stroke",
-    "stroke-width", "flex-shrink-0", "text-transform-none", "transform",
-    "translate", "scale", "rotate", "filter", "backdrop-filter", "box-shadow", "--tw-shadow",
+    "stroke-width", "flex-shrink-0", "text-transform-none",
+    "scale", "rotate", "filter", "backdrop-filter", "box-shadow", "--tw-shadow",
     "mask", "mix-blend-mode", "background-image", "place-items", "place-content", "isolation",
     "contain", "text-indent", "hyphens", "white-space-collapse", "font-variant-numeric",
     "text-decoration-thickness", "font-stretch", "text-size-adjust", "content",
@@ -417,6 +469,13 @@ impl Resolver {
             "opacity" => style.opacity = parse_number(value),
             "border-radius" => self.apply_radius(style, value),
             "cursor" => style.pointer = value == "pointer",
+            "transform" => style.translate = parse_translate(value),
+            "translate" => style.translate = parse_translate(&format!("translate({})", value.replace(' ', ", "))),
+            "transition-property" => self.apply_transition_property(style, value),
+            "transition-duration" => style.transition.duration_ms = first_time(value),
+            "transition-delay" => style.transition.delay_ms = first_time(value),
+            "transition-timing-function" => style.transition.easing = parse_easing(value),
+            "transition" => self.apply_transition_shorthand(style, value),
             "object-fit" => {
                 style.fit = match value {
                     "cover" => Fit::Cover,
@@ -438,6 +497,48 @@ impl Resolver {
             _ => return false,
         }
         true
+    }
+
+    fn apply_transition_property(&self, style: &mut Style, value: &str) {
+        style.transition.colours = false;
+        style.transition.opacity = false;
+        for name in value.split(',').map(str::trim) {
+            match name {
+                "all" => {
+                    style.transition.colours = true;
+                    style.transition.opacity = true;
+                }
+                "color" | "background-color" | "border-color" | "background" | "fill" | "stroke" => {
+                    style.transition.colours = true;
+                }
+                "opacity" => style.transition.opacity = true,
+                _ => {}
+            }
+        }
+    }
+
+    /// `transition: opacity 200ms ease-out 50ms`, for the first listed transition.
+    fn apply_transition_shorthand(&self, style: &mut Style, value: &str) {
+        let first = split_top_level(value, ',')[0].trim().to_string();
+        if first == "none" {
+            style.transition = Transition::default();
+            return;
+        }
+        let mut times = Vec::new();
+        let mut property = "all".to_string();
+        style.transition.easing = Easing::EASE;
+        for token in split_values(&first) {
+            if token.ends_with("ms") || (token.ends_with('s') && token[..token.len() - 1].parse::<f32>().is_ok()) {
+                times.push(first_time(token));
+            } else if token.starts_with("cubic-bezier") || matches!(token, "ease" | "linear" | "ease-in" | "ease-out" | "ease-in-out") {
+                style.transition.easing = parse_easing(token);
+            } else {
+                property = token.to_string();
+            }
+        }
+        self.apply_transition_property(style, &property);
+        style.transition.duration_ms = times.first().copied().unwrap_or(0.0);
+        style.transition.delay_ms = times.get(1).copied().unwrap_or(0.0);
     }
 
     fn colour(&self, value: &str) -> Option<Rgba> {
@@ -575,6 +676,70 @@ impl Resolver {
             Length::Percent(percent) => Some(percent / 100.0),
         }
     }
+}
+
+/// The pixels a `transform` moves an element: its translations, added up.
+fn parse_translate(value: &str) -> (f32, f32) {
+    let mut total = (0.0, 0.0);
+    let mut rest = value;
+    while let Some(open) = rest.find('(') {
+        let name = rest[..open].trim().rsplit(' ').next().unwrap_or("").trim();
+        let Some(close) = rest[open..].find(')') else {
+            break;
+        };
+        let arguments: Vec<&str> = rest[open + 1..open + close].split(',').map(str::trim).collect();
+        let pixels = |text: &str| match parse_length(text) {
+            Some(Length::Px(pixels)) => pixels,
+            _ => 0.0,
+        };
+        match name {
+            "translate" | "translate3d" => {
+                total.0 += pixels(arguments.first().copied().unwrap_or("0"));
+                total.1 += pixels(arguments.get(1).copied().unwrap_or("0"));
+            }
+            "translateX" => total.0 += pixels(arguments[0]),
+            "translateY" => total.1 += pixels(arguments[0]),
+            _ => {}
+        }
+        rest = &rest[open + close + 1..];
+    }
+    total
+}
+
+/// The first time in a list, as milliseconds: `150ms` or `.15s`.
+fn first_time(value: &str) -> f32 {
+    let first = value.split(',').next().unwrap_or("").trim();
+    if let Some(ms) = first.strip_suffix("ms") {
+        return ms.trim().parse().unwrap_or(0.0);
+    }
+    if let Some(seconds) = first.strip_suffix('s') {
+        return seconds.trim().parse::<f32>().map(|seconds| seconds * 1000.0).unwrap_or(0.0);
+    }
+    0.0
+}
+
+/// A timing function: a keyword or `cubic-bezier(a, b, c, d)`.
+fn parse_easing(value: &str) -> Easing {
+    let first = split_top_level(value, ',');
+    let text = if value.trim_start().starts_with("cubic-bezier") {
+        value.trim()
+    } else {
+        first[0].trim()
+    };
+    match text {
+        "linear" => return Easing::LINEAR,
+        "ease-in" => return Easing(0.42, 0.0, 1.0, 1.0),
+        "ease-out" => return Easing(0.0, 0.0, 0.58, 1.0),
+        "ease-in-out" => return Easing(0.42, 0.0, 0.58, 1.0),
+        _ => {}
+    }
+    if let Some(inner) = text.strip_prefix("cubic-bezier(").and_then(|rest| rest.strip_suffix(')')) {
+        let numbers: Vec<f32> = inner.split(',').filter_map(|part| part.trim().parse().ok()).collect();
+        if numbers.len() == 4 {
+            return Easing(numbers[0], numbers[1], numbers[2], numbers[3]);
+        }
+    }
+    Easing::EASE
 }
 
 fn hover_of(style: &Style) -> HoverStyle {

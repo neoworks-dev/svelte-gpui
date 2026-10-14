@@ -6,9 +6,10 @@
 //! Input goes the other way. Which events an element listens to decides which
 //! GPUI handlers it gets, and each handler reports to the app by node id.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, Bounds, ClickEvent, Context, Div, FocusHandle, FontWeight, HighlightStyle, Hsla,
@@ -43,6 +44,12 @@ pub struct Interaction {
     pub bounds: Rc<RefCell<HashMap<NodeId, Bounds<gpui::Pixels>>>>,
     /// The select whose list is showing, if any.
     pub open_select: RefCell<Option<NodeId>>,
+    /// Elements the pointer is over, for hover styles that ease instead of snapping.
+    pub hovered: RefCell<HashSet<NodeId>>,
+    /// Transitions in flight, by element.
+    pub animations: RefCell<HashMap<NodeId, Animation>>,
+    /// Set while painting when something is still easing, so another frame is asked for.
+    pub animating: Cell<bool>,
     pub images: Images,
 }
 
@@ -61,6 +68,70 @@ impl Interaction {
             .entry(id)
             .or_insert_with(ScrollHandle::new)
             .clone()
+    }
+}
+
+/// The properties a CSS transition eases between.
+#[derive(Clone, Copy, PartialEq)]
+pub struct Eased {
+    background: Option<Rgba>,
+    color: Option<Rgba>,
+    border: Option<Rgba>,
+    opacity: f32,
+}
+
+/// A transition in flight: from where the element was to where its style now says.
+pub struct Animation {
+    from: Eased,
+    to: Eased,
+    /// When the easing begins, delay included; None once it has finished.
+    start: Option<Instant>,
+}
+
+fn mix(from: Rgba, to: Rgba, amount: f32) -> Rgba {
+    Rgba {
+        r: from.r + (to.r - from.r) * amount,
+        g: from.g + (to.g - from.g) * amount,
+        b: from.b + (to.b - from.b) * amount,
+        a: from.a + (to.a - from.a) * amount,
+    }
+}
+
+/// A colour easing towards another; a missing one counts as transparent.
+fn mix_option(from: Option<Rgba>, to: Option<Rgba>, amount: f32) -> Option<Rgba> {
+    match (from, to) {
+        (Some(from), Some(to)) => Some(mix(from, to, amount)),
+        (None, Some(to)) => Some(mix(Rgba { a: 0.0, ..to }, to, amount)),
+        (Some(from), None) => Some(mix(from, Rgba { a: 0.0, ..from }, amount)),
+        (None, None) => None,
+    }
+}
+
+impl Animation {
+    /// Where the easing has got to at `now`, and how far along it is.
+    fn value_at(&self, now: Instant, transition: &crate::style::Transition) -> (Eased, f32) {
+        let Some(start) = self.start else {
+            return (self.to, 1.0);
+        };
+        if now < start {
+            return (self.from, 0.0);
+        }
+        let elapsed = now.duration_since(start).as_secs_f32() * 1000.0;
+        let progress = (elapsed / transition.duration_ms.max(1.0)).clamp(0.0, 1.0);
+        if progress >= 1.0 {
+            return (self.to, 1.0);
+        }
+        let eased = transition.easing.at(progress);
+        let mut value = self.to;
+        if transition.colours {
+            value.background = mix_option(self.from.background, self.to.background, eased);
+            value.color = mix_option(self.from.color, self.to.color, eased);
+            value.border = mix_option(self.from.border, self.to.border, eased);
+        }
+        if transition.opacity {
+            value.opacity = self.from.opacity + (self.to.opacity - self.from.opacity) * eased;
+        }
+        (value, progress)
     }
 }
 
@@ -335,11 +406,16 @@ impl Painter<'_> {
         cx: &mut Context<Workbench>,
     ) -> Option<AnyElement> {
         let node = self.tree.nodes.get(&id)?;
-        let computed = self.computed(id);
-        let style = &computed.style;
-        if style.display == Display::None {
+        let mut computed = self.computed(id);
+        if computed.style.display == Display::None {
             return None;
         }
+        let eased = computed.style.transition.duration_ms > 0.0
+            && (computed.style.transition.colours || computed.style.transition.opacity);
+        if eased {
+            self.ease_style(id, &mut computed);
+        }
+        let style = &computed.style;
         let inherited = Inherited {
             uppercase: inherited.uppercase || style.uppercase,
             font_size: style.font_size.unwrap_or(inherited.font_size),
@@ -378,7 +454,90 @@ impl Painter<'_> {
         if node.observed || is_select {
             element = element.child(self.measure(id));
         }
-        Some(self.interactive(element, id, node, style, &computed, cx))
+        Some(self.interactive(element, id, node, style, &computed, eased, cx))
+    }
+
+    /// Whether an ancestor marked `group` has the pointer over it.
+    fn in_hovered_group(&self, id: NodeId) -> bool {
+        let hovered = self.interaction.hovered.borrow();
+        let mut current = self.tree.nodes.get(&id).and_then(|node| node.parent);
+        while let Some(candidate) = current {
+            let Some(node) = self.tree.nodes.get(&candidate) else {
+                return false;
+            };
+            let grouped = attribute(node, "class").split_whitespace().any(|name| name == "group");
+            if grouped && hovered.contains(&candidate) {
+                return true;
+            }
+            current = node.parent;
+        }
+        false
+    }
+
+    /// Applies hover to the style itself, and eases from the last drawn colours to the new
+    /// ones. Elements that ease take hover through here rather than GPUI's own refinement.
+    fn ease_style(&self, id: NodeId, computed: &mut Computed) {
+        let hovered = self.interaction.hovered.borrow().contains(&id);
+        let grouped = self.in_hovered_group(id);
+        let style = &mut computed.style;
+        for (active, hover) in [(hovered, &computed.hover), (grouped, &computed.group_hover)] {
+            if !active {
+                continue;
+            }
+            if hover.background.is_some() {
+                style.background = hover.background;
+            }
+            if hover.color.is_some() {
+                style.color = hover.color;
+            }
+            if hover.opacity.is_some() {
+                style.opacity = hover.opacity;
+            }
+            if let Some(colour) = hover.border_color {
+                style.border_color = [Some(colour); 4];
+            }
+        }
+        let target = Eased {
+            background: style.background,
+            color: style.color,
+            border: main_border_colour(style),
+            opacity: style.opacity.unwrap_or(1.0),
+        };
+        let now = Instant::now();
+        let transition = style.transition.clone();
+        let mut animations = self.interaction.animations.borrow_mut();
+        let animation = animations.entry(id).or_insert(Animation {
+            from: target,
+            to: target,
+            start: None,
+        });
+        if animation.to != target {
+            let (current, _) = animation.value_at(now, &transition);
+            animation.from = current;
+            animation.to = target;
+            let delay = Duration::from_secs_f32(transition.delay_ms / 1000.0);
+            animation.start = Some(now + delay);
+        }
+        let (shown, progress) = animation.value_at(now, &transition);
+        if progress < 1.0 {
+            self.interaction.animating.set(true);
+        } else {
+            animation.start = None;
+        }
+        style.background = shown.background;
+        style.color = shown.color;
+        if let Some(colour) = shown.border {
+            for side in style.border_color.iter_mut() {
+                if side.is_some() {
+                    *side = Some(colour);
+                }
+            }
+        }
+        if shown.opacity < 1.0 || style.opacity.is_some() {
+            style.opacity = Some(shown.opacity);
+        }
+        computed.hover = HoverStyle::default();
+        computed.group_hover = HoverStyle::default();
     }
 
     /// An invisible layer that records how big its parent came out.
@@ -866,11 +1025,18 @@ impl Painter<'_> {
         node: &Node,
         style: &Style,
         computed: &Computed,
+        eased: bool,
         cx: &mut Context<Workbench>,
     ) -> AnyElement {
         let mut element = element.id(id as usize);
-        if attribute(node, "class").split_whitespace().any(|name| name == "group") {
+        let grouped = attribute(node, "class").split_whitespace().any(|name| name == "group");
+        if grouped {
             element = element.group("group");
+        }
+        if eased || grouped {
+            element = element.on_hover(cx.listener(move |workbench, hovered: &bool, _window, cx| {
+                workbench.hover_changed(id, *hovered, cx);
+            }));
         }
         if is_focusable(node) {
             let handle = self.interaction.focus_handle(id, cx);
@@ -1378,9 +1544,20 @@ fn apply_box(mut element: Div, style: &Style) -> Div {
     if let Some(value) = style.max_height {
         element = element.max_h(length(value));
     }
+    let (shift_x, shift_y) = style.translate;
+    if !style.absolute && (shift_x != 0.0 || shift_y != 0.0) {
+        element = element.relative().left(px(shift_x)).top(px(shift_y));
+    }
     if style.absolute {
         element = element.absolute();
+        let shifted = |value: Option<Dimension>, shift: f32| match value {
+            Some(Dimension::Px(pixels)) => Some(Dimension::Px(pixels + shift)),
+            None if shift != 0.0 => Some(Dimension::Px(shift)),
+            other => other,
+        };
         let [top, right, bottom, left] = style.inset;
+        let top = shifted(top, shift_y);
+        let left = shifted(left, shift_x);
         if let Some(value) = top {
             element = element.top(length(value));
         }

@@ -772,6 +772,24 @@ export class SElement extends SNode {
     this.listeners.get(type)?.delete(handler);
   }
 
+  /** Runs the listeners of an event the app made up, bubbling if it asked to. */
+  override dispatchEvent(event: any): boolean {
+    event.target = this;
+    for (let node: SNode | null = this; node !== null; node = node.parentNode) {
+      if (!(node instanceof SElement)) {
+        continue;
+      }
+      event.currentTarget = node;
+      for (const handler of [...(node.listeners.get(event.type) ?? [])]) {
+        handler.call(node, event);
+      }
+      if (!event.bubbles || event.cancelBubble) {
+        break;
+      }
+    }
+    return !event.defaultPrevented;
+  }
+
   override cloneNode(deep?: boolean): SElement {
     const copy = new SElement(this.tagName);
     for (const [name, value] of this.attributes) {

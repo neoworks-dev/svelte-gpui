@@ -18,6 +18,8 @@ pub struct Outcome {
 }
 
 pub struct App {
+    /// The moment the app started; its clock counts milliseconds from here.
+    pub started: std::time::Instant,
     runtime: Runtime,
     context: Context,
     pub tree: Rc<RefCell<Tree>>,
@@ -42,6 +44,7 @@ impl App {
         let counters = Rc::new(RefCell::new(Counters::default()));
         let clipboard = Rc::new(RefCell::new(String::new()));
         let app = Self {
+            started: std::time::Instant::now(),
             runtime,
             context,
             tree,
@@ -62,8 +65,12 @@ impl App {
         let tree = self.tree.clone();
         let counters = self.counters.clone();
         let clipboard = self.clipboard.clone();
+        let started = self.started;
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
+            let now = Function::new(ctx.clone(), move || started.elapsed().as_secs_f64() * 1000.0)
+                .expect("now function");
+            host.set("now", now).expect("set now");
             let read_clipboard = Function::new(ctx.clone(), move || clipboard.borrow().clone())
                 .expect("clipboard function");
             host.set("clipboardText", read_clipboard).expect("set clipboardText");
@@ -156,17 +163,23 @@ impl App {
         self.after_call();
     }
 
-    /// Advances the app's clock, which runs due timers and animation frames.
-    pub fn pump(&self, now_milliseconds: f64) {
+    /// Advances the app's clock, which runs due timers and animation frames. Says whether
+    /// anything is still waiting on the clock.
+    pub fn pump(&self, now_milliseconds: f64) -> bool {
+        let mut busy = false;
         self.context.with(|ctx| {
             let Ok(function) = ctx.globals().get::<_, Function>("__pump") else {
                 return;
             };
-            if let Err(error) = function.call::<_, ()>((now_milliseconds,)) {
-                eprintln!("svelte-gpui: __pump failed: {}", CaughtError::from_error(&ctx, error));
+            match function.call::<_, bool>((now_milliseconds,)) {
+                Ok(value) => busy = value,
+                Err(error) => {
+                    eprintln!("svelte-gpui: __pump failed: {}", CaughtError::from_error(&ctx, error));
+                }
             }
         });
         self.after_call();
+        busy
     }
 }
 

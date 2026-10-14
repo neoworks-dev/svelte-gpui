@@ -101,13 +101,63 @@ scroll reached `onscroll`, and `bind:clientWidth` reported 642 for a 668 pixel
 window. Hover, mouse buttons and clicks were seen in the logs as real events,
 because the pointer strayed onto the test display; the wheel was not exercised.
 
+## Forms
+
+`input` (text, search, email, password, number), `textarea`, `checkbox`, `radio`
+and `select` work with `bind:value`, `bind:checked`, `bind:group` and
+`onchange`. The host owns what is typed: `host/src/forms.rs` keeps each field's
+text, cursor and selection, and a key changes it and sends an `input` event
+carrying the new value, which the app writes back as the `value` attribute.
+The app setting `value` replaces the text.
+
+Fields take typing, Backspace and Delete (with Ctrl for words), arrows, Home and
+End, Shift to select, Ctrl+A, up and down in a textarea, `maxlength`, number
+filtering, `placeholder`, `disabled` and `readonly`. The mouse places the cursor
+and drags a selection. A single-line field scrolls to keep its cursor in view.
+`change` fires on blur and on Enter. A `label` activates the control it names or
+holds. A `select` shows its chosen option and a caret, opens a list with option
+groups and disabled options, and steps with the arrow keys.
+
+`copy`, `cut` and `paste` reach the app first, with a `clipboardData` object, and
+a handler that calls `preventDefault` takes over; otherwise the field copies,
+cuts or pastes itself. `navigator.clipboard.writeText` and `readText` work.
+Wayland only accepts a clipboard write that follows a real input event, so the
+host writes in the same turn as the event that asked.
+
+## Transitions
+
+Svelte's `transition:`, `in:` and `out:` call `element.animate()` with a list of
+keyframes sampled at 60 Hz. `runtime/dom/animate.ts` plays them against the
+host's clock by writing the inline style each keyframe names, and fires
+`onfinish`, so elements that are leaving stay until the outro ends. `fade` and
+`fly` were checked on screen. `transform: translate()` becomes a relative offset,
+since a div cannot be transformed.
+
+CSS transitions work for colours and opacity: `transition-colors`,
+`transition-opacity`, `duration-*` and `ease-*` come from the real stylesheet,
+and a change of class, or of hover, eases from what was last drawn. Elements that
+ease take hover from the host rather than GPUI, which is why hover is tracked.
+
+## Testing without a pointer
+
+`--do` steps act on the deepest element containing some text, or on an attribute
+with `@name=value`: `click:`, `focus:`, `type:TARGET:text`, `key:TARGET:ctrl-a`,
+`open:` and `choose:TARGET:index` for a select, `scroll:TEXT:PIXELS`, and `wait:`.
+Typing and keys go through the same functions real keys do, and real keys can be
+sent with `hyprctl dispatch hl.dsp.send_shortcut`. A real `ctrl-x` and `ctrl-v`
+moved text through the system clipboard and fired `cut` and `paste`, a real Enter
+on a focused button ran `navigator.clipboard.writeText`, and real arrow keys
+stepped a select. Mouse placement of a cursor, dragging a selection, and hover
+transitions were not exercised with a pointer.
+
 ## Not done
 
-- No `input`, `textarea` or `select`, so no `input`, `change` or `beforeinput`.
-  Text entry needs an editable element with IME handling.
-- No touch, drag, clipboard or `animationend` events.
-- Svelte's `transition:` directives need `element.animate()`, which is not
-  shimmed, and CSS transitions are ignored, so changes snap.
+- No IME or dead-key composition in text fields, no undo, and no spellcheck.
+- `input type` of date, color, range and file; no `form` submission.
+- Svelte's `slide` has nothing to measure, since layout only comes back for
+  elements that asked, so it does not animate height; `scale` and `blur` only
+  change opacity; `animate:flip` has no positions.
+- No touch, drag or `animationend` events.
 - Inline flow is approximated: runs of text and inline elements share a wrapping
   row, but there is no real inline layout across elements.
 - GPUI draws one border colour per element, so a side with its own colour is a

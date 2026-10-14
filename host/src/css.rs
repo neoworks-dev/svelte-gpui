@@ -403,7 +403,7 @@ pub fn parse_number(text: &str) -> Option<f32> {
         Some(inner) => inner.strip_suffix(')')?,
         None => trimmed,
     };
-    evaluate(expression).map(|(value, _)| value)
+    evaluate(expression).map(|(value, percent)| if percent { value / 100.0 } else { value })
 }
 
 /// Evaluates `a * b`, `a / b`, `a + b`, `a - b` and parentheses over numbers with

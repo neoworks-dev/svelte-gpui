@@ -1,6 +1,6 @@
 // Order matters: the DOM globals have to exist before Svelte's client runtime
 // is evaluated, and this is the module every entry point imports first.
-import { pump, windowTarget } from "./dom/globals";
+import { busy, pump } from "./dom/globals";
 
 import { flushSync, mount } from "svelte";
 import { SElement } from "./dom/nodes";
@@ -45,9 +45,10 @@ export function start(Component: unknown, props: Record<string, unknown> = {}): 
     dispatch(0, "resize", { bubbles: true });
     settle();
   };
-  globals.__pump = (clock: number): void => {
+  globals.__pump = (clock: number): boolean => {
     if (pump(clock)) {
       settle();
     }
+    return busy();
   };
 }

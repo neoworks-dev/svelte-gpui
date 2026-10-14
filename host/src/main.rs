@@ -12,8 +12,8 @@ mod select;
 mod style;
 mod tree;
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -112,6 +112,16 @@ impl Workbench {
         }
     }
 
+    /// The pointer entered or left an element that tracks it, which restyles it.
+    fn hover_changed(&mut self, id: NodeId, hovered: bool, cx: &mut Context<Self>) {
+        let mut set = self.interaction.hovered.borrow_mut();
+        let changed = if hovered { set.insert(id) } else { set.remove(&id) };
+        drop(set);
+        if changed {
+            cx.notify();
+        }
+    }
+
     /// A plain click, which is what scripted runs use.
     fn click(&mut self, id: NodeId, cx: &mut Context<Self>) {
         self.emit(id, "click", "{}".to_string(), cx);
@@ -188,9 +198,9 @@ impl Workbench {
 
     /// Advances the app's clock, carries requests out, reports what the window learned,
     /// and redraws if anything changed.
-    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let milliseconds = self.started.elapsed().as_secs_f64() * 1000.0;
-        self.svelte.pump(milliseconds);
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let milliseconds = self.svelte.started.elapsed().as_secs_f64() * 1000.0;
+        let busy = self.svelte.pump(milliseconds);
         self.run_commands(window, cx);
         self.report_focus(window, cx);
         self.report_scroll(cx);
@@ -202,6 +212,7 @@ impl Workbench {
             self.seen_version = version;
             cx.notify();
         }
+        busy
     }
 
     /// Does what the app asked: focus an element, or scroll one.
@@ -370,6 +381,9 @@ impl Workbench {
         let mut parts = step.splitn(3, ':');
         let action = parts.next().unwrap_or("");
         let needle = parts.next().unwrap_or("");
+        if action == "wait" {
+            return;
+        }
         let Some(id) = self.find_node(needle) else {
             eprintln!("nothing matches {needle:?}");
             return;
@@ -470,7 +484,7 @@ impl Workbench {
 }
 
 impl Render for Workbench {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = Instant::now();
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
@@ -480,6 +494,9 @@ impl Render for Workbench {
             interaction: &self.interaction,
         };
         let document = painter.document(cx);
+        if self.interaction.animating.replace(false) {
+            window.request_animation_frame();
+        }
         let elapsed = started.elapsed().as_secs_f64();
         self.stats.renders += 1;
         self.stats.render_seconds += elapsed;
@@ -657,6 +674,9 @@ fn main() {
                             fields: Rc::new(RefCell::new(HashMap::new())),
                             bounds: Rc::new(RefCell::new(HashMap::new())),
                             open_select: RefCell::new(None),
+                            hovered: RefCell::new(HashSet::new()),
+                            animations: RefCell::new(HashMap::new()),
+                            animating: Cell::new(false),
                             images,
                         };
                         window.focus(&interaction.root_focus);
@@ -682,11 +702,16 @@ fn main() {
 
         // The clock: timers and animation frames inside the app run off this.
         cx.spawn(async move |cx| {
+            let mut pause = 33;
             loop {
-                cx.background_executor().timer(Duration::from_millis(33)).await;
-                if cx.update(|cx| window.update(cx, |workbench, window, cx| workbench.tick(window, cx)).ok()).is_err() {
+                cx.background_executor().timer(Duration::from_millis(pause)).await;
+                let outcome = cx.update(|cx| {
+                    window.update(cx, |workbench, window, cx| workbench.tick(window, cx)).ok()
+                });
+                let Ok(busy) = outcome else {
                     return;
-                }
+                };
+                pause = if busy.unwrap_or(false) { 16 } else { 33 };
             }
         })
         .detach();
