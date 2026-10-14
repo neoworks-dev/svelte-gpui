@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +21,10 @@ pub enum ImageState {
 #[derive(Clone)]
 pub struct Images {
     states: Arc<Mutex<HashMap<String, ImageState>>>,
+    /// Pixel sizes read from file headers, which cost a read each.
+    sizes: Arc<Mutex<HashMap<PathBuf, Option<(u32, u32)>>>>,
+    /// Set when a background job finishes, so the window draws again.
+    pub updated: Arc<AtomicBool>,
     base: PathBuf,
     cache: PathBuf,
 }
@@ -35,6 +40,8 @@ impl Images {
         let _ = std::fs::create_dir_all(&cache);
         Self {
             states: Arc::new(Mutex::new(HashMap::new())),
+            sizes: Arc::new(Mutex::new(HashMap::new())),
+            updated: Arc::new(AtomicBool::new(false)),
             base,
             cache,
         }
@@ -103,6 +110,7 @@ impl Images {
             return ImageState::Ready(path);
         }
         let states = self.states.clone();
+        let updated = self.updated.clone();
         let url = url.to_string();
         std::thread::spawn(move || {
             let outcome = download(&url, &path);
@@ -111,6 +119,55 @@ impl Images {
                 false => ImageState::Failed,
             };
             states.lock().expect("image states").insert(url, state);
+            updated.store(true, Ordering::Relaxed);
+        });
+        ImageState::Loading
+    }
+
+    /// The pixel size of an image file, read from its header once.
+    pub fn dimensions(&self, path: &PathBuf) -> Option<(u32, u32)> {
+        if let Some(known) = self.sizes.lock().expect("image sizes").get(path) {
+            return *known;
+        }
+        // The cache files have no extension, so the format is read from the bytes.
+        let size = image::ImageReader::open(path)
+            .ok()
+            .and_then(|reader| reader.with_guessed_format().ok())
+            .and_then(|reader| reader.into_dimensions().ok());
+        self.sizes.lock().expect("image sizes").insert(path.clone(), size);
+        size
+    }
+
+    /// A copy of an image no wider than `width` pixels, made on a thread, so a screenshot
+    /// shown small is not decoded and uploaded at its full size. An animated or already
+    /// small enough image is used as it is.
+    pub fn scaled(&self, path: &PathBuf, width: u32) -> ImageState {
+        let Some((natural, _)) = self.dimensions(path) else {
+            return ImageState::Ready(path.clone());
+        };
+        let animated = path.extension().and_then(|e| e.to_str()) == Some("gif");
+        if animated || natural <= width + width / 4 {
+            return ImageState::Ready(path.clone());
+        }
+        let key = format!("{}@{width}", path.display());
+        if let Some(state) = self.states.lock().expect("image states").get(&key) {
+            return state.clone();
+        }
+        self.states
+            .lock()
+            .expect("image states")
+            .insert(key.clone(), ImageState::Loading);
+        let target = self.cache_path(&key);
+        let source = path.clone();
+        let states = self.states.clone();
+        let updated = self.updated.clone();
+        std::thread::spawn(move || {
+            let state = match shrink(&source, &target, width) {
+                true => ImageState::Ready(target),
+                false => ImageState::Ready(source),
+            };
+            states.lock().expect("image states").insert(key, state);
+            updated.store(true, Ordering::Relaxed);
         });
         ImageState::Loading
     }
@@ -133,6 +190,19 @@ impl Images {
             .values()
             .any(|state| *state == ImageState::Loading)
     }
+}
+
+/// Writes a copy of `source` that is `width` pixels wide.
+fn shrink(source: &PathBuf, target: &PathBuf, width: u32) -> bool {
+    if target.is_file() {
+        return true;
+    }
+    let Ok(decoded) = image::open(source) else {
+        return false;
+    };
+    let height = (decoded.height() as f64 * width as f64 / decoded.width() as f64).max(1.0) as u32;
+    let resized = decoded.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    resized.save_with_format(target, image::ImageFormat::Png).is_ok()
 }
 
 fn download(url: &str, path: &PathBuf) -> bool {

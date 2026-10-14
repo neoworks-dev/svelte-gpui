@@ -150,8 +150,38 @@ What that took, beyond the earlier examples:
 `--report` over the pane: three classes with no rule, which are the markers `group`
 and `peer` and `-space-x-1`, and three that only a `::placeholder` rule styles.
 
-Known costs: with a thread open the tree has 2,650 nodes, styles are resolved for
-every node on every frame (9 ms on average), and the process is 370 MB PSS.
+## Cost, and what brought it down
+
+Measured on the GitHub pane with a thread open, 2,650 nodes, 2026-10-14, one machine.
+
+| | Before | After |
+|---|---|---|
+| Building a frame's elements | 12 ms average, 26 ms worst | 3 to 4 ms average, 14 ms worst, the first frame after a change |
+| Frames with every node rebuilt each time | not measured | 60 fps held: 16.7 ms mean, 18.6 ms worst (200 frames) |
+| Memory with a thread open | 378 MB PSS | 270 MB PSS |
+| Memory at start, 171 nodes | 205 MB PSS | 205 MB PSS |
+
+What did it:
+
+- **A style cache.** A node's style was worked out several times per frame, by the
+  checks that decide how its parent lays it out. It is now worked out once per
+  version of the tree. The work itself was never the cost: all 4,000 styles of a run
+  take 37 ms.
+- **Images that wait and shrink.** The thread holds ten 1439 by 899 screenshots,
+  decoded to 5 MB each and uploaded to the GPU. An image now loads only when it is
+  within a screen of the window, and is decoded no wider than it is shown, on a
+  thread. That was 120 MB of the 378. Until it loads the box has the image's own
+  proportions, read from its header, so the page does not jump.
+
+What is left, and where it sits at start: GPUI loads the system fonts (43 MB of
+heap), the GPU driver maps about 65 MB of libraries and 35 MB of its own, and
+Vulkan loads every driver it finds, here both NVIDIA's and Mesa's, which costs 20 MB
+that setting `VK_DRIVER_FILES` to one driver gives back. The page's own state, the
+QuickJS heap and the host tree, is under 25 MB at 170 nodes.
+
+Tried and removed: drawing far-off elements as empty boxes. It would cut the build
+cost further for very long pages, but the boxes did not keep the size of what they
+replaced, and elements near the edge flipped between the two every frame.
 
 ## Testing without a pointer
 
@@ -272,8 +302,38 @@ What that took, beyond the earlier examples:
 `--report` over the pane: three classes with no rule, which are the markers `group`
 and `peer` and `-space-x-1`, and three that only a `::placeholder` rule styles.
 
-Known costs: with a thread open the tree has 2,650 nodes, styles are resolved for
-every node on every frame (9 ms on average), and the process is 370 MB PSS.
+## Cost, and what brought it down
+
+Measured on the GitHub pane with a thread open, 2,650 nodes, 2026-10-14, one machine.
+
+| | Before | After |
+|---|---|---|
+| Building a frame's elements | 12 ms average, 26 ms worst | 3 to 4 ms average, 14 ms worst, the first frame after a change |
+| Frames with every node rebuilt each time | not measured | 60 fps held: 16.7 ms mean, 18.6 ms worst (200 frames) |
+| Memory with a thread open | 378 MB PSS | 270 MB PSS |
+| Memory at start, 171 nodes | 205 MB PSS | 205 MB PSS |
+
+What did it:
+
+- **A style cache.** A node's style was worked out several times per frame, by the
+  checks that decide how its parent lays it out. It is now worked out once per
+  version of the tree. The work itself was never the cost: all 4,000 styles of a run
+  take 37 ms.
+- **Images that wait and shrink.** The thread holds ten 1439 by 899 screenshots,
+  decoded to 5 MB each and uploaded to the GPU. An image now loads only when it is
+  within a screen of the window, and is decoded no wider than it is shown, on a
+  thread. That was 120 MB of the 378. Until it loads the box has the image's own
+  proportions, read from its header, so the page does not jump.
+
+What is left, and where it sits at start: GPUI loads the system fonts (43 MB of
+heap), the GPU driver maps about 65 MB of libraries and 35 MB of its own, and
+Vulkan loads every driver it finds, here both NVIDIA's and Mesa's, which costs 20 MB
+that setting `VK_DRIVER_FILES` to one driver gives back. The page's own state, the
+QuickJS heap and the host tree, is under 25 MB at 170 nodes.
+
+Tried and removed: drawing far-off elements as empty boxes. It would cut the build
+cost further for very long pages, but the boxes did not keep the size of what they
+replaced, and elements near the edge flipped between the two every frame.
 
 ## Testing without a pointer
 

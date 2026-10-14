@@ -190,6 +190,7 @@ impl HoverStyle {
 }
 
 /// Everything a node needs to be drawn.
+#[derive(Clone)]
 pub struct Computed {
     pub style: Style,
     pub hover: HoverStyle,

@@ -74,6 +74,10 @@ struct Workbench {
     announced_images: HashMap<NodeId, String>,
     /// Requests for elements that did not exist yet when the app asked, with tries left.
     queued: Vec<(Command, u8)>,
+    /// When each frame began, while the `frames:N` step is measuring throughput.
+    frame_times: Vec<Instant>,
+    /// How many frames a throughput test still wants, set by the `frames:N` step.
+    frame_target: usize,
 }
 
 impl Workbench {
@@ -223,6 +227,28 @@ impl Workbench {
         let version = self.svelte.tree.borrow().version;
         if version != self.seen_version {
             self.seen_version = version;
+            cx.notify();
+        }
+        let wanted = self.frame_target;
+        if wanted > 0 {
+            if self.frame_times.len() >= wanted {
+                let mut gaps: Vec<f64> = self
+                    .frame_times
+                    .windows(2)
+                    .map(|pair| pair[1].duration_since(pair[0]).as_secs_f64() * 1000.0)
+                    .collect();
+                gaps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let mean = gaps.iter().sum::<f64>() / gaps.len().max(1) as f64;
+                let p95 = gaps[(gaps.len() as f64 * 0.95) as usize % gaps.len().max(1)];
+                println!("frames: {} at {mean:.1} ms mean, {p95:.1} ms 95th, {:.1} ms worst", gaps.len(), gaps.last().copied().unwrap_or(0.0));
+                self.frame_times.clear();
+                self.frame_target = 0;
+            }
+        }
+        if self.interaction.images.updated.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            cx.notify();
+        }
+        if self.interaction.bounds_changed.replace(false) {
             cx.notify();
         }
         busy
@@ -397,6 +423,12 @@ impl Workbench {
         if action == "wait" {
             return;
         }
+        if action == "frames" {
+            self.frame_times.clear();
+            self.frame_target = needle.parse().unwrap_or(0);
+            cx.notify();
+            return;
+        }
         let Some(id) = self.find_node(needle) else {
             eprintln!("nothing matches {needle:?}");
             return;
@@ -511,6 +543,11 @@ impl Workbench {
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = Instant::now();
+        let viewport = window.viewport_size();
+        self.interaction
+            .viewport
+            .set((f32::from(viewport.width), f32::from(viewport.height)));
+        self.interaction.scale.set(window.scale_factor());
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
         let painter = Painter {
@@ -519,6 +556,11 @@ impl Render for Workbench {
             interaction: &self.interaction,
         };
         let document = painter.document(cx);
+        let wanted = self.frame_target;
+        if wanted > 0 && self.frame_times.len() < wanted {
+            self.frame_times.push(Instant::now());
+            window.request_animation_frame();
+        }
         if self.interaction.animating.replace(false) {
             window.request_animation_frame();
         }
@@ -669,6 +711,13 @@ fn print_report(resolver: &Resolver, tree: &Tree) {
     }
 }
 
+/// What the allocator holds: bytes in use by the program, and bytes it keeps free.
+fn heap_megabytes() -> (f64, f64) {
+    // SAFETY: mallinfo2 only reads the allocator's own counters.
+    let info = unsafe { libc::mallinfo2() };
+    (info.uordblks as f64 / 1048576.0, info.fordblks as f64 / 1048576.0)
+}
+
 fn main() {
     let Some(bundle_path) = flag("--bundle") else {
         eprintln!("usage: svelte-gpui --bundle app.js [--css app.css] [--width N --height N]");
@@ -682,8 +731,10 @@ fn main() {
     };
 
     let before = memory_megabytes();
+    println!("malloc at start: {:.1} MB in use", heap_megabytes().0);
     let started = Instant::now();
     let svelte = Svelte::start(&bundle);
+    println!("malloc after the bundle ran: {:.1} MB in use", heap_megabytes().0);
     println!(
         "mounted in {:.0} ms, {} nodes; memory {:.1} MB RSS before, {:.1} after",
         started.elapsed().as_secs_f64() * 1000.0,
@@ -692,6 +743,7 @@ fn main() {
         memory_megabytes().0
     );
     let resolver = Resolver::new(Stylesheet::parse(&stylesheet));
+    println!("malloc after the stylesheet: {:.1} MB in use", heap_megabytes().0);
     let assets_dir = match flag("--assets") {
         Some(path) => PathBuf::from(path),
         None => std::env::current_dir().unwrap_or_default(),
@@ -707,6 +759,7 @@ fn main() {
 
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         cx.text_system().add_fonts(assets::fonts()).expect("fonts load");
+        println!("malloc after the fonts: {:.1} MB in use", heap_megabytes().0);
         let bounds = Bounds::centered(
             None,
             size(px(number_flag("--width", 668) as f32), px(number_flag("--height", 821) as f32)),
@@ -731,6 +784,11 @@ fn main() {
                             hovered: RefCell::new(HashSet::new()),
                             animations: RefCell::new(HashMap::new()),
                             animating: Cell::new(false),
+                            styles: RefCell::new((u64::MAX, HashMap::new())),
+                            viewport: Rc::new(Cell::new((0.0, 0.0))),
+                            scale: Cell::new(1.0),
+                            bounds_changed: Rc::new(Cell::new(false)),
+                            style_work: Cell::new((0, 0)),
                             images,
                         };
                         window.focus(&interaction.root_focus);
@@ -747,6 +805,8 @@ fn main() {
                             window_size: (0.0, 0.0),
                             announced_images: HashMap::new(),
                             queued: Vec::new(),
+                            frame_times: Vec::new(),
+                            frame_target: 0,
                         }
                     })
                 },
@@ -791,6 +851,8 @@ fn main() {
                 cx.background_executor().timer(Duration::from_millis(milliseconds)).await;
                 let (resident, proportional) = memory_megabytes();
                 println!("memory: {resident:.1} MB RSS, {proportional:.1} MB PSS");
+                let (used, free) = heap_megabytes();
+                println!("malloc: {used:.1} MB in use, {free:.1} MB free inside the heap");
                 cx.update(|cx| {
                     window
                         .update(cx, |workbench, _window, _cx| {
@@ -802,6 +864,11 @@ fn main() {
                                 stats.event_seconds / stats.events.max(1) as f64 * 1000.0,
                                 counters.batches,
                                 counters.operations
+                            );
+                            let (computes, nanos) = workbench.interaction.style_work.get();
+                            println!(
+                                "styles: {computes} worked out, {:.1} ms in all",
+                                nanos as f64 / 1e6
                             );
                             println!(
                                 "{} renders, {:.2} ms each building elements, worst {:.2} ms",

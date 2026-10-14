@@ -5202,6 +5202,8 @@ name = "svelte_gpui_host"
 version = "0.0.1"
 dependencies = [
  "gpui",
+ "image",
+ "libc",
  "rquickjs",
  "serde_json",
  "ureq",

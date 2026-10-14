@@ -50,6 +50,16 @@ pub struct Interaction {
     pub animations: RefCell<HashMap<NodeId, Animation>>,
     /// Set while painting when something is still easing, so another frame is asked for.
     pub animating: Cell<bool>,
+    /// Styles worked out for the current version of the tree; any change to it empties this.
+    pub styles: RefCell<(u64, HashMap<NodeId, Rc<Computed>>)>,
+    /// The window's size when the frame began, for skipping what is far off screen.
+    pub viewport: Rc<Cell<(f32, f32)>>,
+    /// The window's scale factor, for choosing how large to decode an image.
+    pub scale: Cell<f32>,
+    /// Set when an image has been measured for the first time or has moved, so one more frame follows.
+    pub bounds_changed: Rc<Cell<bool>>,
+    /// Styles worked out and the time they took, for the report.
+    pub style_work: Cell<(u32, u64)>,
     pub images: Images,
 }
 
@@ -171,6 +181,7 @@ struct Inherited {
 }
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
+
 
 impl Painter<'_> {
     /// The whole document: the root's children, filling the window.
@@ -522,15 +533,27 @@ impl Painter<'_> {
             text.to_string()
         };
         // Text may shrink below its full length and wrap, as it does in a flex row.
-        let mut text = div().child(SharedString::from(shown));
-        if std::env::var("SG_NO_TEXT_DIV_MINW").is_err() {
-            text = text.min_w_0();
-        }
-        text.into_any_element()
+        div().min_w_0().child(SharedString::from(shown)).into_any_element()
     }
 
-    fn computed(&self, id: NodeId) -> Computed {
-        self.resolver.compute(self.tree, id)
+    /// The style of a node, worked out once per version of the tree.
+    fn computed(&self, id: NodeId) -> Rc<Computed> {
+        let mut cache = self.interaction.styles.borrow_mut();
+        if cache.0 != self.tree.version {
+            cache.0 = self.tree.version;
+            cache.1.clear();
+        }
+        if let Some(found) = cache.1.get(&id) {
+            return found.clone();
+        }
+        let started = Instant::now();
+        let computed = Rc::new(self.resolver.compute(self.tree, id));
+        let (count, nanos) = self.interaction.style_work.get();
+        self.interaction
+            .style_work
+            .set((count + 1, nanos + started.elapsed().as_nanos() as u64));
+        cache.1.insert(id, computed.clone());
+        computed
     }
 
     /// One element, with its children, or nothing when it is not displayed.
@@ -541,7 +564,7 @@ impl Painter<'_> {
         cx: &mut Context<Workbench>,
     ) -> Option<AnyElement> {
         let node = self.tree.nodes.get(&id)?;
-        let mut computed = self.computed(id);
+        let mut computed = (*self.computed(id)).clone();
         if computed.style.display == Display::None {
             return None;
         }
@@ -551,11 +574,6 @@ impl Painter<'_> {
             self.ease_style(id, &mut computed);
         }
         let style = &computed.style;
-        if let Ok(wanted) = std::env::var("SG_DEBUG_TAG") {
-            if matches!(&node.kind, Kind::Element { tag } if *tag == wanted) {
-                println!("{wanted} class={:?}\n  {:?}", attribute(node, "class"), style);
-            }
-        }
         let inherited = Inherited {
             uppercase: inherited.uppercase || style.uppercase,
             font_size: style.font_size.unwrap_or(inherited.font_size),
@@ -567,7 +585,7 @@ impl Painter<'_> {
         };
 
         let mut element = apply_style(div(), style);
-        if self.holds_only_text(node) && std::env::var("SG_NO_TEXT_MINW").is_err() {
+        if self.holds_only_text(node) {
             element = element.min_w_0();
         }
         let tag = match &node.kind {
@@ -576,7 +594,7 @@ impl Painter<'_> {
         };
         match tag {
             "svg" => element = self.svg_content(element, id, node, style, inherited),
-            "img" => element = self.image_content(element, node, style),
+            "img" => element = self.image_content(element, id, node, style),
             "select" => element = self.select_content(element, id, node, style, inherited, cx),
             "input" | "textarea" => match control_of(node) {
                 Some(Control::Text) | Some(Control::Multiline) => {
@@ -786,7 +804,7 @@ impl Painter<'_> {
     }
 
     /// An `<img>` draws its file once the source has resolved to one.
-    fn image_content(&self, mut element: Div, node: &Node, style: &Style) -> Div {
+    fn image_content(&self, mut element: Div, id: NodeId, node: &Node, style: &Style) -> Div {
         let (width, height) = intrinsic_size(node, style, DEFAULT_FONT_SIZE);
         if style.width.is_none() && node.attributes.contains_key("width") {
             element = element.w(px(width));
@@ -798,7 +816,34 @@ impl Painter<'_> {
         if source.is_empty() {
             return element;
         }
-        let ImageState::Ready(path) = self.interaction.images.state(source) else {
+        let images = &self.interaction.images;
+        let ImageState::Ready(path) = images.state(source) else {
+            return element;
+        };
+        // Where the image sits is measured every frame, to know when it comes near the window.
+        element = element.child(self.measure_image(id));
+
+        // Until it is drawn the box takes the image's own proportions, so the page does not jump.
+        let natural = images.dimensions(&path);
+        let sized_by_page = style.width.is_some() || node.attributes.contains_key("width");
+        if let (Some((natural_width, natural_height)), false) = (natural, sized_by_page) {
+            element = element.w(px(natural_width as f32)).max_w_full();
+            element.style().aspect_ratio = Some(natural_width as f32 / natural_height.max(1) as f32);
+        }
+
+        let bounds = self.interaction.bounds.borrow().get(&id).copied();
+        let view = self.interaction.viewport.get();
+        let near = match bounds {
+            Some(placed) => !is_far_away(placed, view),
+            None => false,
+        };
+        let Some(placed) = bounds.filter(|_| near) else {
+            return element;
+        };
+        // Drawn no larger than it is shown: a screenshot shown small is not kept at full size.
+        let wanted = f32::from(placed.size.width) * self.interaction.scale.get();
+        let bucket = ((wanted.ceil() as u32).max(1)).div_ceil(64) * 64;
+        let ImageState::Ready(file) = images.scaled(&path, bucket) else {
             return element;
         };
         let fit = match style.fit {
@@ -806,13 +851,38 @@ impl Painter<'_> {
             Fit::Fill => ObjectFit::Fill,
             Fit::Contain => ObjectFit::Contain,
         };
-        let mut picture = img(path).size_full().object_fit(fit);
+        let mut picture = img(file).size_full().object_fit(fit);
         let [top_left, top_right, bottom_right, bottom_left] = style.radius;
         picture.style().corner_radii.top_left = Some(px(top_left).into());
         picture.style().corner_radii.top_right = Some(px(top_right).into());
         picture.style().corner_radii.bottom_right = Some(px(bottom_right).into());
         picture.style().corner_radii.bottom_left = Some(px(bottom_left).into());
         element.child(picture)
+    }
+
+    /// Records where an image is, and asks for another frame when it crosses into the
+    /// part of the page near the window, which is when it starts to load.
+    fn measure_image(&self, id: NodeId) -> AnyElement {
+        let sizes = self.interaction.sizes.clone();
+        let placed = self.interaction.bounds.clone();
+        let changed = self.interaction.bounds_changed.clone();
+        let viewport = self.interaction.viewport.clone();
+        canvas(
+            move |bounds, _, _| {
+                let size = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                sizes.borrow_mut().insert(id, size);
+                let view = viewport.get();
+                let before = placed.borrow_mut().insert(id, bounds);
+                let was_near = before.map(|old| !is_far_away(old, view));
+                if was_near != Some(!is_far_away(bounds, view)) {
+                    changed.set(true);
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full()
+        .into_any_element()
     }
 
     /// A theme colour by its custom property, for the parts of a control CSS does not reach.
@@ -1515,6 +1585,18 @@ fn pointer_detail(
         clicks,
         modifier_fields(modifiers)
     )
+}
+
+/// Whether a box is more than a screen away from the window.
+fn is_far_away(bounds: Bounds<gpui::Pixels>, window: (f32, f32)) -> bool {
+    let (width, height) = window;
+    if width <= 0.0 || height <= 0.0 {
+        return false;
+    }
+    f32::from(bounds.bottom()) < -height
+        || f32::from(bounds.top()) > height * 2.0
+        || f32::from(bounds.right()) < -width
+        || f32::from(bounds.left()) > width * 2.0
 }
 
 fn attribute<'a>(node: &'a Node, name: &str) -> &'a str {
