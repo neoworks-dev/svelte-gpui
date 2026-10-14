@@ -102,12 +102,16 @@ impl Workbench {
         }
         let mut open = self.interaction.open_select.borrow_mut();
         *open = if *open == Some(select) { None } else { Some(select) };
-        cx.notify();
+        drop(open);
+        self.touch(select, cx);
     }
 
     pub fn close_select(&mut self, cx: &mut Context<Self>) {
-        *self.interaction.open_select.borrow_mut() = None;
-        cx.notify();
+        let was_open = self.interaction.open_select.borrow_mut().take();
+        match was_open {
+            Some(select) => self.touch(select, cx),
+            None => cx.notify(),
+        }
     }
 
     /// Makes the option at `index` the chosen one, and tells the app.

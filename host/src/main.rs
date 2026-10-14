@@ -80,6 +80,8 @@ struct Workbench {
     frame_times: Vec<Instant>,
     /// How many frames a throughput test still wants, set by the `frames:N` step.
     frame_target: usize,
+    /// The element the `poke:` step has changed on every tick, as hovering one would.
+    poked: Option<NodeId>,
 }
 
 impl Workbench {
@@ -91,6 +93,7 @@ impl Workbench {
         self.write_requested_clipboard(cx);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
+        self.flush_dirty(cx);
         if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
             let after = self.svelte.counters.borrow().operations;
             println!(
@@ -125,7 +128,122 @@ impl Workbench {
         let changed = if hovered { set.insert(id) } else { set.remove(&id) };
         drop(set);
         if changed {
+            let tree = self.svelte.tree.clone();
+            let tree = tree.borrow();
+            self.dirty_around_hover(&tree, id, cx);
             cx.notify();
+        }
+    }
+
+    /// Draws one view: what is under `root`, inside the box the outer layout gave it.
+    pub fn build_view(&mut self, root: NodeId, inherited: render::Inherited, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let tree = self.svelte.tree.clone();
+        let tree = tree.borrow();
+        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused, Some(root));
+        painter.view_content(root, inherited, cx)
+    }
+
+    /// The view an element is drawn in, when it is drawn in one.
+    fn enclosing_view(&self, tree: &Tree, id: NodeId) -> Option<NodeId> {
+        let roots = self.interaction.view_roots.borrow();
+        let mut current = Some(id);
+        while let Some(node) = current {
+            if roots.contains(&node) {
+                return Some(node);
+            }
+            current = tree.nodes.get(&node).and_then(|found| found.parent);
+        }
+        None
+    }
+
+    /// Has one view drawn again.
+    fn dirty_view(&self, root: NodeId, cx: &mut Context<Self>) {
+        let entity = self.interaction.views.borrow().get(&root).cloned();
+        if let Some(entity) = entity {
+            entity.update(cx, |_, cx| cx.notify());
+        }
+    }
+
+    /// Has every view that sits under `id` drawn again.
+    fn dirty_views_under(&self, tree: &Tree, id: NodeId, cx: &mut Context<Self>) {
+        let mut pending = vec![id];
+        while let Some(next) = pending.pop() {
+            if self.interaction.view_roots.borrow().contains(&next) {
+                self.dirty_view(next, cx);
+                continue;
+            }
+            if let Some(node) = tree.nodes.get(&next) {
+                pending.extend(node.children.iter().copied());
+            }
+        }
+    }
+
+    fn dirty_all_views(&self, cx: &mut Context<Self>) {
+        let roots: Vec<NodeId> = self.interaction.views.borrow().keys().copied().collect();
+        for root in roots {
+            self.dirty_view(root, cx);
+        }
+    }
+
+    /// Something about this element changed: it, and the view it is in, are drawn again.
+    fn touch(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        let tree = self.svelte.tree.clone();
+        let tree = tree.borrow();
+        if let Some(root) = self.enclosing_view(&tree, id) {
+            self.dirty_view(root, cx);
+        }
+        cx.notify();
+    }
+
+    /// The pointer entered or left an element, which restyles it and whatever sits under
+    /// a `group` above it.
+    fn dirty_around_hover(&self, tree: &Tree, id: NodeId, cx: &mut Context<Self>) {
+        if let Some(root) = self.enclosing_view(tree, id) {
+            self.dirty_view(root, cx);
+        }
+        let mut current = Some(id);
+        while let Some(node_id) = current {
+            let Some(node) = tree.nodes.get(&node_id) else {
+                break;
+            };
+            let grouped = node
+                .attributes
+                .get("class")
+                .map(|class| class.split_whitespace().any(|name| name == "group" || name.starts_with("group/")))
+                .unwrap_or(false);
+            if grouped {
+                self.dirty_views_under(tree, node_id, cx);
+            }
+            current = node.parent;
+        }
+    }
+
+    /// Has drawn again whatever the app's last changes to the tree touched.
+    fn flush_dirty(&mut self, cx: &mut Context<Self>) {
+        let (dirty, deep) = {
+            let mut tree = self.svelte.tree.borrow_mut();
+            (std::mem::take(&mut tree.dirty), std::mem::take(&mut tree.dirty_deep))
+        };
+        if dirty.is_empty() && deep.is_empty() {
+            return;
+        }
+        let tree = self.svelte.tree.clone();
+        let tree = tree.borrow();
+        let mut redraw: HashSet<NodeId> = HashSet::new();
+        for id in dirty.iter().chain(deep.iter()) {
+            if let Some(root) = self.enclosing_view(&tree, *id) {
+                redraw.insert(root);
+            }
+        }
+        for root in redraw {
+            self.dirty_view(root, cx);
+        }
+        // What an attribute or a style changes may reach everything below it.
+        for id in deep {
+            let own_view = self.enclosing_view(&tree, id);
+            if own_view.is_none() || own_view == Some(id) {
+                self.dirty_views_under(&tree, id, cx);
+            }
         }
     }
 
@@ -153,6 +271,7 @@ impl Workbench {
             self.write_requested_clipboard(cx);
             self.stats.events += 1;
             if self.svelte.counters.borrow().operations != before {
+                self.flush_dirty(cx);
                 cx.notify();
             }
         }
@@ -222,7 +341,8 @@ impl Workbench {
         if target != 0
             && (self.field_key(target, keystroke, insert_text, cx) || self.select_key(target, keystroke, cx))
         {
-            cx.notify();
+            self.flush_dirty(cx);
+            self.touch(target, cx);
             return true;
         }
         false
@@ -276,7 +396,15 @@ impl Workbench {
         let version = self.svelte.tree.borrow().version;
         if version != self.seen_version {
             self.seen_version = version;
+            self.flush_dirty(cx);
             cx.notify();
+        }
+        if let Some(id) = self.poked {
+            self.touch(id, cx);
+        }
+        let easing: Vec<NodeId> = self.interaction.animating_ids.borrow_mut().drain().collect();
+        for id in easing {
+            self.touch(id, cx);
         }
         let wanted = self.frame_target;
         if wanted > 0 {
@@ -295,12 +423,14 @@ impl Workbench {
             }
         }
         if self.interaction.images.updated.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            self.dirty_all_views(cx);
             cx.notify();
         }
-        if self.interaction.bounds_changed.replace(false) {
-            cx.notify();
+        let moved: Vec<NodeId> = self.interaction.bounds_changed.borrow_mut().drain().collect();
+        for id in moved {
+            self.touch(id, cx);
         }
-        busy
+        busy || self.poked.is_some() || !self.interaction.animating_ids.borrow().is_empty()
     }
 
     /// Does what the app asked: focus an element, or scroll one.
@@ -508,6 +638,14 @@ impl Workbench {
             eprintln!("nothing matches {needle:?}");
             return;
         };
+        if action == "hover" || action == "unhover" {
+            self.hover_changed(id, action == "hover", cx);
+            return;
+        }
+        if action == "poke" {
+            self.poked = Some(id);
+            return;
+        }
         if matches!(action, "down" | "move" | "up") {
             self.run_pointer_step(action, id, parts.next().unwrap_or("0,0"), cx);
             return;
@@ -564,6 +702,7 @@ impl Workbench {
             }
             _ => eprintln!("unknown step {step:?}"),
         }
+        self.dirty_all_views(cx);
         cx.notify();
     }
 
@@ -652,7 +791,7 @@ impl Render for Workbench {
         }
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
-        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused);
+        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused, None);
         let document = painter.document(cx);
         let wanted = self.frame_target;
         if wanted > 0 && self.frame_times.len() < wanted {
@@ -785,6 +924,9 @@ fn print_outline(tree: &Tree, id: NodeId, depth: usize, limit: usize) {
 }
 
 fn print_report(resolver: &Resolver, tree: &Tree) {
+    let builds = render::VIEW_BUILDS.load(std::sync::atomic::Ordering::Relaxed);
+    let nanos = render::VIEW_NANOS.load(std::sync::atomic::Ordering::Relaxed);
+    println!("views: {builds} built, {:.2} ms each", nanos as f64 / builds.max(1) as f64 / 1e6);
     println!("nodes in the host tree: {}", tree.nodes.len());
     if std::env::var("SVELTE_GPUI_OUTLINE").is_ok() {
         print_outline(tree, ROOT, 0, 14);
@@ -919,7 +1061,11 @@ fn main() {
                             viewport: Rc::new(Cell::new((0.0, 0.0))),
                             scale: Cell::new(1.0),
                             viewport_key: Cell::new(0),
-                            bounds_changed: Rc::new(Cell::new(false)),
+                            bounds_changed: Rc::new(RefCell::new(HashSet::new())),
+                            views: RefCell::new(HashMap::new()),
+                            view_roots: RefCell::new(HashSet::new()),
+                            animating_ids: RefCell::new(HashSet::new()),
+                            workbench: RefCell::new(Some(cx.weak_entity())),
                             style_work: Cell::new((0, 0)),
                             images,
                         };
@@ -939,6 +1085,7 @@ fn main() {
                             queued: Vec::new(),
                             frame_times: Vec::new(),
                             frame_target: 0,
+                            poked: None,
                         }
                     })
                 },

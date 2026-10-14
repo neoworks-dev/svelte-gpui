@@ -47,6 +47,10 @@ pub struct Tree {
     pub commands: Vec<Command>,
     /// Event types `document` or `window` listen for, which the app reports under id 0.
     pub global_listeners: std::collections::HashSet<String>,
+    /// Nodes whose own content or children changed since the window last looked.
+    pub dirty: HashSet<NodeId>,
+    /// Nodes whose attributes or style changed, which can change how what is under them looks.
+    pub dirty_deep: HashSet<NodeId>,
 }
 
 // Operation codes; runtime/host/bridge.ts sends the same numbers.
@@ -75,6 +79,8 @@ impl Tree {
             version: 0,
             commands: Vec::new(),
             global_listeners: std::collections::HashSet::new(),
+            dirty: HashSet::new(),
+            dirty_deep: HashSet::new(),
         };
         tree.nodes.insert(
             ROOT,
@@ -122,6 +128,7 @@ impl Tree {
             SET_TEXT => {
                 if let Some(Node { kind: Kind::Text { data }, .. }) = self.nodes.get_mut(&id) {
                     *data = text_at(parts, 2);
+                    self.dirty.insert(id);
                 }
             }
             SET_ATTRIBUTE => self.set_attribute(id, parts),
@@ -137,6 +144,7 @@ impl Tree {
                     self.global_listeners.insert(event);
                 } else if let Some(node) = self.nodes.get_mut(&id) {
                     node.listeners.insert(event);
+                    self.dirty_deep.insert(id);
                 }
             }
             UNLISTEN_GLOBAL => {
@@ -155,7 +163,10 @@ impl Tree {
                 let end = parts.get(3).and_then(Value::as_u64).unwrap_or(0) as usize;
                 self.commands.push(Command::Select(id, start, end));
             }
-            GRID => self.apply_grid(id, &parts[2..]),
+            GRID => {
+                self.apply_grid(id, &parts[2..]);
+                self.dirty.insert(id);
+            }
             WRITE_CLIPBOARD => self.commands.push(Command::WriteClipboard(text_at(parts, 2))),
             OBSERVE_SIZE => {
                 if let Some(node) = self.nodes.get_mut(&id) {
@@ -207,6 +218,7 @@ impl Tree {
         let Some(node) = self.nodes.get_mut(&id) else {
             return;
         };
+        self.dirty_deep.insert(id);
         match parts.get(3) {
             Some(Value::Null) | None => {
                 node.attributes.remove(&name);
@@ -225,6 +237,7 @@ impl Tree {
         let Some(node) = self.nodes.get_mut(&id) else {
             return;
         };
+        self.dirty_deep.insert(id);
         node.style.retain(|(name, _)| *name != property);
         if let Some(Value::String(value)) = parts.get(3) {
             node.style.push((property, value.clone()));
@@ -243,6 +256,7 @@ impl Tree {
             .position(|candidate| *candidate == before)
             .unwrap_or(parent_node.children.len());
         parent_node.children.insert(position, child);
+        self.dirty.insert(parent);
         if let Some(child_node) = self.nodes.get_mut(&child) {
             child_node.parent = Some(parent);
         }
@@ -254,6 +268,7 @@ impl Tree {
         };
         if let Some(parent_node) = self.nodes.get_mut(&parent) {
             parent_node.children.retain(|candidate| *candidate != id);
+            self.dirty.insert(parent);
         }
         if let Some(node) = self.nodes.get_mut(&id) {
             node.parent = None;

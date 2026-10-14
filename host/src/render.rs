@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Bounds, ClickEvent, Context, Div, FocusHandle, FontWeight, HighlightStyle, Hsla,
+    AnyElement, AnyView, Bounds, Entity, Render, WeakEntity, Window, ClickEvent, Context, Div, FocusHandle, FontWeight, HighlightStyle, Hsla,
     IntoElement, Length, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
     Rgba, ScrollDelta, ScrollHandle, ScrollWheelEvent, SharedString, StyledImage, StyledText,
     Corner, anchored, auto, canvas, deferred, div, fill, img, point, prelude::*, px, relative,
@@ -59,7 +59,14 @@ pub struct Interaction {
     /// The window's scale factor, for choosing how large to decode an image.
     pub scale: Cell<f32>,
     /// Set when an image has been measured for the first time or has moved, so one more frame follows.
-    pub bounds_changed: Rc<Cell<bool>>,
+    pub bounds_changed: Rc<RefCell<HashSet<NodeId>>>,
+    /// The parts of the document drawn as views of their own, by their topmost element.
+    pub views: RefCell<HashMap<NodeId, Entity<NodeView>>>,
+    /// The elements that are the top of a view, as of the last time they were built.
+    pub view_roots: RefCell<HashSet<NodeId>>,
+    /// The elements whose colours are still easing, which must be built again for the next frame.
+    pub animating_ids: RefCell<HashSet<NodeId>>,
+    pub workbench: RefCell<Option<WeakEntity<Workbench>>>,
     /// Styles worked out and the time they took, for the report.
     pub style_work: Cell<(u32, u64)>,
     pub images: Images,
@@ -155,6 +162,9 @@ pub struct Painter<'a> {
     pub focus_chain: HashSet<NodeId>,
     /// How many nodes each element holds, worked out as they are asked for.
     weights: RefCell<HashMap<NodeId, usize>>,
+    /// The view being built, whose top element is drawn in place rather than as a view.
+    /// Views do not nest: building one never starts another.
+    inside_view: Option<NodeId>,
 }
 
 /// Elements holding at least this many nodes are measured, and not built while far from the window.
@@ -166,6 +176,7 @@ impl<'a> Painter<'a> {
         resolver: &'a Resolver,
         interaction: &'a Interaction,
         focused: Option<NodeId>,
+        inside_view: Option<NodeId>,
     ) -> Self {
         let mut focus_chain = HashSet::new();
         let mut current = focused;
@@ -179,6 +190,7 @@ impl<'a> Painter<'a> {
             interaction,
             focus_chain,
             weights: RefCell::new(HashMap::new()),
+            inside_view,
         }
     }
 
@@ -210,7 +222,7 @@ impl<'a> Painter<'a> {
         if !is_far_for_culling(bounds, self.interaction.viewport.get()) {
             return None;
         }
-        if std::env::var("SVELTE_GPUI_CULL_LOG").is_ok() {
+        if switch("SVELTE_GPUI_CULL_LOG") {
             eprintln!("culled {id} weight {} at {:?} view {:?}", self.weight(id), bounds, self.interaction.viewport.get());
         }
         let height = bounds.size.height;
@@ -230,7 +242,7 @@ impl<'a> Painter<'a> {
                 let before = placed.borrow_mut().insert(id, bounds);
                 let was_far = before.map(|old| is_far_for_culling(old, view));
                 if was_far != Some(is_far_for_culling(bounds, view)) {
-                    changed.set(true);
+                    changed.borrow_mut().insert(id);
                 }
             },
             |_, _, _, _| {},
@@ -258,8 +270,8 @@ enum Piece {
 }
 
 /// What a child inherits from the elements above it.
-#[derive(Clone, Copy)]
-struct Inherited {
+#[derive(Clone, Copy, PartialEq)]
+pub struct Inherited {
     uppercase: bool,
     font_size: f32,
     /// The text colour in force, which an `svg` is tinted with.
@@ -272,6 +284,131 @@ struct Inherited {
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 
+
+/// A part of the document that is its own GPUI view. GPUI keeps what a view drew and its
+/// layout until the view changes, so a change somewhere else in the window costs this part
+/// nothing.
+pub struct NodeView {
+    pub workbench: WeakEntity<Workbench>,
+    pub root: NodeId,
+    pub inherited: Inherited,
+}
+
+/// How many views were built, and the nanoseconds that took, for the report.
+pub static VIEW_BUILDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static VIEW_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+impl Render for NodeView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(workbench) = self.workbench.upgrade() else {
+            return div().into_any_element();
+        };
+        let root = self.root;
+        let inherited = self.inherited;
+        let started = Instant::now();
+        let element = workbench.update(cx, |workbench, cx| workbench.build_view(root, inherited, cx));
+        VIEW_BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        VIEW_NANOS.fetch_add(started.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        element
+    }
+}
+
+/// Whether a debugging switch is set in the environment, looked up once.
+fn switch(name: &'static str) -> bool {
+    use std::sync::OnceLock;
+    static SWITCHES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    let set = SWITCHES.get_or_init(|| {
+        ["SVELTE_GPUI_NO_VIEWS", "SVELTE_GPUI_OUTER_LOG", "SVELTE_GPUI_CULL_LOG"]
+            .into_iter()
+            .filter(|name| std::env::var(name).is_ok())
+            .collect()
+    });
+    set.contains(name)
+}
+
+/// Parts of the document holding fewer nodes than this are not worth a view of their own.
+const VIEW_MIN_WEIGHT: usize = 24;
+/// Parts holding more than this are split further, so a change does not redraw too much.
+const VIEW_MAX_WEIGHT: usize = 2500;
+
+impl Painter<'_> {
+    /// The contents of a view: its top element, drawn to fill the box the outer layout gave it.
+    pub fn view_content(&self, root: NodeId, inherited: Inherited, cx: &mut Context<Workbench>) -> AnyElement {
+        match self.element(root, inherited, cx) {
+            Some(element) => element,
+            None => div().into_any_element(),
+        }
+    }
+
+    /// Whether the outer layout can size this element without looking inside it: its box
+    /// comes from its parent (a share, a fixed length, stretching, or filling what is left).
+    fn sized_by_parent(&self, id: NodeId, style: &Style) -> bool {
+        if style.absolute || style.translate != (0.0, 0.0) || !matches!(style.display, Display::Flex | Display::Block) {
+            return false;
+        }
+        let Some(parent) = self.tree.nodes.get(&id).and_then(|node| node.parent) else {
+            return false;
+        };
+        let parent_style = self.computed(parent).style.clone();
+        let fixed = |dimension: Option<Dimension>| matches!(dimension, Some(Dimension::Px(_)) | Some(Dimension::Percent(_)));
+        let nothing = |dimension: Option<Dimension>| matches!(dimension, Some(Dimension::Px(zero)) | Some(Dimension::Percent(zero)) if zero == 0.0);
+        match parent_style.display {
+            Display::Flex => {
+                let stretches = matches!(style.align_self.or(parent_style.align_items), None | Some(Align::Stretch));
+                let fills = style.grow.unwrap_or(0.0) > 0.0 && nothing(style.basis);
+                let (main, main_minimum, cross) = if parent_style.column {
+                    (style.height, style.min_height, style.width)
+                } else {
+                    (style.width, style.min_width, style.height)
+                };
+                let sized_by_basis = fixed(style.basis) && nothing(main_minimum);
+                let main_ok = fixed(main) || sized_by_basis || (fills && nothing(main_minimum));
+                let cross_ok = fixed(cross) || stretches;
+                main_ok && cross_ok
+            }
+            Display::Block => fixed(style.height) && (fixed(style.width) || matches!(style.width, None | Some(Dimension::Auto))),
+            _ => false,
+        }
+    }
+
+    /// The element as a cached view of its own, when it is big enough to be worth one and the
+    /// layout around it can size it without it.
+    fn view_element(
+        &self,
+        id: NodeId,
+        style: &Style,
+        inherited: Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> Option<AnyElement> {
+        if self.inside_view.is_some() || switch("SVELTE_GPUI_NO_VIEWS") {
+            return None;
+        }
+        let weight = self.weight(id);
+        if !(VIEW_MIN_WEIGHT..=VIEW_MAX_WEIGHT).contains(&weight) || !self.sized_by_parent(id, style) {
+            return None;
+        }
+        let workbench = self.interaction.workbench.borrow().clone()?;
+        let existing = self.interaction.views.borrow().get(&id).cloned();
+        let entity = match existing {
+            Some(entity) => entity,
+            None => {
+                let entity = cx.new(|_| NodeView { workbench, root: id, inherited });
+                self.interaction.views.borrow_mut().insert(id, entity.clone());
+                entity
+            }
+        };
+        entity.update(cx, |view, cx| {
+            if view.inherited != inherited {
+                view.inherited = inherited;
+                cx.notify();
+            }
+        });
+        self.interaction.view_roots.borrow_mut().insert(id);
+        let mut outline = apply_style(div(), style);
+        let refinement = outline.style().clone();
+        Some(AnyView::from(entity).cached(refinement).into_any_element())
+    }
+}
 
 impl Painter<'_> {
     /// The whole document: the root's children, filling the window.
@@ -671,8 +808,18 @@ impl Painter<'_> {
         if computed.style.display == Display::None {
             return None;
         }
-        if let Some(stand_in) = self.culled(id, node, &computed.style) {
-            return Some(stand_in);
+        let is_view_top = self.inside_view == Some(id);
+        if !is_view_top {
+            if let Some(view) = self.view_element(id, &computed.style, inherited, cx) {
+                return Some(view);
+            }
+            if let Some(stand_in) = self.culled(id, node, &computed.style) {
+                return Some(stand_in);
+            }
+        }
+        if self.inside_view.is_none() && switch("SVELTE_GPUI_OUTER_LOG") {
+            let st = &computed.style;
+            eprintln!("outer {id} weight {} {} | grow {:?} basis {:?} w {:?} h {:?} minw {:?} minh {:?} self {:?} display {:?} sized {}", self.weight(id), attribute(node, "class").chars().take(40).collect::<String>(), st.grow, st.basis, st.width, st.height, st.min_width, st.min_height, st.align_self, st.display, self.sized_by_parent(id, st));
         }
         let eased = computed.style.transition.duration_ms > 0.0
             && (computed.style.transition.colours || computed.style.transition.opacity);
@@ -691,6 +838,10 @@ impl Painter<'_> {
         };
 
         let mut element = apply_style(div(), style);
+        if is_view_top {
+            // The outer layout sized this box; it fills it, and the margins are the outer layout's.
+            element = element.w_full().h_full().m_0();
+        }
         if self.holds_only_text(node) {
             // Text that is one word cannot wrap, so it keeps its length; longer text may shrink.
             let text = self.tree.text_content(id);
@@ -803,6 +954,7 @@ impl Painter<'_> {
         let (shown, progress) = animation.value_at(now, &transition);
         if progress < 1.0 {
             self.interaction.animating.set(true);
+            self.interaction.animating_ids.borrow_mut().insert(id);
         } else {
             animation.start = None;
         }
@@ -1007,7 +1159,7 @@ impl Painter<'_> {
                 let before = placed.borrow_mut().insert(id, bounds);
                 let was_near = before.map(|old| !is_far_away(old, view));
                 if was_near != Some(!is_far_away(bounds, view)) {
-                    changed.set(true);
+                    changed.borrow_mut().insert(id);
                 }
             },
             |_, _, _, _| {},
@@ -1510,12 +1662,15 @@ impl Painter<'_> {
                 MouseButton::Left,
                 cx.listener(move |workbench, event: &MouseDownEvent, _window, cx| {
                     workbench.field_mouse_down(id, event.position, event.modifiers.shift);
-                    cx.notify();
+                    workbench.touch(id, cx);
                 }),
             )
             .on_mouse_move(cx.listener(move |workbench, event: &MouseMoveEvent, _window, cx| {
-                workbench.field_mouse_move(id, event.position);
-                cx.notify();
+                let dragging = workbench.interaction.fields.borrow().get(&id).map(|field| field.dragging);
+                if dragging == Some(true) {
+                    workbench.field_mouse_move(id, event.position);
+                    workbench.touch(id, cx);
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
