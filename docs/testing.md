@@ -22,14 +22,14 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 
 | Step | Does |
 |---|---|
-| `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. |
+| `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. Focus moves as it does for a real press: to the nearest element at or above the target that takes it, or to nothing, unless an element above the target has `keepFocus`. |
 | `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves the nearest element at or above the target that listens for `hover`. |
 | `focus:TARGET` | Gives focus to the nearest element at or above the target that can take it. |
 | `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. |
 | `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. |
 | `compose:TARGET:TEXT` | Input-method composition, which is underlined and not yet committed. |
 | `commit:TARGET:TEXT` | Input-method text committed. |
-| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. A third number names the button: `down:TARGET:X,Y,2` is a right press, which goes to the nearest element at or above the target whose `ondown` takes that button. |
+| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. It moves focus as `press` does. A third number names the button: `down:TARGET:X,Y,2` is a right press, which goes to the nearest element at or above the target whose `ondown` takes that button. |
 | `drop:TARGET:PATH,PATH` | Files dragged from another program onto the nearest element at or above the target that listens for `drop`, and dropped there. It goes through the code a real drop takes, so the paths are allowed through the file limit as a real drop's are. |
 | `dragover:TARGET:PATH,PATH` | The same, but the files are held over the element and not dropped, which shows its `ondragenter` feedback. |
 | `scroll:TARGET:PIXELS` | Scrolls the nearest scrollable element at or above the target to that offset. |
