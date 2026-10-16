@@ -19,9 +19,10 @@ See README.md. svelte-gpui is its own project; Grove is one app that may use it.
   Svelte's `init_operations()` pulls the getters off `Node.prototype` once.
 - The host build reuses the GPUI artifacts of the grove `gpui-spike` worktree via
   `CARGO_TARGET_DIR`; `host/vendor/xattr` patches a `libc` incompatibility.
-- Test on a headless Hyprland output with `scripts/shot.sh`, which creates the
-  output and always names the window it moves. Scripted steps run 0.9 s apart, so
-  wait long enough before the screenshot.
+- Test with `scripts/shot.sh`, which opens the window on the focused monitor and
+  screenshots that window alone. Never create a headless output or move windows to
+  another monitor. Scripted steps run 0.9 s apart, so wait long enough before the
+  screenshot.
 - The app's clock ticks on display frames while anything animates and on timers
   otherwise (`host/src/workbench/clock.rs`). Never pace it with a fixed interval: that
   caps motion below the display's refresh rate.
@@ -98,7 +99,8 @@ Area is a label, exactly one of:
 - `area:io` — network and files, `runtime/io/` and `host/src/io/`
 - `area:window` — window control, overlays, drag and drop, the clock
 - `area:build` — bundling, hot reload, packaging, the host as a library
-- `area:docs` — `docs/` and the agent skill
+- `area:testing` — `--do` steps, `scripts/shot.sh`, `tests/` and the test runner
+- `area:docs` — `docs/`, `examples/` and the agent skill
 
 Two areas is fine when an issue genuinely spans them; three means split it.
 

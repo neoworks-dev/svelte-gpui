@@ -50,16 +50,17 @@ Add `--report` to print an outline of the element tree as well.
 
 ## Screenshots
 
-`scripts/shot.sh` runs a bundle on a headless Hyprland output and saves a screenshot:
+`scripts/shot.sh` runs a bundle in a window on the focused monitor and saves a screenshot
+of that window:
 
 ```
 scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]
 scripts/shot.sh examples/demo/dist/demo.js /tmp/demo.png 4 --do press:Lists
 ```
 
-It creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing, and moves the
-host's window there by address so it never touches other windows. `WIDTH` and `HEIGHT`
-set the window size, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
+The window opens wherever Hyprland puts new windows, and the screenshot covers that
+window alone. `WIDTH` and `HEIGHT` set the size the host asks for, though a tiling layout
+may give it another, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
 `SECONDS` long enough for every step to run: about one second per step, plus one.
 
 `HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
@@ -68,12 +69,6 @@ brings its own:
 
 ```
 HOST=dist/package/demo/svelte-gpui-demo scripts/shot.sh - /tmp/packaged.png 3
-```
-
-To test at a higher refresh rate, set the headless output's mode:
-
-```
-hyprctl eval 'hl.monitor({output="svelte-gpui", mode="1920x1080@144", position="3440x0", scale=1})'
 ```
 
 ## Measuring frame rate
@@ -100,10 +95,9 @@ Without `--dev` the same run draws no overlay and appends the error to
 its mapped stack, to its log.
 
 To test hot reload, the host has to stay up while a build runs, which `shot.sh` does not
-do. Start the host with `--watch` in the background and move its window to the headless
-output (copy `scripts/shot.sh`, leaving out the screenshot and the `trap`), run
-`bun build.mjs --watch`, edit a source file, and take screenshots with
-`grim -o svelte-gpui out.png`. The host prints `reloaded in N ms` after each reload, so a
+do. Start the host with `--watch` in the background, run `bun build.mjs --watch`, edit a
+source file, and take screenshots of the window with `grim -g` and its geometry from
+`hyprctl clients -j`, as `scripts/shot.sh` does. The host prints `reloaded in N ms` after each reload, so a
 script can time an edit to the window updating by polling its log. On the demo that takes
 about a quarter of a second, most of it the build.
 

@@ -181,7 +181,7 @@ implies `--dev`: build failures, exceptions in handlers and effects, and unhandl
 show in an overlay, with stacks mapped to source files through a source map. Esc dismisses it
 and the next good build clears it. Without `--dev`, errors go to
 `~/.cache/svelte-gpui/<app>/errors.log` and nothing is drawn. Pass `--dev` when testing
-headless, so an error shows up in the screenshot.
+with `scripts/shot.sh`, so an error shows up in the screenshot.
 
 ## The window
 
@@ -199,7 +199,8 @@ headless, so an error shows up in the screenshot.
 - **Not there:** position, `center`, `setSize` and `setMinSize` after opening, and
   `resizable`. GPUI 0.2.2 on Wayland cannot do them; do not write them.
 
-Always check a UI change on screen, not just in the types. Use the headless runner:
+Always check a UI change on screen, not just in the types. Use `scripts/shot.sh`, which
+opens the window on the focused monitor and screenshots it:
 
 ```
 scripts/shot.sh BUNDLE /tmp/out.png SECONDS --do "press:Save" --do "type:@placeholder=Name:Ada"
