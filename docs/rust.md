@@ -46,8 +46,9 @@ xattr = { path = "path/to/svelte-gpui/host/vendor/xattr" }
 ```
 
 The `[patch]` is the same one `host/Cargo.toml` has: a `libc` incompatibility in GPUI's
-dependencies. The library's crate name is `svelte_gpui`. Inside this repository, build
-with the shared `CARGO_TARGET_DIR` (see `CLAUDE.md`) so GPUI is not compiled again.
+dependencies. The library's crate name is `svelte_gpui`. Inside this repository, run
+`scripts/host.sh --seed` once and build with `CARGO_TARGET_DIR` set to the checkout's
+`target/`, so GPUI is not compiled again.
 
 Run it like the plain host, against a build of the UI:
 

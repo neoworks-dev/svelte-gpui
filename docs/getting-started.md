@@ -124,10 +124,10 @@ Host flags:
 | `--exit-after-ms N` | Quit after N ms and print memory and timing figures, and the scripted steps that failed. The exit status is 1 when one did. |
 | `--report` | With `--exit-after-ms`, also print an outline of the element tree. |
 
-To build the host itself:
+To build the host itself, into `target/release/svelte-gpui`:
 
 ```
-cargo build --release --manifest-path host/Cargo.toml
+scripts/host.sh
 ```
 
 `console.log`, `info`, `warn`, `error` and `debug` print to the host's standard error,
@@ -153,7 +153,7 @@ Save a `.svelte` file and the window updates, usually within a quarter of a seco
 same window with the same size, position and focus. The demo does both in one command:
 
 ```
-bun examples/demo/build.mjs --watch --host host/target/release/svelte-gpui
+bun examples/demo/build.mjs --watch --host target/release/svelte-gpui
 ```
 
 Without `--host` it only watches, and prints the host command to run.
