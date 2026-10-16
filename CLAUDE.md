@@ -19,9 +19,9 @@ See README.md. svelte-gpui is its own project; Grove is one app that may use it.
   Svelte's `init_operations()` pulls the getters off `Node.prototype` once.
 - The host build reuses the GPUI artifacts of the grove `gpui-spike` worktree via
   `CARGO_TARGET_DIR`; `host/vendor/xattr` patches a `libc` incompatibility.
-- Test with `scripts/shot.sh`, which opens the window on the focused monitor and
-  screenshots that window alone. Never create a headless output or move windows to
-  another monitor. Scripted steps run 0.9 s apart, so wait long enough before the
+- Test with `scripts/shot.sh`, which opens the window on a headless Hyprland output
+  without focus. Never open a test window any other way: it takes the user's focus.
+  Scripted steps run 0.9 s apart, so wait long enough before the
   screenshot.
 - The app's clock ticks on display frames while anything animates and on timers
   otherwise (`host/src/workbench/clock.rs`). Never pace it with a fixed interval: that

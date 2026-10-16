@@ -116,6 +116,7 @@ Host flags:
 | `--bundle PATH` | The built script. Required. |
 | `--width N`, `--height N` | The window's size in logical pixels. They override the size the app asks for in `options.window`, which overrides the default of 668 × 821. |
 | `--assets DIR` | Where relative image paths are resolved. The default is the bundle's directory. |
+| `--app-id ID` | The window's app id, which the desktop matches window rules against. It overrides a packaged app's own id. |
 | `--allow-files PATH` | Limits file access to PATH and what is below it, on top of any limit the app declares. Repeatable. |
 | `--watch` | Watch the bundle, and start it again in the same window whenever a build writes it. Implies `--dev`. See below. |
 | `--dev` | Show errors in an overlay over the app, with stacks mapped to your source files. Without it, errors are logged to a file and the window carries on. |

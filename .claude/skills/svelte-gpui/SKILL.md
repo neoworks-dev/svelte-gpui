@@ -200,7 +200,7 @@ with `scripts/shot.sh`, so an error shows up in the screenshot.
   `resizable`. GPUI 0.2.2 on Wayland cannot do them; do not write them.
 
 Always check a UI change on screen, not just in the types. Use `scripts/shot.sh`, which
-opens the window on the focused monitor and screenshots it:
+opens the window on a headless output without taking focus, and screenshots it:
 
 ```
 scripts/shot.sh BUNDLE /tmp/out.png SECONDS --do "press:Save" --do "type:@placeholder=Name:Ada"

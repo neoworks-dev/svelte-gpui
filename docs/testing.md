@@ -50,17 +50,17 @@ Add `--report` to print an outline of the element tree as well.
 
 ## Screenshots
 
-`scripts/shot.sh` runs a bundle in a window on the focused monitor and saves a screenshot
-of that window:
+`scripts/shot.sh` runs a bundle on a headless Hyprland output and saves a screenshot:
 
 ```
 scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]
 scripts/shot.sh examples/demo/dist/demo.js /tmp/demo.png 4 --do press:Lists
 ```
 
-The window opens wherever Hyprland puts new windows, and the screenshot covers that
-window alone. `WIDTH` and `HEIGHT` set the size the host asks for, though a tiling layout
-may give it another, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
+It creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing. The host runs with
+`--app-id svelte-gpui-shot`, and a window rule opens that window on the output without
+focus, so nothing on the real monitors moves or loses the keyboard. `WIDTH` and `HEIGHT`
+set the size the host asks for, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
 `SECONDS` long enough for every step to run: about one second per step, plus one.
 
 `HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
@@ -95,9 +95,9 @@ Without `--dev` the same run draws no overlay and appends the error to
 its mapped stack, to its log.
 
 To test hot reload, the host has to stay up while a build runs, which `shot.sh` does not
-do. Start the host with `--watch` in the background, run `bun build.mjs --watch`, edit a
-source file, and take screenshots of the window with `grim -g` and its geometry from
-`hyprctl clients -j`, as `scripts/shot.sh` does. The host prints `reloaded in N ms` after each reload, so a
+do. Start the host with `--watch` and `--app-id svelte-gpui-shot` in the background after one
+`scripts/shot.sh` run has set up the output and the rule, run `bun build.mjs --watch`, edit
+a source file, and take screenshots with `grim -o svelte-gpui out.png`. The host prints `reloaded in N ms` after each reload, so a
 script can time an edit to the window updating by polling its log. On the demo that takes
 about a quarter of a second, most of it the build.
 
