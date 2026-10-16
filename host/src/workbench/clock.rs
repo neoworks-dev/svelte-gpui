@@ -138,6 +138,7 @@ impl Workbench {
         self.interaction.caret_epoch.set(Instant::now());
         self.interaction.caret_on.set(true);
         self.touch(id, cx);
+        self.report_selection(id, cx);
     }
 
     /// Blinks the caret of the focused field, by drawing it again when it should turn on or off.

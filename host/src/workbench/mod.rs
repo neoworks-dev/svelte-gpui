@@ -76,7 +76,7 @@ pub struct Workbench {
 
 impl Workbench {
     pub fn new(svelte: Svelte, images: Images, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let interaction = Interaction::new(images, cx);
+        let interaction = Interaction::new(images, svelte.fields.clone(), cx);
         window.focus(&interaction.root_focus);
         let mut workbench = Workbench {
             svelte,

@@ -17,7 +17,7 @@ import {
 } from "../dom/nodes";
 
 declare const console: { error(...args: unknown[]): void };
-declare const host: { apply(batch: string): void };
+declare const host: { apply(batch: string): void; fieldState(id: number): number[] };
 
 // Operation codes: an operation's index in protocol.json, which the host's build reads too.
 const code = (name: string): number => protocol.operations.indexOf(name);
@@ -214,6 +214,10 @@ export function install(): void {
       } else if (fakeDocument.activeElement === node) {
         pending.push([BLUR, node.hostId]);
       }
+    },
+
+    fieldState(node: SElement): number[] {
+      return node.hostId === 0 ? [] : host.fieldState(node.hostId);
     },
 
     scrollTo(node: SElement, left: number, top: number): void {
