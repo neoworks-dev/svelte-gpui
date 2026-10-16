@@ -67,6 +67,11 @@
     element?.focus();
   }
 
+  /** Gives focus up if it has it: back to what had it before, when that is still there. */
+  export function blur(): void {
+    element?.blur();
+  }
+
   /** Selects part of the text, in UTF-16 offsets; all of it by default. */
   export function select(start = 0, end = value.length): void {
     element?.setSelectionRange(start, end);

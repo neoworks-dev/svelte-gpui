@@ -48,6 +48,7 @@ the full set of pointer events.
 | Method | |
 |---|---|
 | `focus()` | Gives it keyboard focus. It must be `focusable`. |
+| `blur()` | Gives focus up, if it has it. It goes back to the element that had it before, when that is still there, and otherwise to nothing. |
 
 ```svelte
 <View
@@ -101,6 +102,7 @@ pointer becomes a hand over it.
 | Method | |
 |---|---|
 | `focus()` | Gives it keyboard focus. |
+| `blur()` | Gives focus up, if it has it. It goes back to the element that had it before, when that is still there, and otherwise to nothing. |
 
 A button has no look of its own; style it. A button with no content is fine, for
 example a colour swatch.
@@ -132,6 +134,7 @@ clipboard all work without app code. Each change reaches the app through
 | Method | |
 |---|---|
 | `focus()` | Gives it keyboard focus. |
+| `blur()` | Gives focus up, if it has it. It goes back to the element that had it before, when that is still there, and otherwise to nothing. |
 | `select(start?, end?)` | Selects a range in UTF-16 offsets, which is how JavaScript string indices count. Selects everything by default. |
 
 ```svelte
@@ -351,6 +354,7 @@ children. Other components build on it; use it directly for anything `Popover` d
 | Method | |
 |---|---|
 | `focus()` | Gives it keyboard focus. |
+| `blur()` | Gives focus up, if it has it. It goes back to the element that had it before, when that is still there, and otherwise to nothing. |
 
 An overlay is placed against its **parent's** box, so put it inside the element it belongs to: an overlay that
 is a child of a `Button` is placed against that button. `Popover` and `Tooltip` wrap their trigger in a view for this.

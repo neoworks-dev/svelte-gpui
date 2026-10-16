@@ -14,6 +14,14 @@ impl Workbench {
         }
     }
 
+    /// Takes focus away from an element, if it has it. Focus goes to the window itself, so no
+    /// element of the app has it, as when a press lands on empty space.
+    pub fn blur_node(&self, id: NodeId, window: &mut Window) {
+        if self.focused_node(window) == Some(id) {
+            window.focus(&self.interaction.root_focus);
+        }
+    }
+
     /// The element that has keyboard focus, if it is one the app made.
     pub(super) fn focused_node(&self, window: &Window) -> Option<NodeId> {
         let handles = self.interaction.focus.borrow();
