@@ -35,6 +35,7 @@ the full set of pointer events.
 | `onpress` | `(e: PointerEvent) => void` | A click: a button pressed and released on it. |
 | `onhover` | `(hovered: boolean) => void` | The pointer entered (`true`) or left (`false`). |
 | `ondown` | `(e: PointerEvent) => void` | A button went down on it. This captures the pointer: `onmove` and `onup` follow it anywhere until release. |
+| `buttons` | `("left" \| "middle" \| "right")[]` | The buttons `ondown` takes. A press of any other passes to what is around the view, which can take it with its own `ondown`. The default is all three. |
 | `onmove` | `(e: PointerEvent) => void` | The pointer moved over it, or anywhere while captured. |
 | `onup` | `(e: PointerEvent) => void` | The button was released after `ondown`, wherever the pointer is. |
 | `onwheel` | `(e: WheelEvent) => void` | Wheel or touchpad scrolling over it. |
@@ -490,10 +491,11 @@ with Down, Enter or Space while the button has focus, has a `Menu`'s keys, and s
 
 ## Draggable and DropTarget
 
-Dragging inside the app. A `Draggable` starts a drag when a button, held down on it, has moved a few pixels.
+Dragging inside the app. A `Draggable` starts a drag when the left button, held down on it, has moved a few pixels.
 A copy of it follows the pointer, drawn above everything, and the original dims. Release over a `DropTarget` that
 accepts the data to drop it; Escape, or releasing anywhere else, cancels. A press that does not move is still a
-press, so buttons inside a `Draggable` work.
+press, so buttons inside a `Draggable` work. A right or middle press is not the `Draggable`'s: it goes to what is
+around it, so a `ContextMenu` or a view with `ondown` around a `Draggable` hears it.
 
 | `Draggable` prop | Type | |
 |---|---|---|

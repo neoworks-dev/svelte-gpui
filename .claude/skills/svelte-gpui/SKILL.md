@@ -39,7 +39,7 @@ are the reference. The app in `examples/demo` uses every feature.
 
 | Component | Key props | Methods |
 |---|---|---|
-| `View` | `style hover active focus focusable onpress onhover ondown onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
+| `View` | `style hover active focus focusable onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `select(start?, end?)` |
@@ -154,7 +154,7 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
 - **`Popover`** wraps a trigger and an overlay: `<Popover bind:open>{#snippet trigger({ toggle })}…{/snippet}
   {#snippet children({ close })}…{/snippet}</Popover>`. An outside press and Escape close it; focus
   moves in and returns. A press on the trigger is not "outside".
-- **A right press** is `ondown` with `event.button === 2`; `ContextMenu` does it.
+- **A right press** is `ondown` with `event.button === 2`; `ContextMenu` does it. `buttons={["left"]}` on a view makes its `ondown` take only the left button and lets the others through to what is around it; `Draggable` does this.
 - **`Draggable data={x}`** inside a **`DropTarget ondragover={(info) => …} ondrop={({ data }) => …}`**;
   `info` has `x y width height` inside the target, for before/after decisions.
 - **`Tree`** takes `items`, `key`, `childrenOf` (called for expanded branches only, so make or load children
