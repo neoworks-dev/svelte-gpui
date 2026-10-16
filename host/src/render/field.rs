@@ -92,13 +92,19 @@ impl Painter<'_> {
             move |bounds: Bounds<gpui::Pixels>, _, window, cx| {
                 // The input method types into whatever is focused, through this handler.
                 window.handle_input(&focus, gpui::ElementInputHandler::new(bounds, workbench.clone()), cx);
-                if !focus.is_focused(window) {
-                    return;
-                }
                 let mut fields = fields.borrow_mut();
                 let Some(field) = fields.get_mut(&id) else {
                     return;
                 };
+                // The text is drawn by now, so where the cursor sits among its rows is known. The app
+                // asks for it from `getSelection`, and not only while the field has focus.
+                field.caret_row = match (&field.layout, empty) {
+                    (Some(layout), false) => caret_row(layout, cursor),
+                    _ => (0, 1),
+                };
+                if !focus.is_focused(window) {
+                    return;
+                }
                 let measured = match (&field.layout, empty) {
                     (Some(layout), false) => {
                         layout.position_for_index(cursor).map(|position| (position, layout.line_height()))
@@ -179,6 +185,18 @@ impl Painter<'_> {
                 }),
             )
     }
+}
+
+/// The row of a drawn text the byte offset `cursor` is on, counting from 0, and how many rows it has.
+fn caret_row(layout: &gpui::TextLayout, cursor: usize) -> (usize, usize) {
+    let height = f32::from(layout.line_height()).max(1.0);
+    let top = f32::from(layout.bounds().origin.y);
+    let rows = ((f32::from(layout.bounds().size.height) / height).round() as usize).max(1);
+    let row = match layout.position_for_index(cursor) {
+        Some(position) => (((f32::from(position.y) - top) / height + 0.01).floor().max(0.0) as usize).min(rows - 1),
+        None => 0,
+    };
+    (row, rows)
 }
 
 /// How long the caret stays on, and then off.

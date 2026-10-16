@@ -3,6 +3,7 @@
 //! globals the app installs: `__event` for input and `__pump` for the clock.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use rquickjs::{
@@ -10,6 +11,7 @@ use rquickjs::{
 };
 
 use crate::errors::{AppError, ErrorKind, ErrorList, Report};
+use crate::field::Field;
 use crate::io::{Commands, Completion, Io};
 use crate::sourcemap::SourceMap;
 use crate::tree::{NodeId, Tree};
@@ -29,6 +31,8 @@ pub struct App {
     pub tree: Rc<RefCell<Tree>>,
     /// What the system clipboard held when the host last looked, for `navigator.clipboard`.
     pub clipboard: Rc<RefCell<String>>,
+    /// The text fields in the window, which the window keeps up to date and `host.fieldState` reads.
+    pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
     /// Operations applied and batches received, for the stress report.
     pub counters: Rc<RefCell<Counters>>,
     /// When each recent frame was drawn and how long building it took, for `frameStats()`.
@@ -262,6 +266,7 @@ impl App {
             context,
             tree,
             clipboard,
+            fields: Rc::new(RefCell::new(HashMap::new())),
             counters,
             io: Rc::new(Io::new(Some(bundle_path), allow_files, commands.clone())),
             commands,
@@ -294,6 +299,7 @@ impl App {
         let tree = self.tree.clone();
         let counters = self.counters.clone();
         let clipboard = self.clipboard.clone();
+        let fields = self.fields.clone();
         let started = self.started;
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
@@ -320,6 +326,20 @@ impl App {
             let read_clipboard =
                 Function::new(ctx.clone(), move || clipboard.borrow().clone()).expect("clipboard function");
             host.set("clipboardText", read_clipboard).expect("set clipboardText");
+            // A field's selection and where its cursor sits among the rows, as it is right now:
+            // start, end, row and row count, or nothing for an element that is not a drawn field.
+            let field_state = Function::new(ctx.clone(), move |id: f64| -> Vec<f64> {
+                let Ok(fields) = fields.try_borrow() else {
+                    return Vec::new();
+                };
+                let Some(field) = fields.get(&(id as NodeId)) else {
+                    return Vec::new();
+                };
+                let (start, end) = field.selection_utf16();
+                vec![start as f64, end as f64, field.caret_row.0 as f64, field.caret_row.1 as f64]
+            })
+            .expect("fieldState function");
+            host.set("fieldState", field_state).expect("set fieldState");
             let trace = std::env::var_os("SVELTE_GPUI_TRACE_OPS").is_some();
             let apply = Function::new(ctx.clone(), move |batch: String| {
                 if trace {
