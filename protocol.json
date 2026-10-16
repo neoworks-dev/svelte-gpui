@@ -1,0 +1,20 @@
+{
+  "$comment": "The operations the runtime sends the host. An operation's code is its index. runtime/host/bridge.ts imports this file and host/build.rs generates Rust constants from it, so the two sides cannot drift.",
+  "operations": [
+    "createElement",
+    "createText",
+    "setText",
+    "setAttribute",
+    "insert",
+    "remove",
+    "listen",
+    "unlisten",
+    "setStyle",
+    "drop",
+    "focus",
+    "scrollTo",
+    "select",
+    "writeClipboard",
+    "draw"
+  ]
+}

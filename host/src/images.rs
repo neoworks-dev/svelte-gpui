@@ -171,25 +171,6 @@ impl Images {
         });
         ImageState::Loading
     }
-
-    /// Sources whose state is no longer `Loading`, for the ones that were asked for.
-    pub fn settled(&self) -> Vec<(String, ImageState)> {
-        self.states
-            .lock()
-            .expect("image states")
-            .iter()
-            .filter(|(_, state)| **state != ImageState::Loading)
-            .map(|(source, state)| (source.clone(), state.clone()))
-            .collect()
-    }
-
-    pub fn any_loading(&self) -> bool {
-        self.states
-            .lock()
-            .expect("image states")
-            .values()
-            .any(|state| *state == ImageState::Loading)
-    }
 }
 
 /// Writes a copy of `source` that is `width` pixels wide.

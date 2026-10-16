@@ -1,875 +1,29 @@
 //! svelte-gpui: runs a compiled Svelte app in QuickJS and draws what it builds
-//! with GPUI. The Svelte side keeps its own tree and sends only what changes;
-//! this side keeps a copy, styles it from a Tailwind stylesheet, and paints it.
+//! with GPUI. The Svelte side keeps its own tree of primitives and sends only what
+//! changes; this side keeps a copy, styles each primitive from the object the app
+//! gave it, and paints it.
 
 mod assets;
-mod bridge;
-mod css;
-mod forms;
-mod grid;
+mod canvas;
+mod diagnostics;
+mod field;
 mod images;
+mod io;
 mod render;
 mod runtime;
-mod select;
-mod selector;
 mod style;
 mod tree;
+mod workbench;
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    App, Application, Bounds, Context, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, Render,
-    Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
-};
+use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
 
-use css::Stylesheet;
-use images::{ImageState, Images};
-use render::{Interaction, Painter};
-use runtime::{App as Svelte, Outcome};
-use style::Resolver;
-use tree::{Command, Kind, NodeId, ROOT, Tree};
-
-/// Resident and proportional memory of this process in megabytes, from /proc.
-fn memory_megabytes() -> (f64, f64) {
-    let read = |path: &str, key: &str| -> f64 {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        for line in text.lines() {
-            if let Some(rest) = line.strip_prefix(key) {
-                let kilobytes: f64 = rest.trim().trim_end_matches("kB").trim().parse().unwrap_or(0.0);
-                return kilobytes / 1024.0;
-            }
-        }
-        0.0
-    };
-    (
-        read("/proc/self/status", "VmRSS:"),
-        read("/proc/self/smaps_rollup", "Pss:"),
-    )
-}
-
-#[derive(Default)]
-struct Stats {
-    events: u32,
-    event_seconds: f64,
-    renders: u32,
-    render_seconds: f64,
-    worst_render_seconds: f64,
-}
-
-struct Workbench {
-    svelte: Svelte,
-    resolver: Resolver,
-    interaction: Interaction,
-    started: Instant,
-    seen_version: u64,
-    stats: Stats,
-    /// The node that had focus at the last tick.
-    focused: Option<NodeId>,
-    last_scroll: HashMap<NodeId, (f32, f32)>,
-    sent_sizes: HashMap<NodeId, (f32, f32, f32, f32)>,
-    window_size: (f32, f32),
-    /// The source each `img` has been told about, so `load` and `error` fire once.
-    announced_images: HashMap<NodeId, String>,
-    /// Requests for elements that did not exist yet when the app asked, with tries left.
-    queued: Vec<(Command, u8)>,
-    /// When each frame began, while the `frames:N` step is measuring throughput.
-    frame_times: Vec<Instant>,
-    /// How many frames a throughput test still wants, set by the `frames:N` step.
-    frame_target: usize,
-    /// The element the `poke:` step has changed on every tick, as hovering one would.
-    poked: Option<NodeId>,
-}
-
-impl Workbench {
-    /// Reports an event on a node to the app, then redraws.
-    fn emit(&mut self, id: NodeId, kind: &str, detail: String, cx: &mut Context<Self>) -> Outcome {
-        let started = Instant::now();
-        let before = self.svelte.counters.borrow().operations;
-        let outcome = self.svelte.event(id, kind, &detail);
-        self.write_requested_clipboard(cx);
-        self.stats.events += 1;
-        self.stats.event_seconds += started.elapsed().as_secs_f64();
-        self.flush_dirty(cx);
-        if std::env::var("SVELTE_GPUI_TRACE").is_ok() {
-            let after = self.svelte.counters.borrow().operations;
-            println!(
-                "{kind} on node {id}: {} operations, {:.2} ms",
-                after - before,
-                started.elapsed().as_secs_f64() * 1000.0
-            );
-        }
-        cx.notify();
-        outcome
-    }
-
-    /// Copies what the app just asked to, while the input that caused it is still current:
-    /// Wayland only accepts a clipboard write that follows a real input event.
-    fn write_requested_clipboard(&mut self, cx: &mut Context<Self>) {
-        let mut writes: Vec<String> = Vec::new();
-        self.svelte.tree.borrow_mut().commands.retain(|command| match command {
-            Command::WriteClipboard(text) => {
-                writes.push(text.clone());
-                false
-            }
-            _ => true,
-        });
-        for text in writes {
-            self.write_clipboard(text, cx);
-        }
-    }
-
-    /// The pointer entered or left an element that tracks it, which restyles it.
-    fn hover_changed(&mut self, id: NodeId, hovered: bool, cx: &mut Context<Self>) {
-        let mut set = self.interaction.hovered.borrow_mut();
-        let changed = if hovered { set.insert(id) } else { set.remove(&id) };
-        drop(set);
-        if changed {
-            let tree = self.svelte.tree.clone();
-            let tree = tree.borrow();
-            self.dirty_around_hover(&tree, id, cx);
-            cx.notify();
-        }
-    }
-
-    /// Draws one view: what is under `root`, inside the box the outer layout gave it.
-    pub fn build_view(&mut self, root: NodeId, inherited: render::Inherited, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let tree = self.svelte.tree.clone();
-        let tree = tree.borrow();
-        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused, Some(root));
-        painter.view_content(root, inherited, cx)
-    }
-
-    /// The view an element is drawn in, when it is drawn in one.
-    fn enclosing_view(&self, tree: &Tree, id: NodeId) -> Option<NodeId> {
-        let roots = self.interaction.view_roots.borrow();
-        let mut current = Some(id);
-        while let Some(node) = current {
-            if roots.contains(&node) {
-                return Some(node);
-            }
-            current = tree.nodes.get(&node).and_then(|found| found.parent);
-        }
-        None
-    }
-
-    /// Has one view drawn again.
-    fn dirty_view(&self, root: NodeId, cx: &mut Context<Self>) {
-        let entity = self.interaction.views.borrow().get(&root).cloned();
-        if let Some(entity) = entity {
-            entity.update(cx, |_, cx| cx.notify());
-        }
-    }
-
-    /// Has every view that sits under `id` drawn again.
-    fn dirty_views_under(&self, tree: &Tree, id: NodeId, cx: &mut Context<Self>) {
-        let mut pending = vec![id];
-        while let Some(next) = pending.pop() {
-            if self.interaction.view_roots.borrow().contains(&next) {
-                self.dirty_view(next, cx);
-                continue;
-            }
-            if let Some(node) = tree.nodes.get(&next) {
-                pending.extend(node.children.iter().copied());
-            }
-        }
-    }
-
-    fn dirty_all_views(&self, cx: &mut Context<Self>) {
-        let roots: Vec<NodeId> = self.interaction.views.borrow().keys().copied().collect();
-        for root in roots {
-            self.dirty_view(root, cx);
-        }
-    }
-
-    /// Something about this element changed: it, and the view it is in, are drawn again.
-    fn touch(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        let tree = self.svelte.tree.clone();
-        let tree = tree.borrow();
-        if let Some(root) = self.enclosing_view(&tree, id) {
-            self.dirty_view(root, cx);
-        }
-        cx.notify();
-    }
-
-    /// The pointer entered or left an element, which restyles it and whatever sits under
-    /// a `group` above it.
-    fn dirty_around_hover(&self, tree: &Tree, id: NodeId, cx: &mut Context<Self>) {
-        if let Some(root) = self.enclosing_view(tree, id) {
-            self.dirty_view(root, cx);
-        }
-        let mut current = Some(id);
-        while let Some(node_id) = current {
-            let Some(node) = tree.nodes.get(&node_id) else {
-                break;
-            };
-            let grouped = node
-                .attributes
-                .get("class")
-                .map(|class| class.split_whitespace().any(|name| name == "group" || name.starts_with("group/")))
-                .unwrap_or(false);
-            if grouped {
-                self.dirty_views_under(tree, node_id, cx);
-            }
-            current = node.parent;
-        }
-    }
-
-    /// Has drawn again whatever the app's last changes to the tree touched.
-    fn flush_dirty(&mut self, cx: &mut Context<Self>) {
-        let (dirty, deep) = {
-            let mut tree = self.svelte.tree.borrow_mut();
-            (std::mem::take(&mut tree.dirty), std::mem::take(&mut tree.dirty_deep))
-        };
-        if dirty.is_empty() && deep.is_empty() {
-            return;
-        }
-        let tree = self.svelte.tree.clone();
-        let tree = tree.borrow();
-        let mut redraw: HashSet<NodeId> = HashSet::new();
-        for id in dirty.iter().chain(deep.iter()) {
-            if let Some(root) = self.enclosing_view(&tree, *id) {
-                redraw.insert(root);
-            }
-        }
-        for root in redraw {
-            self.dirty_view(root, cx);
-        }
-        // What an attribute or a style changes may reach everything below it.
-        for id in deep {
-            let own_view = self.enclosing_view(&tree, id);
-            if own_view.is_none() || own_view == Some(id) {
-                self.dirty_views_under(&tree, id, cx);
-            }
-        }
-    }
-
-    /// Tells `document` and `window` about a button release anywhere in the window, which a
-    /// drag needs to end even when the pointer is no longer over what it started on.
-    fn report_release(&mut self, event: &gpui::MouseUpEvent, cx: &mut Context<Self>) {
-        let button = match event.button {
-            gpui::MouseButton::Left => 0,
-            gpui::MouseButton::Middle => 1,
-            _ => 2,
-        };
-        let detail = render::pointer_detail(event.position, event.modifiers, button, event.click_count);
-        self.report_globally(&["mouseup", "pointerup"], detail, cx);
-    }
-
-    /// Sends an event to `document` and `window`, for each type of them that has a listener.
-    /// Pointer movement is constant, so the window only redraws when the app changed something.
-    fn report_globally(&mut self, kinds: &[&str], detail: String, cx: &mut Context<Self>) {
-        for kind in kinds {
-            if !self.svelte.tree.borrow().global_listeners.contains(*kind) {
-                continue;
-            }
-            let before = self.svelte.counters.borrow().operations;
-            self.svelte.event(0, kind, &detail);
-            self.write_requested_clipboard(cx);
-            self.stats.events += 1;
-            if self.svelte.counters.borrow().operations != before {
-                self.flush_dirty(cx);
-                cx.notify();
-            }
-        }
-    }
-
-    /// Tells `document` and `window` where the pointer is, when one of them listens.
-    fn report_motion(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
-        let pressed = match event.pressed_button {
-            Some(gpui::MouseButton::Left) => 1,
-            Some(gpui::MouseButton::Middle) => 4,
-            Some(_) => 2,
-            None => 0,
-        };
-        let detail = render::pointer_detail(event.position, event.modifiers, 0, 0);
-        let detail = format!("{},\"buttons\":{}}}", &detail[..detail.len() - 1], pressed);
-        self.report_globally(&["mousemove", "pointermove"], detail, cx);
-    }
-
-    /// A plain click, which is what scripted runs use.
-    fn click(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        self.emit(id, "click", "{}".to_string(), cx);
-    }
-
-    /// The element that has keyboard focus, if it is one the app made.
-    fn focused_node(&self, window: &Window) -> Option<NodeId> {
-        let handles = self.interaction.focus.borrow();
-        for (id, handle) in handles.iter() {
-            if handle.is_focused(window) {
-                return Some(*id);
-            }
-        }
-        None
-    }
-
-    /// A key press: first to the app, up from whatever has focus, and then, unless the
-    /// app cancelled it, to the field that has focus or the clipboard shortcut it spells.
-    fn key(&mut self, event: &KeyDownEvent, _down: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let target = self.focused_node(window).unwrap_or(0);
-        self.handle_key(target, &event.keystroke, event.is_held, false, cx)
-    }
-
-    /// The part of a key press after the target is known; scripted steps come here too.
-    /// Returns whether the key was used, so it is not also typed.
-    fn handle_key(
-        &mut self,
-        target: NodeId,
-        keystroke: &Keystroke,
-        held: bool,
-        insert_text: bool,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let command = keystroke.modifiers.control || keystroke.modifiers.platform;
-        let clipboard_event = match (command, keystroke.key.as_str()) {
-            (true, "c") => Some("copy"),
-            (true, "x") => Some("cut"),
-            (true, "v") => Some("paste"),
-            _ => None,
-        };
-        let detail = key_detail(keystroke, held);
-        if self.emit(target, "keydown", detail, cx).prevented {
-            return true;
-        }
-        if let Some(kind) = clipboard_event {
-            self.clipboard_shortcut(kind, target, cx);
-            return true;
-        }
-        if target != 0
-            && (self.field_key(target, keystroke, insert_text, cx) || self.select_key(target, keystroke, cx))
-        {
-            self.flush_dirty(cx);
-            self.touch(target, cx);
-            return true;
-        }
-        false
-    }
-
-    /// `copy`, `cut` and `paste`: the app sees them first, and may take over.
-    fn clipboard_shortcut(&mut self, kind: &str, target: NodeId, cx: &mut Context<Self>) {
-        let clipboard = self.read_clipboard(cx);
-        let selected = self.selected_text(target);
-        let detail = serde_json::json!({ "clipboardText": clipboard }).to_string();
-        let outcome = self.emit(target, kind, detail, cx);
-        if outcome.prevented {
-            if let Some(text) = outcome.clipboard {
-                self.write_clipboard(text, cx);
-            }
-            return;
-        }
-        match (kind, selected) {
-            ("copy", Some(text)) => self.write_clipboard(text, cx),
-            ("cut", Some(text)) => {
-                self.write_clipboard(text, cx);
-                self.cut_selection(target, cx);
-            }
-            ("paste", _) => self.paste_into(target, &clipboard, cx),
-            _ => {}
-        }
-    }
-
-    fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self.focused_node(window).unwrap_or(0);
-        let detail = key_detail(&event.keystroke, false);
-        self.emit(target, "keyup", detail, cx);
-    }
-
-    /// Advances the app's clock, carries requests out, reports what the window learned,
-    /// and redraws if anything changed.
-    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let milliseconds = self.svelte.started.elapsed().as_secs_f64() * 1000.0;
-        let busy = self.svelte.pump(milliseconds);
-        if let Some(bridge) = self.svelte.bridge.clone() {
-            for line in bridge.take() {
-                self.svelte.ipc(&line);
-            }
-        }
-        self.run_commands(window, cx);
-        self.report_focus(window, cx);
-        self.report_scroll(cx);
-        self.report_sizes();
-        self.report_images(cx);
-        self.report_window(window);
-        let version = self.svelte.tree.borrow().version;
-        if version != self.seen_version {
-            self.seen_version = version;
-            self.flush_dirty(cx);
-            cx.notify();
-        }
-        if let Some(id) = self.poked {
-            self.touch(id, cx);
-        }
-        let easing: Vec<NodeId> = self.interaction.animating_ids.borrow_mut().drain().collect();
-        for id in easing {
-            self.touch(id, cx);
-        }
-        let wanted = self.frame_target;
-        if wanted > 0 {
-            if self.frame_times.len() >= wanted {
-                let mut gaps: Vec<f64> = self
-                    .frame_times
-                    .windows(2)
-                    .map(|pair| pair[1].duration_since(pair[0]).as_secs_f64() * 1000.0)
-                    .collect();
-                gaps.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let mean = gaps.iter().sum::<f64>() / gaps.len().max(1) as f64;
-                let p95 = gaps[(gaps.len() as f64 * 0.95) as usize % gaps.len().max(1)];
-                println!("frames: {} at {mean:.1} ms mean, {p95:.1} ms 95th, {:.1} ms worst", gaps.len(), gaps.last().copied().unwrap_or(0.0));
-                self.frame_times.clear();
-                self.frame_target = 0;
-            }
-        }
-        if self.interaction.images.updated.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            self.dirty_all_views(cx);
-            cx.notify();
-        }
-        let moved: Vec<NodeId> = self.interaction.bounds_changed.borrow_mut().drain().collect();
-        for id in moved {
-            self.touch(id, cx);
-        }
-        busy || self.poked.is_some() || !self.interaction.animating_ids.borrow().is_empty()
-    }
-
-    /// Does what the app asked: focus an element, or scroll one.
-    fn run_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let fresh: Vec<Command> = std::mem::take(&mut self.svelte.tree.borrow_mut().commands);
-        for command in fresh {
-            self.queued.push((command, 20));
-        }
-        let queued = std::mem::take(&mut self.queued);
-        for (command, tries) in queued {
-            if !self.carry_out(&command, window, cx) && tries > 0 {
-                self.queued.push((command, tries - 1));
-            }
-        }
-    }
-
-    /// Whether the command could be carried out yet; the element may not have been drawn.
-    fn carry_out(&mut self, command: &Command, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        match command {
-            Command::WriteClipboard(text) => {
-                self.write_clipboard(text.clone(), cx);
-                true
-            }
-            Command::Select(id, start, end) => {
-                if !self.interaction.fields.borrow().contains_key(id) {
-                    return false;
-                }
-                self.select_range(*id, *start, *end);
-                true
-            }
-            Command::Focus(id) => {
-                let handles = self.interaction.focus.borrow();
-                let Some(handle) = handles.get(id) else {
-                    return false;
-                };
-                window.focus(handle);
-                true
-            }
-            Command::ScrollTo(id, left, top) => {
-                let handles = self.interaction.scroll.borrow();
-                let Some(handle) = handles.get(id) else {
-                    return false;
-                };
-                handle.set_offset(point(px(-left), px(-top)));
-                true
-            }
-        }
-    }
-
-    /// Sends `blur` and `focus` when focus moved since the last tick.
-    fn report_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let now = self.focused_node(window);
-        if now == self.focused {
-            return;
-        }
-        let before = self.focused;
-        self.focused = now;
-        if let Some(id) = before {
-            self.commit_change(id, cx);
-            self.emit(id, "blur", "{\"bubbles\":false}".to_string(), cx);
-            self.emit(id, "focusout", "{}".to_string(), cx);
-        }
-        if let Some(id) = now {
-            self.field_focused(id);
-            self.emit(id, "focus", "{\"bubbles\":false}".to_string(), cx);
-            self.emit(id, "focusin", "{}".to_string(), cx);
-        }
-    }
-
-    /// Sends `scroll` for the scrollable elements that listen and have moved.
-    fn report_scroll(&mut self, cx: &mut Context<Self>) {
-        let mut moved: Vec<(NodeId, f32, f32, f32, f32)> = Vec::new();
-        {
-            let handles = self.interaction.scroll.borrow();
-            let tree = self.svelte.tree.borrow();
-            for (id, handle) in handles.iter() {
-                let Some(node) = tree.nodes.get(id) else {
-                    continue;
-                };
-                if !node.listeners.contains("scroll") {
-                    continue;
-                }
-                let offset = handle.offset();
-                let current = (-f32::from(offset.x), -f32::from(offset.y));
-                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0));
-                if (current.0 - previous.0).abs() < 0.5 && (current.1 - previous.1).abs() < 0.5 {
-                    continue;
-                }
-                let content = handle.max_offset();
-                moved.push((*id, current.0, current.1, f32::from(content.width), f32::from(content.height)));
-            }
-        }
-        for (id, left, top, extra_width, extra_height) in moved {
-            self.last_scroll.insert(id, (left, top));
-            let detail = format!(
-                "{{\"bubbles\":false,\"scrollLeft\":{left},\"scrollTop\":{top},\"scrollWidth\":{extra_width},\"scrollHeight\":{extra_height}}}"
-            );
-            self.emit(id, "scroll", detail, cx);
-        }
-    }
-
-    /// Tells the app the size of every element it asked about, when it changed.
-    fn report_sizes(&mut self) {
-        let measured: Vec<(NodeId, (f32, f32, f32, f32))> = self
-            .interaction
-            .bounds
-            .borrow()
-            .iter()
-            .map(|(id, bounds)| {
-                (
-                    *id,
-                    (
-                        f32::from(bounds.origin.x),
-                        f32::from(bounds.origin.y),
-                        f32::from(bounds.size.width),
-                        f32::from(bounds.size.height),
-                    ),
-                )
-            })
-            .collect();
-        for (id, found) in measured {
-            let observed = self
-                .svelte
-                .tree
-                .borrow()
-                .nodes
-                .get(&id)
-                .map(|node| node.observed)
-                .unwrap_or(false);
-            if !observed {
-                continue;
-            }
-            let unchanged = matches!(
-                self.sent_sizes.get(&id),
-                Some(old) if (old.0 - found.0).abs() < 0.5
-                    && (old.1 - found.1).abs() < 0.5
-                    && (old.2 - found.2).abs() < 0.5
-                    && (old.3 - found.3).abs() < 0.5
-            );
-            if unchanged {
-                continue;
-            }
-            self.sent_sizes.insert(id, found);
-            self.svelte.size(id, found.0, found.1, found.2, found.3);
-        }
-    }
-
-    /// Fires `load` or `error` on each image once its source has settled.
-    fn report_images(&mut self, cx: &mut Context<Self>) {
-        let mut outcomes: Vec<(NodeId, String, bool)> = Vec::new();
-        {
-            let tree = self.svelte.tree.borrow();
-            for (id, node) in tree.nodes.iter() {
-                let Kind::Element { tag } = &node.kind else {
-                    continue;
-                };
-                if tag != "img" {
-                    continue;
-                }
-                let Some(source) = node.attributes.get("src") else {
-                    continue;
-                };
-                if self.announced_images.get(id) == Some(source) {
-                    continue;
-                }
-                match self.interaction.images.state(source) {
-                    ImageState::Loading => {}
-                    ImageState::Ready(_) => outcomes.push((*id, source.clone(), true)),
-                    ImageState::Failed => outcomes.push((*id, source.clone(), false)),
-                }
-            }
-        }
-        for (id, source, loaded) in outcomes {
-            self.announced_images.insert(id, source);
-            let kind = if loaded { "load" } else { "error" };
-            self.emit(id, kind, "{\"bubbles\":false}".to_string(), cx);
-        }
-    }
-
-    fn report_window(&mut self, window: &Window) {
-        let size = window.viewport_size();
-        let current = (f32::from(size.width), f32::from(size.height));
-        if current == self.window_size {
-            return;
-        }
-        self.window_size = current;
-        self.svelte.window(current.0, current.1);
-    }
-
-    /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor.
-    fn run_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let mut parts = step.splitn(3, ':');
-        let action = parts.next().unwrap_or("");
-        let needle = parts.next().unwrap_or("");
-        if action == "wait" {
-            return;
-        }
-        if action == "frames" {
-            self.frame_times.clear();
-            self.frame_target = needle.parse().unwrap_or(0);
-            cx.notify();
-            return;
-        }
-        let Some(id) = self.find_node(needle) else {
-            eprintln!("nothing matches {needle:?}");
-            return;
-        };
-        if action == "hover" || action == "unhover" {
-            self.hover_changed(id, action == "hover", cx);
-            return;
-        }
-        if action == "poke" {
-            self.poked = Some(id);
-            return;
-        }
-        if matches!(action, "down" | "move" | "up") {
-            self.run_pointer_step(action, id, parts.next().unwrap_or("0,0"), cx);
-            return;
-        }
-        match action {
-            "click" => self.click(id, cx),
-            "focus" => {
-                let command = Command::Focus(id);
-                if !self.carry_out(&command, window, cx) {
-                    self.queued.push((command, 20));
-                }
-            }
-            "type" => {
-                let command = Command::Focus(id);
-                self.carry_out(&command, window, cx);
-                for character in parts.next().unwrap_or("").chars() {
-                    let text = character.to_string();
-                    let keystroke = Keystroke {
-                        modifiers: Default::default(),
-                        key: text.clone(),
-                        key_char: Some(text),
-                    };
-                    self.handle_key(id, &keystroke, false, true, cx);
-                }
-            }
-            "compose" | "commit" => {
-                let command = Command::Focus(id);
-                self.carry_out(&command, window, cx);
-                let text = parts.next().unwrap_or("");
-                if action == "compose" {
-                    <Self as gpui::EntityInputHandler>::replace_and_mark_text_in_range(self, None, text, None, window, cx);
-                } else {
-                    <Self as gpui::EntityInputHandler>::replace_text_in_range(self, None, text, window, cx);
-                }
-            }
-            "open" => self.toggle_select(id, cx),
-            "choose" => {
-                let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(0);
-                self.choose_option(id, index, cx);
-            }
-            "key" => {
-                let spelled = parts.next().unwrap_or("");
-                match Keystroke::parse(spelled) {
-                    Ok(keystroke) => {
-                        self.handle_key(id, &keystroke, false, true, cx);
-                    }
-                    Err(_) => eprintln!("cannot read keystroke {spelled:?}"),
-                }
-            }
-            "scroll" => {
-                let pixels: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
-                let target = self.scrollable_ancestor(id);
-                self.queued.push((Command::ScrollTo(target, 0.0, pixels), 20));
-            }
-            _ => eprintln!("unknown step {step:?}"),
-        }
-        self.dirty_all_views(cx);
-        cx.notify();
-    }
-
-    /// `down` presses on an element, `move` and `up` are what the window reports wherever the
-    /// pointer is; the argument is the position as `x,y`.
-    fn run_pointer_step(&mut self, action: &str, id: NodeId, at: &str, cx: &mut Context<Self>) {
-        let (x, y) = at.split_once(',').unwrap_or(("0", "0"));
-        let position = gpui::point(gpui::px(x.parse().unwrap_or(0.0)), gpui::px(y.parse().unwrap_or(0.0)));
-        let detail = render::pointer_detail(position, Default::default(), 0, 1);
-        match action {
-            "down" => {
-                self.emit(id, "mousedown", detail, cx);
-            }
-            "move" => self.report_globally(&["mousemove", "pointermove"], detail, cx),
-            _ => self.report_globally(&["mouseup", "pointerup"], detail, cx),
-        }
-    }
-
-    /// The closest element at or above `id` that scrolls.
-    fn scrollable_ancestor(&self, id: NodeId) -> NodeId {
-        let tree = self.svelte.tree.borrow();
-        let handles = self.interaction.scroll.borrow();
-        let mut current = Some(id);
-        while let Some(candidate) = current {
-            if handles.contains_key(&candidate) {
-                return candidate;
-            }
-            current = tree.nodes.get(&candidate).and_then(|node| node.parent);
-        }
-        id
-    }
-
-    /// An element by its text, or by `@attribute=value` such as `@placeholder=Your name`.
-    fn find_node(&self, needle: &str) -> Option<NodeId> {
-        let Some(query) = needle.strip_prefix('@') else {
-            return self.find_by_text(needle);
-        };
-        let (name, value) = query.split_once('=')?;
-        let tree = self.svelte.tree.borrow();
-        let mut matches: Vec<NodeId> = tree
-            .nodes
-            .iter()
-            .filter(|(_, node)| match (&node.kind, name) {
-                (Kind::Element { tag }, "tag") => tag == value,
-                _ => node.attributes.get(name).map(String::as_str) == Some(value),
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        matches.sort();
-        matches.first().copied()
-    }
-
-    /// The deepest element whose text contains `needle`, for scripted clicks.
-    fn find_by_text(&self, needle: &str) -> Option<NodeId> {
-        let tree = self.svelte.tree.borrow();
-        let mut current = ROOT;
-        if !tree.text_content(current).contains(needle) {
-            return None;
-        }
-        loop {
-            let node = tree.nodes.get(&current)?;
-            let next = node.children.iter().find(|child| {
-                matches!(tree.nodes.get(child).map(|n| &n.kind), Some(Kind::Element { .. }))
-                    && tree.text_content(**child).contains(needle)
-            });
-            match next {
-                Some(child) => current = *child,
-                None => return Some(current),
-            }
-        }
-    }
-}
-
-impl Render for Workbench {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let started = Instant::now();
-        let viewport = window.viewport_size();
-        self.interaction
-            .viewport
-            .set((f32::from(viewport.width), f32::from(viewport.height)));
-        self.interaction.scale.set(window.scale_factor());
-        let key = (f32::from(viewport.width) as u64) * 10_000 + f32::from(viewport.height) as u64;
-        if key != self.interaction.viewport_key.get() {
-            self.interaction.viewport_key.set(key);
-            css::set_viewport(f32::from(viewport.width), f32::from(viewport.height));
-        }
-        let tree = self.svelte.tree.clone();
-        let tree = tree.borrow();
-        let painter = Painter::new(&tree, &self.resolver, &self.interaction, self.focused, None);
-        let document = painter.document(cx);
-        let wanted = self.frame_target;
-        if wanted > 0 && self.frame_times.len() < wanted {
-            self.frame_times.push(Instant::now());
-            window.request_animation_frame();
-        }
-        if self.interaction.animating.replace(false) {
-            window.request_animation_frame();
-        }
-        let elapsed = started.elapsed().as_secs_f64();
-        self.stats.renders += 1;
-        self.stats.render_seconds += elapsed;
-        self.stats.worst_render_seconds = self.stats.worst_render_seconds.max(elapsed);
-        document
-    }
-}
-
-/// The DOM's name for a key: `Enter`, `ArrowLeft`, or the character typed.
-fn dom_key(keystroke: &Keystroke) -> String {
-    let named = match keystroke.key.as_str() {
-        "enter" => Some("Enter"),
-        "escape" => Some("Escape"),
-        "backspace" => Some("Backspace"),
-        "delete" => Some("Delete"),
-        "tab" => Some("Tab"),
-        "left" => Some("ArrowLeft"),
-        "right" => Some("ArrowRight"),
-        "up" => Some("ArrowUp"),
-        "down" => Some("ArrowDown"),
-        "home" => Some("Home"),
-        "end" => Some("End"),
-        "pageup" => Some("PageUp"),
-        "pagedown" => Some("PageDown"),
-        "space" => Some(" "),
-        _ => None,
-    };
-    if let Some(name) = named {
-        return name.to_string();
-    }
-    let held = keystroke.modifiers.control || keystroke.modifiers.alt || keystroke.modifiers.platform;
-    if let (Some(text), false) = (&keystroke.key_char, held) {
-        return text.clone();
-    }
-    if keystroke.key.chars().count() == 1 && keystroke.modifiers.shift {
-        return keystroke.key.to_uppercase();
-    }
-    keystroke.key.clone()
-}
-
-/// The DOM's `code` for a key, which names the physical key.
-fn dom_code(keystroke: &Keystroke) -> String {
-    let key = dom_key(keystroke);
-    if key == " " {
-        return "Space".to_string();
-    }
-    if keystroke.key.len() == 1 {
-        let character = keystroke.key.chars().next().unwrap_or(' ');
-        if character.is_ascii_alphabetic() {
-            return format!("Key{}", character.to_ascii_uppercase());
-        }
-        if character.is_ascii_digit() {
-            return format!("Digit{character}");
-        }
-    }
-    key
-}
-
-fn key_detail(keystroke: &Keystroke, repeat: bool) -> String {
-    let key = dom_key(keystroke).replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        "{{\"key\":\"{key}\",\"code\":\"{}\",\"repeat\":{repeat},\"ctrlKey\":{},\"shiftKey\":{},\"altKey\":{},\"metaKey\":{}}}",
-        dom_code(keystroke),
-        keystroke.modifiers.control,
-        keystroke.modifiers.shift,
-        keystroke.modifiers.alt,
-        keystroke.modifiers.platform
-    )
-}
+use diagnostics::{heap_megabytes, memory_megabytes};
+use images::Images;
+use runtime::App as Svelte;
+use workbench::Workbench;
 
 fn flag(name: &str) -> Option<String> {
     let arguments: Vec<String> = std::env::args().collect();
@@ -894,120 +48,19 @@ fn number_flag(name: &str, default: u64) -> u64 {
     flag(name).and_then(|value| value.parse().ok()).unwrap_or(default)
 }
 
-/// How many nodes sit under `id`, itself included.
-fn subtree_size(tree: &Tree, id: NodeId) -> usize {
-    let Some(node) = tree.nodes.get(&id) else {
-        return 0;
-    };
-    1 + node.children.iter().map(|child| subtree_size(tree, *child)).sum::<usize>()
-}
-
-/// The outline of the tree down to `depth`, with what each branch weighs, for finding what is slow.
-fn print_outline(tree: &Tree, id: NodeId, depth: usize, limit: usize) {
-    let Some(node) = tree.nodes.get(&id) else {
-        return;
-    };
-    let Kind::Element { tag } = &node.kind else {
-        return;
-    };
-    let size = subtree_size(tree, id);
-    if size < 40 {
-        return;
-    }
-    let class = node.attributes.get("class").map(String::as_str).unwrap_or("");
-    println!("{}{} {} {}", "  ".repeat(depth), size, tag, &class[..class.len().min(90)]);
-    if depth < limit {
-        for child in &node.children {
-            print_outline(tree, *child, depth + 1, limit);
-        }
-    }
-}
-
-fn print_report(resolver: &Resolver, tree: &Tree) {
-    let builds = render::VIEW_BUILDS.load(std::sync::atomic::Ordering::Relaxed);
-    let nanos = render::VIEW_NANOS.load(std::sync::atomic::Ordering::Relaxed);
-    println!("views: {builds} built, {:.2} ms each", nanos as f64 / builds.max(1) as f64 / 1e6);
-    println!("nodes in the host tree: {}", tree.nodes.len());
-    if std::env::var("SVELTE_GPUI_OUTLINE").is_ok() {
-        print_outline(tree, ROOT, 0, 14);
-    }
-    let mut tags: std::collections::BTreeMap<&str, usize> = Default::default();
-    for node in tree.nodes.values() {
-        if let Kind::Element { tag } = &node.kind {
-            *tags.entry(tag.as_str()).or_default() += 1;
-        }
-    }
-    println!("tags: {}", tags.iter().map(|(tag, count)| format!("{tag}={count}")).collect::<Vec<_>>().join(" "));
-    let mut controls: Vec<(&u32, &tree::Node)> = tree
-        .nodes
-        .iter()
-        .filter(|(_, node)| matches!(&node.kind, Kind::Element { tag } if tag == "input" || tag == "select" || tag == "textarea"))
-        .collect();
-    controls.sort_by_key(|(id, _)| **id);
-    for (id, node) in controls {
-        let mut attributes: Vec<String> = node.attributes.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
-        attributes.sort();
-        println!("  control {id}: {}", attributes.join(" "));
-    }
-    // Classes the page uses that no kept rule styles, and those only a left-out rule names.
-    let mut unstyled: std::collections::BTreeSet<String> = Default::default();
-    let mut lost: std::collections::BTreeSet<String> = Default::default();
-    for node in tree.nodes.values() {
-        let Some(classes) = node.attributes.get("class") else {
-            continue;
-        };
-        for class in classes.split_whitespace() {
-            if resolver.sheet.has_rule_for(class) {
-                continue;
-            }
-            if resolver.sheet.is_skipped_class(class) {
-                lost.insert(class.to_string());
-            } else {
-                unstyled.insert(class.to_string());
-            }
-        }
-    }
-    println!("classes in use with no rule at all: {}", unstyled.len());
-    println!("  {}", unstyled.iter().cloned().collect::<Vec<_>>().join(" "));
-    println!("classes in use whose only rules were left out: {}", lost.len());
-    println!("  {}", lost.iter().cloned().collect::<Vec<_>>().join(" "));
-    let skipped = resolver.sheet.skipped_selectors();
-    println!("selectors left out: {}", skipped.len());
-    for selector in skipped.iter().take(25) {
-        println!("  {selector}");
-    }
-    let unsupported = resolver.unsupported();
-    println!("declarations not honoured: {}", unsupported.len());
-    for declaration in unsupported.iter().take(40) {
-        println!("  {declaration}");
-    }
-}
-
-/// What the allocator holds: bytes in use by the program, and bytes it keeps free.
-fn heap_megabytes() -> (f64, f64) {
-    // SAFETY: mallinfo2 only reads the allocator's own counters.
-    let info = unsafe { libc::mallinfo2() };
-    (info.uordblks as f64 / 1048576.0, info.fordblks as f64 / 1048576.0)
-}
-
 fn main() {
     let Some(bundle_path) = flag("--bundle") else {
-        eprintln!("usage: svelte-gpui --bundle app.js [--css app.css] [--width N --height N]");
+        eprintln!("usage: svelte-gpui --bundle app.js [--width N --height N]");
         std::process::exit(2);
     };
     if !std::path::Path::new(&bundle_path).exists() {
         panic!("cannot read {bundle_path}");
     }
-    let stylesheet = match flag("--css") {
-        Some(path) => std::fs::read_to_string(&path).unwrap_or_default(),
-        None => String::new(),
-    };
 
     let before = memory_megabytes();
     println!("malloc at start: {:.1} MB in use", heap_megabytes().0);
     let started = Instant::now();
-    let bridge = flag("--bridge").and_then(|path| bridge::Bridge::connect(&path));
-    let svelte = Svelte::start(&bundle_path, bridge);
+    let svelte = Svelte::start(&bundle_path);
     println!("malloc after the bundle ran: {:.1} MB in use", heap_megabytes().0);
     println!(
         "mounted in {:.0} ms, {} nodes; memory {:.1} MB RSS before, {:.1} after",
@@ -1016,11 +69,10 @@ fn main() {
         before.0,
         memory_megabytes().0
     );
-    let resolver = Resolver::new(Stylesheet::parse(&stylesheet));
-    println!("malloc after the stylesheet: {:.1} MB in use", heap_megabytes().0);
+    // Image paths are relative to the bundle, unless `--assets` names another directory.
     let assets_dir = match flag("--assets") {
         Some(path) => PathBuf::from(path),
-        None => std::env::current_dir().unwrap_or_default(),
+        None => std::path::Path::new(&bundle_path).parent().map(PathBuf::from).unwrap_or_default(),
     };
     let images = Images::new(assets_dir);
     // Scripted steps for when nobody can click: `click:TEXT`, `focus:TEXT`, `scroll:TEXT:PIXELS`.
@@ -1041,71 +93,40 @@ fn main() {
         );
         let window = cx
             .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    cx.new(|cx| {
-                        let interaction = Interaction {
-                            root_focus: cx.focus_handle(),
-                            focus: RefCell::new(HashMap::new()),
-                            scroll: RefCell::new(HashMap::new()),
-                            sizes: Rc::new(RefCell::new(HashMap::new())),
-                            fields: Rc::new(RefCell::new(HashMap::new())),
-                            bounds: Rc::new(RefCell::new(HashMap::new())),
-                            open_select: RefCell::new(None),
-                            hovered: RefCell::new(HashSet::new()),
-                            animations: RefCell::new(HashMap::new()),
-                            animating: Cell::new(false),
-                            styles: RefCell::new((u64::MAX, HashMap::new())),
-                            viewport: Rc::new(Cell::new((0.0, 0.0))),
-                            scale: Cell::new(1.0),
-                            viewport_key: Cell::new(0),
-                            bounds_changed: Rc::new(RefCell::new(HashSet::new())),
-                            views: RefCell::new(HashMap::new()),
-                            view_roots: RefCell::new(HashSet::new()),
-                            animating_ids: RefCell::new(HashSet::new()),
-                            workbench: RefCell::new(Some(cx.weak_entity())),
-                            style_work: Cell::new((0, 0)),
-                            images,
-                        };
-                        window.focus(&interaction.root_focus);
-                        Workbench {
-                            svelte,
-                            resolver,
-                            interaction,
-                            started: Instant::now(),
-                            seen_version: 0,
-                            stats: Stats::default(),
-                            focused: None,
-                            last_scroll: HashMap::new(),
-                            sent_sizes: HashMap::new(),
-                            window_size: (0.0, 0.0),
-                            announced_images: HashMap::new(),
-                            queued: Vec::new(),
-                            frame_times: Vec::new(),
-                            frame_target: 0,
-                            poked: None,
-                        }
-                    })
-                },
+                WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
+                |window, cx| cx.new(|cx| Workbench::new(svelte, images, window, cx)),
             )
             .unwrap();
         cx.activate(true);
 
-        // The clock: timers and animation frames inside the app run off this.
+        // Network, socket and file calls finish on other threads; each result goes to
+        // the app as soon as it arrives.
+        let receiver = window.update(cx, |workbench, _, _| workbench.svelte.io.take_receiver()).ok().flatten();
+        if let Some(mut receiver) = receiver {
+            cx.spawn(async move |cx| {
+                use futures::StreamExt;
+                while let Some(completion) = receiver.next().await {
+                    let delivered = cx.update(|cx| {
+                        window.update(cx, |workbench, _window, cx| workbench.deliver(completion, cx)).ok()
+                    });
+                    if !matches!(delivered, Ok(Some(()))) {
+                        return;
+                    }
+                }
+            })
+            .detach();
+        }
+
+        // The app's clock runs on display frames and timers (see `Workbench::schedule`).
+        // This slow beat only picks up what finishes off the main thread, like images.
         cx.spawn(async move |cx| {
-            let mut pause = 33;
             loop {
-                cx.background_executor().timer(Duration::from_millis(pause)).await;
-                let outcome = cx.update(|cx| {
-                    window.update(cx, |workbench, window, cx| workbench.tick(window, cx)).ok()
-                });
-                let Ok(busy) = outcome else {
+                cx.background_executor().timer(Duration::from_millis(100)).await;
+                let outcome =
+                    cx.update(|cx| window.update(cx, |workbench, window, cx| workbench.tick(false, window, cx)).ok());
+                if outcome.is_err() {
                     return;
-                };
-                pause = if busy.unwrap_or(false) { 16 } else { 33 };
+                }
             }
         })
         .detach();
@@ -1116,9 +137,7 @@ fn main() {
                 for step in steps {
                     cx.background_executor().timer(Duration::from_millis(900)).await;
                     cx.update(|cx| {
-                        window
-                            .update(cx, |workbench, window, cx| workbench.run_step(&step, window, cx))
-                            .ok();
+                        window.update(cx, |workbench, window, cx| workbench.run_step(&step, window, cx)).ok();
                     })
                     .ok();
                 }
@@ -1129,39 +148,8 @@ fn main() {
         if let Some(milliseconds) = exit_after {
             cx.spawn(async move |cx| {
                 cx.background_executor().timer(Duration::from_millis(milliseconds)).await;
-                let (resident, proportional) = memory_megabytes();
-                println!("memory: {resident:.1} MB RSS, {proportional:.1} MB PSS");
-                let (used, free) = heap_megabytes();
-                println!("malloc: {used:.1} MB in use, {free:.1} MB free inside the heap");
                 cx.update(|cx| {
-                    window
-                        .update(cx, |workbench, _window, _cx| {
-                            let stats = &workbench.stats;
-                            let counters = workbench.svelte.counters.borrow();
-                            println!("{}", workbench.svelte.memory_breakdown());
-                            println!(
-                                "{} events, {:.2} ms each; {} batches, {} operations",
-                                stats.events,
-                                stats.event_seconds / stats.events.max(1) as f64 * 1000.0,
-                                counters.batches,
-                                counters.operations
-                            );
-                            let (computes, nanos) = workbench.interaction.style_work.get();
-                            println!(
-                                "styles: {computes} worked out, {:.1} ms in all",
-                                nanos as f64 / 1e6
-                            );
-                            println!(
-                                "{} renders, {:.2} ms each building elements, worst {:.2} ms",
-                                stats.renders,
-                                stats.render_seconds / stats.renders.max(1) as f64 * 1000.0,
-                                stats.worst_render_seconds * 1000.0
-                            );
-                            if report {
-                                print_report(&workbench.resolver, &workbench.svelte.tree.borrow());
-                            }
-                        })
-                        .ok();
+                    window.update(cx, |workbench, _window, _cx| workbench.print_summary(report)).ok();
                 })
                 .ok();
                 cx.update(|cx| cx.quit()).ok();
