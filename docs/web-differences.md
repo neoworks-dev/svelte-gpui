@@ -45,6 +45,7 @@ nothing the browser provides exists.
 | `ondragenter` / `ondrop` with `dataTransfer.files` | The same names on `View`, with `e.paths`, absolute paths the app may read. Dragging within the app is `Draggable` and `DropTarget`. |
 | `oncontextmenu` | `ondown` with `event.button === 2`, or `ContextMenu`. |
 | `em`, `rem`, `vh`, `calc()` | Pixels and percentages. Compute anything else in script. |
+| Components nest as deep as you like | About 100 levels on Linux with an 8 MB stack (`ulimit -s`), and about 15 on Windows. Each level costs stack while Svelte mounts it, and past the limit the app stops with `RangeError: Maximum call stack size exceeded`. Draw deep trees, such as parsed markdown, from flat rows. |
 
 ## One thing that bites
 
