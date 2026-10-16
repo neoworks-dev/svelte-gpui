@@ -215,7 +215,7 @@ measured. This is what lets it hold a hundred thousand chat messages:
   inserts at the start or reorders wants `key`. Adding at the end is cheap either way.
 - **`scrollToIndex`** lands on the row exactly, even though rows around it are measured only after it
   gets there.
-- **Width changes forget what was measured**, since text wraps differently.
+- **Width changes forget what was measured**, since text wraps differently. The rows drawn at that moment measure themselves again, so only the others fall back to the average.
 - **Very long lists.** The host cannot draw at millions of pixels from the top, so the list lays out a stretch of
   a million pixels at a time and moves the stretch along as you scroll. You do not see it, and `onscroll` still
   counts from the top of the whole list.

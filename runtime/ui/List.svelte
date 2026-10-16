@@ -242,11 +242,21 @@
     if (!measured) {
       return;
     }
-    // Rows wrap differently at another width, so what was measured no longer holds.
+    // Rows wrap differently at another width, so what was measured no longer holds. The rows that are
+    // built are the exception: they have the new width too, so each has reported its height already
+    // or is about to, and this layout may arrive before or after that. What they reported is kept.
     if (Math.abs(layout.width - width) >= 0.5) {
       if (width !== 0) {
-        known.clear();
-        heights.replace(items.length, []);
+        const built = new Set<unknown>();
+        for (let index = first; index < last; index++) {
+          built.add(keyOf(items[index], index));
+        }
+        for (const remembered of known.keys()) {
+          if (!built.has(remembered)) {
+            known.delete(remembered);
+          }
+        }
+        heights.forgetOutside(first, last);
         version++;
       }
       width = layout.width;
