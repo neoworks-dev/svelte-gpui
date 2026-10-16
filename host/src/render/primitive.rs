@@ -16,6 +16,7 @@ pub enum Primitive {
     Image,
     Icon,
     Canvas,
+    Overlay,
 }
 
 impl Primitive {
@@ -29,6 +30,7 @@ impl Primitive {
             "g-image" => Primitive::Image,
             "g-icon" => Primitive::Icon,
             "g-canvas" => Primitive::Canvas,
+            "g-overlay" => Primitive::Overlay,
             _ => return None,
         })
     }

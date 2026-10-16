@@ -23,14 +23,17 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 | Step | Does |
 |---|---|
 | `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. |
-| `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves it. |
-| `focus:TARGET` | Gives it focus. |
+| `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves the nearest element at or above the target that listens for `hover`. |
+| `focus:TARGET` | Gives focus to the nearest element at or above the target that can take it. |
 | `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. |
 | `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. |
 | `compose:TARGET:TEXT` | Input-method composition, which is underlined and not yet committed. |
 | `commit:TARGET:TEXT` | Input-method text committed. |
-| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does. |
+| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. A third number names the button: `down:TARGET:X,Y,2` is a right press. |
+| `drop:TARGET:PATH,PATH` | Files dragged from another program onto the nearest element at or above the target that listens for `drop`, and dropped there. It goes through the code a real drop takes, so the paths are allowed through the file limit as a real drop's are. |
+| `dragover:TARGET:PATH,PATH` | The same, but the files are held over the element and not dropped, which shows its `ondragenter` feedback. |
 | `scroll:TARGET:PIXELS` | Scrolls the nearest scrollable element at or above the target to that offset. |
+| `dismiss` | Dismisses the error overlay, as its button does. |
 | `wait` | Does nothing for one step. |
 | `frames:N` | Draws N frames as fast as the display allows and prints their timing. |
 
@@ -59,6 +62,14 @@ host's window there by address so it never touches other windows. `WIDTH` and `H
 set the window size, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
 `SECONDS` long enough for every step to run: about one second per step, plus one.
 
+`HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
+packaged one. A `BUNDLE` of `-` passes no `--bundle` (and no size), for an app that
+brings its own:
+
+```
+HOST=dist/package/demo/svelte-gpui-demo scripts/shot.sh - /tmp/packaged.png 3
+```
+
 To test at a higher refresh rate, set the headless output's mode:
 
 ```
@@ -74,6 +85,28 @@ from an interval, and read the log from the host's standard error:
 setInterval(() => console.log(JSON.stringify(frameStats())), 1000);
 ```
 
+## Errors and hot reload
+
+The host shows errors in an overlay only with `--dev` (or `--watch`); see
+[Development](getting-started.md#development-hot-reload-and-errors). To check one, press
+something that throws and look at the screenshot:
+
+```
+scripts/shot.sh dist/app.js /tmp/error.png 3 --dev --do "press:Explode"
+```
+
+Without `--dev` the same run draws no overlay and appends the error to
+`~/.cache/svelte-gpui/<bundle name>/errors.log`. The host also prints each error, with
+its mapped stack, to its log.
+
+To test hot reload, the host has to stay up while a build runs, which `shot.sh` does not
+do. Start the host with `--watch` in the background and move its window to the headless
+output (copy `scripts/shot.sh`, leaving out the screenshot and the `trap`), run
+`bun build.mjs --watch`, edit a source file, and take screenshots with
+`grim -o svelte-gpui out.png`. The host prints `reloaded in N ms` after each reload, so a
+script can time an edit to the window updating by polling its log. On the demo that takes
+about a quarter of a second, most of it the build.
+
 ## Type checking
 
 ```
@@ -82,3 +115,9 @@ bunx svelte-check --tsconfig ./tsconfig.json
 
 This catches unknown style properties, wrong prop names, and handlers that expect the
 wrong event type.
+
+## Unit tests
+
+`bun run test` runs the tests in `tests/`, which cover the arithmetic under `List` (where rows sit when
+their heights differ). The host's own tests, such as the placement of overlays, are `cargo test --release --lib`
+in `host/`.

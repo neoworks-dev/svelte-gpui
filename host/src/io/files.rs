@@ -116,6 +116,13 @@ impl Files {
         self.watches.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Ends every running watch, for an app that is going away.
+    pub fn stop_watches(&self) {
+        for stop in self.watches().values() {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// `fs.*` operations. Ones that need GPUI, such as dialogs, are pushed onto `main_jobs`.
     pub fn request(
         &self,

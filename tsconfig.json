@@ -15,5 +15,5 @@
       "@neoworks/svelte-gpui/ui": ["./runtime/ui/index.ts"]
     }
   },
-  "include": ["runtime", "examples/*/src"]
+  "include": ["runtime", "examples/*/src", "examples/*/ui"]
 }

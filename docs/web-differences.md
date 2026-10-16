@@ -41,8 +41,16 @@ nothing the browser provides exists.
 | Inline `<svg>` | `Icon` with SVG markup. |
 | `<canvas>` and its 2D context | `Canvas`, with strokes, lines, rectangles and circles. |
 | Overflow scrolls with `overflow: auto` | `Scroll`, or `List` for long lists. |
-| `z-index` | Later siblings draw on top. |
+| `z-index` | Later siblings draw on top. Things that must be above everything are `Overlay`s (`Popover`, `Tooltip`, `Menu`). |
+| `ondragenter` / `ondrop` with `dataTransfer.files` | The same names on `View`, with `e.paths`, absolute paths the app may read. Dragging within the app is `Draggable` and `DropTarget`. |
+| `oncontextmenu` | `ondown` with `event.button === 2`, or `ContextMenu`. |
 | `em`, `rem`, `vh`, `calc()` | Pixels and percentages. Compute anything else in script. |
+
+## One thing that bites
+
+- **A bare `x;` or `void x;` is deleted by the build.** The TypeScript step runs before Svelte compiles
+  `$state`, and drops an expression statement that looks pure, so it cannot be used to make a `$derived`
+  or `$effect` depend on a variable. Use the variable in an expression the code needs.
 
 ## Not available
 

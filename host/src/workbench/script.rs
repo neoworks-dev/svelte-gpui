@@ -15,6 +15,10 @@ impl Workbench {
         if action == "wait" {
             return;
         }
+        if action == "dismiss" {
+            self.dismiss_errors(cx);
+            return;
+        }
         if action == "frames" {
             self.frame_times.clear();
             self.frame_target = needle.parse().unwrap_or(0);
@@ -26,11 +30,16 @@ impl Workbench {
             return;
         };
         if action == "hover" || action == "unhover" {
-            self.hover_changed(id, action == "hover", cx);
+            let target = self.listening_ancestor(id, "hover");
+            self.hover_changed(target, action == "hover", cx);
             return;
         }
         if action == "poke" {
             self.poked = Some(id);
+            return;
+        }
+        if action == "drop" || action == "dragover" {
+            self.simulate_drag(id, parts.next().unwrap_or(""), action == "drop", cx);
             return;
         }
         if matches!(action, "down" | "move" | "up") {
@@ -43,10 +52,15 @@ impl Workbench {
         match action {
             "click" | "press" => {
                 let target = self.listening_ancestor(id, "press");
+                // A real click goes down first, which overlays opened elsewhere hear as an outside press.
+                let middle = self.interaction.bounds.borrow().get(&target).map(|bounds| bounds.center());
+                if let Some(middle) = middle {
+                    self.simulate_press_outside(middle, 0, cx);
+                }
                 self.emit(target, "press", "{\"x\":0,\"y\":0,\"button\":0,\"clicks\":1}".to_string(), cx);
             }
             "focus" => {
-                let command = Command::Focus(id);
+                let command = Command::Focus(self.focusable_ancestor(id));
                 if !self.carry_out(&command, window, cx) {
                     self.queued.push((command, 20));
                 }
@@ -94,14 +108,18 @@ impl Workbench {
     }
 
     /// `down` presses on an element, which then holds the pointer; `move` and `up` go to the
-    /// element holding it. The argument is the position in the window as `x,y`.
+    /// element holding it. The argument is the position in the window as `x,y`, and optionally the button after it as `x,y,2`.
     fn run_pointer_step(&mut self, action: &str, id: NodeId, at: &str, cx: &mut Context<Self>) {
-        let (x, y) = at.split_once(',').unwrap_or(("0", "0"));
-        let position = gpui::point(gpui::px(x.parse().unwrap_or(0.0)), gpui::px(y.parse().unwrap_or(0.0)));
+        let mut numbers = at.split(',').map(|number| number.trim().parse::<f32>().unwrap_or(0.0));
+        let (x, y) = (numbers.next().unwrap_or(0.0), numbers.next().unwrap_or(0.0));
+        // A third number names the button: 0 left (the default), 1 middle, 2 right.
+        let button = numbers.next().unwrap_or(0.0) as i32;
+        let position = gpui::point(gpui::px(x), gpui::px(y));
         let target = self.captured.unwrap_or(id);
-        let detail = render::pointer_detail(target, position, Default::default(), 0, 1, self);
+        let detail = render::pointer_detail(target, position, Default::default(), button, 1, self);
         match action {
             "down" => {
+                self.simulate_press_outside(position, button, cx);
                 self.captured = Some(id);
                 self.emit(id, "down", detail, cx);
             }
@@ -125,6 +143,20 @@ impl Workbench {
                 return candidate;
             }
             current = node.and_then(|node| node.parent);
+        }
+        id
+    }
+
+    /// The closest element at or above `id` that can take focus, as pressing it would give focus to.
+    fn focusable_ancestor(&self, id: NodeId) -> NodeId {
+        let tree = self.svelte.tree.borrow();
+        let handles = self.interaction.focus.borrow();
+        let mut current = Some(id);
+        while let Some(candidate) = current {
+            if handles.contains_key(&candidate) {
+                return candidate;
+            }
+            current = tree.nodes.get(&candidate).and_then(|node| node.parent);
         }
         id
     }

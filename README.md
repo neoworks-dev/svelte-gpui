@@ -39,6 +39,40 @@ cargo build --release --manifest-path host/Cargo.toml
 host/target/release/svelte-gpui --bundle examples/demo/dist/demo.js --width 1100 --height 760
 ```
 
+The demo sets its own title and minimum size, and asks before closing while the note in its
+Files section has unsaved changes (`docs/window.md`). `--width` and `--height` override the
+size it asks for.
+
+To edit it with hot reload, run a build that watches and a host that reloads, in two
+terminals, or in one with `--host`:
+
+```
+bun examples/demo/build.mjs --watch
+host/target/release/svelte-gpui --bundle examples/demo/dist/demo.js --watch
+
+bun examples/demo/build.mjs --watch --host host/target/release/svelte-gpui
+```
+
+Saving a `.svelte` file updates the window in about a quarter of a second, keeping its
+size, position and focus. A build that fails, or an app that throws, shows the error over
+the window, with its stack mapped to your source files, until the next good build
+(`docs/getting-started.md`).
+
+`examples/rust-commands` is an app with its own Rust crate: a UI that calls Rust commands
+and listens to events a Rust thread emits (`docs/rust.md`).
+
+```
+bun examples/rust-commands/build.mjs
+cargo run --release --manifest-path examples/rust-commands/Cargo.toml -- --bundle examples/rust-commands/dist/rust-commands.js
+```
+
+## Packaging
+
+`bun scripts/package.mjs --app examples/demo` builds one executable with the bundle
+(precompiled to bytecode) and its images inside, plus a `.desktop` file, an icon and a
+tarball, in `dist/package/demo/`. It runs from anywhere with no flags. The app's name,
+id, version and icon live in its `package.json`. See [docs/packaging.md](docs/packaging.md).
+
 ## How it works
 
 - **Svelte compiles the app as usual**, and `build.mjs` bundles it into one script.
@@ -60,6 +94,9 @@ host/target/release/svelte-gpui --bundle examples/demo/dist/demo.js --width 1100
 - **Network and files** (`fetch`, `WebSocket`, `files`) run on threads in the host
   (`host/src/io/`), and each result reaches the app as soon as it arrives. See
   [docs/io.md](docs/io.md).
+- **Your own Rust code** is called with `invoke(name, args)` and pushes events with
+  `listen(name, callback)`, over the same channel: an app with its own crate registers
+  commands that run on threads. See [docs/rust.md](docs/rust.md).
 - **Input goes back the same way.** The host reports an event by node id, and
   `runtime/host/events.ts` calls that element's listener directly.
 
@@ -69,20 +106,33 @@ From `@neoworks/svelte-gpui/ui`:
 
 | | |
 |---|---|
-| `View` | A flex container. A column unless `style.direction` is `"row"`. Takes `onpress`, `onhover`, `ondown`/`onmove`/`onup`, `onwheel`, `onlayout`, `onkey`, and `focusable`. |
+| `View` | A flex container. A column unless `style.direction` is `"row"`. Takes `onpress`, `onhover`, `ondown`/`onmove`/`onup`, `onwheel`, `onlayout`, `onresize`, `onkey`, `focusable`, and `ondragenter`/`ondragover`/`ondragleave`/`ondrop` for files dragged in from other programs. |
 | `Text` | A paragraph. Nested `Text` elements are runs inside it, with their own colour, weight, font or background, and the paragraph wraps as one. `pre` keeps whitespace. |
 | `Button` | Pressed by the pointer, or by Enter and Space while it has focus. `disabled`. |
 | `Input` | A text field the host edits, with input methods, selection, the clipboard, `multiline`, `secure`, `numeric`, `maxLength`, `bind:value`, `oninput`, `onsubmit` and `oncommit`. |
 | `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. |
-| `List` | Rows of one height. Only the rows near the window are built, so 100,000 items cost what a screenful does. `scrollToIndex()`. |
+| `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`. |
 | `Image` | A file path relative to the bundle, a `data:` URL, or an `http(s)` URL fetched on a thread and cached. It loads when it nears the window and is decoded no larger than it is drawn. |
 | `Icon` | SVG markup or a file, tinted with `color` or the text colour around it. The build loads `.svg` imports as text, so `import gear from "@phosphor-icons/core/regular/gear.svg"` works. |
 | `Canvas` | Pixels to paint into. The host keeps a buffer at the window's scale and rasterises each call with tiny-skia as it arrives: `begin`, `lineTo`, `end`, `line`, `fillRect`, `fillCircle`, `clear`. A stroke costs the same however much is already drawn. Takes the pointer events `View` does. |
 | `Presence` | A view that plays Svelte transitions as it comes and goes: `<Presence in={[fly, { x: -20 }]} out={fade}>`. Svelte only allows `in:` and `out:` on elements, so this carries them through components. |
+| `Overlay` | Content drawn above everything, placed against its parent's box: a side, an alignment, a gap, flipped and shifted to stay in the window. Or at a point in the window. |
 
 Checkboxes, switches, sliders and segmented controls are not primitives. They are
 ordinary Svelte components built from these; the demo has one of each in
 `examples/demo/src/components`.
+
+Some come with the library because they need the host's help, or are worth getting right once, and are
+imported from the same place:
+
+| | |
+|---|---|
+| `Popover` | Content that floats next to a trigger, closed by an outside press or Escape, with focus moving in and back. |
+| `Tooltip` | A label that appears after the pointer has rested on its content. |
+| `Menu`, `ContextMenu` | A list of actions with keyboard control, in a popover or at the pointer on a right press. |
+| `Select` | A dropdown. |
+| `Draggable`, `DropTarget` | Dragging inside the app: a preview follows the pointer, and targets hear the drag and the drop. |
+| `Tree` | Expanding and collapsing rows, keyboard navigation, built on `List`. |
 
 `frameStats()` from `@neoworks/svelte-gpui` gives the frames the window drew in the last
 second and how long building them took. GPUI only draws when something changed, so an
@@ -134,6 +184,7 @@ on an attribute with `@name=value`:
 - `--do down:TEXT:x,y`, `move:TEXT:x,y` and `up:TEXT:x,y` drive the pointer, in window
   coordinates.
 - `--do scroll:TEXT:PIXELS` scrolls the nearest scrolling ancestor.
+- `--do drop:TEXT:/a/file,/another` drops files from another program on what listens for `ondrop`.
 
 `--report` and `--exit-after-ms` print memory, timings and the tree's shape.
 
@@ -145,6 +196,6 @@ on an attribute with `@name=value`:
   margins vertical `slide` animates. `scale` and `blur` do not draw their own
   properties. `animate:flip` has no element positions to work from.
 - `fetch` buffers whole bodies: no streams, `Blob` or `FormData`, and no cookies.
-- No virtualized list with rows of varying height, and no tree.
+- Overlays do not animate in or out, a drag does not scroll what is near the edge, and menus have no submenus.
 - Text fields have no undo.
-- Only tested on Linux with Wayland.
+- Only tested on Linux with Wayland. Packaging produces Linux executables only.

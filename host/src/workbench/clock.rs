@@ -18,6 +18,8 @@ impl Workbench {
         let milliseconds = self.svelte.started.elapsed().as_secs_f64() * 1000.0;
         let wake = self.svelte.pump(milliseconds, frame);
         self.run_commands(window, cx);
+        self.run_window_commands(window);
+        self.report_errors(cx);
         self.run_main_jobs(cx);
         self.report_focus(window, cx);
         self.blink(cx);

@@ -146,6 +146,9 @@ start(App, {}, {
 - **Nothing:** `allow: []` allows no files at all.
 - **Dialogs:** whatever the user picks in `pickFiles` or `pickSavePath` is allowed from
   then on, even outside the limit. A picked directory allows everything below it.
+- **Dropped files:** files dragged onto the window from another program and dropped on an element
+  that listens for `ondrop` are allowed the same way, so a drop area can read what was dropped (see
+  [Events](events.md#files-dragged-in)). Nothing is allowed for a drop no element takes.
 - **Set once:** the limit is set before the app mounts and cannot be changed or widened
   later, so code that runs afterwards (including a dependency) cannot lift it.
 - **How it is checked:** on the real path, after following symlinks and resolving `..`,
@@ -170,3 +173,6 @@ The three APIs share one path:
    arrives, hands it to the app (`__io`), and draws what changed.
 
 Bytes travel as `ArrayBuffer`s, and everything else as JSON.
+
+Calls into your own Rust code (`invoke`, `listen`) take the same path: see
+[Calling Rust](rust.md#under-the-hood).

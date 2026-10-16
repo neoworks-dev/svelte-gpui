@@ -10,11 +10,14 @@
   import file from "@phosphor-icons/core/regular/file.svg";
   import up from "@phosphor-icons/core/regular/arrow-up.svg";
   import Card from "../components/Card.svelte";
+  import { unsaved } from "../unsaved.svelte";
   import { button, buttonActive, buttonHover, caption, colors, field, fieldFocus, mono, primaryButton, primaryHover } from "../theme";
 
   let paths = $state<FilePaths | null>(null);
   let note = $state("");
   let saved = $state("");
+  // What the note file holds, to tell whether the field has changes the file does not.
+  let onDisk = $state("");
   let notePath = $state("");
 
   let directory = $state<string | null>(null);
@@ -26,6 +29,14 @@
     void load();
   });
 
+  // The window asks before closing while the note differs from the file (see App.svelte).
+  $effect(() => {
+    unsaved.dirty = note !== onDisk;
+  });
+  $effect(() => () => {
+    unsaved.dirty = false;
+  });
+
   async function load(): Promise<void> {
     paths = await files.paths();
     const home = `${paths.data}/svelte-gpui-demo`;
@@ -34,6 +45,7 @@
       await files.mkdir(home, { recursive: true });
       if (await files.exists(notePath)) {
         note = await files.readText(notePath);
+        onDisk = note;
         saved = "Loaded";
       }
     } catch (error) {
@@ -45,6 +57,7 @@
   async function save(): Promise<void> {
     try {
       await files.writeText(notePath, note);
+      onDisk = note;
       saved = `Saved at ${new Date().toLocaleTimeString()}`;
     } catch (error) {
       saved = (error as Error).message;

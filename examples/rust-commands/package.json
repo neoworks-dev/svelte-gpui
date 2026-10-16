@@ -1,0 +1,16 @@
+{
+  "name": "rust-commands",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "Rust Commands",
+    "id": "dev.neoworks.svelte-gpui.rust-commands",
+    "icon": "icon.svg",
+    "title": "Rust commands",
+    "description": "Calls into Rust and listens to events from it.",
+    "bundle": "dist/rust-commands.js",
+    "build": "build.mjs",
+    "crate": { "features": ["package"] }
+  }
+}

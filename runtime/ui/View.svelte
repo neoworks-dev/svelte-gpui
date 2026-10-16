@@ -6,7 +6,15 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { encode, type Style } from "./style";
-  import { itself, listener, type KeyEvent, type Layout, type PointerEvent, type WheelEvent } from "./events";
+  import {
+    itself,
+    listener,
+    type FileDragEvent,
+    type KeyEvent,
+    type Layout,
+    type PointerEvent,
+    type WheelEvent,
+  } from "./events";
 
   interface Props {
     style?: Style;
@@ -23,9 +31,16 @@
     onup?: (event: PointerEvent) => void;
     onwheel?: (event: WheelEvent) => void;
     onlayout?: (layout: Layout) => void;
+    /** Like `onlayout`, but only when its width or height changed, not when it merely moved. */
+    onresize?: (layout: Layout) => void;
     onkey?: (event: KeyEvent) => void;
     onfocus?: () => void;
     onblur?: () => void;
+    /** Files dragged in from another program entered, left, moved over this, or were dropped on it. */
+    ondragenter?: (event: FileDragEvent) => void;
+    ondragleave?: (event: FileDragEvent) => void;
+    ondragover?: (event: FileDragEvent) => void;
+    ondrop?: (event: FileDragEvent) => void;
     children?: Snippet;
   }
 
@@ -44,10 +59,22 @@
     onup: listener(props.onup, itself<PointerEvent>),
     onwheel: listener(props.onwheel, itself<WheelEvent>),
     onlayout: listener(props.onlayout, itself<Layout>),
+    onresize: listener(props.onresize, itself<Layout>),
     onkey: listener(props.onkey, itself<KeyEvent>),
     onfocus: listener(props.onfocus, () => undefined),
     onblur: listener(props.onblur, () => undefined),
+    ondragenter: listener(props.ondragenter, itself<FileDragEvent>),
+    ondragleave: listener(props.ondragleave, itself<FileDragEvent>),
+    ondragover: listener(props.ondragover, itself<FileDragEvent>),
+    ondrop: listener(props.ondrop, itself<FileDragEvent>),
   });
+
+  let element: any;
+
+  /** Gives it keyboard focus. It must be `focusable`. */
+  export function focus(): void {
+    element?.focus();
+  }
 </script>
 
-<g-view {...attributes}>{@render props.children?.()}</g-view>
+<g-view bind:this={element} {...attributes}>{@render props.children?.()}</g-view>

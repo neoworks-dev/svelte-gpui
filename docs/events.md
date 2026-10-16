@@ -118,12 +118,63 @@ elements yet.
 | Event | On | Carries |
 |---|---|---|
 | `onlayout` | `View`, `Text`, `Scroll`, `Canvas` | `{ x, y, width, height }` in window coordinates, whenever it changes. |
+| `onresize` | `View` | The same, only when the width or height changed, not when the element merely moved. Use it to measure rows or panels that scroll, where `onlayout` fires on every frame of the scroll. |
 | `onscroll` | `Scroll` | `{ x, y, maxX, maxY }` |
 | `onload`, `onerror` | `Image` | nothing |
 
 `onlayout` reports after the frame that laid the element out. Use it to size things
 from what the layout decided, such as a popover's position or a chart's width. Do not
 use it to feed the same element's size back in a loop.
+
+## Overlays
+
+| Event | On | Carries |
+|---|---|---|
+| `onoutside` | `Overlay` | `PointerEvent` plus `anchor: boolean`. A button went down outside the overlay, and outside any overlay opened from inside it. `anchor` says it went down on the element the overlay is placed against, which usually handles the press itself. |
+
+A right press reaches the app as `ondown` with `button: 2`, which is how `ContextMenu` opens. Note that `ondown` captures the
+pointer for any button.
+
+## Files dragged in
+
+Files dragged onto the window from other programs go to the innermost element under the pointer that
+listens for any of these events. They are on `View`.
+
+| Event | Carries |
+|---|---|
+| `ondragenter` | `FileDragEvent`. Files came over the element. |
+| `ondragover` | `FileDragEvent`. They moved over it. |
+| `ondragleave` | `FileDragEvent`. They left it, or the window. |
+| `ondrop` | `FileDragEvent`. They were dropped on it. |
+
+```ts
+interface FileDragEvent {
+  x: number; y: number;              // inside the element, from its top left
+  windowX: number; windowY: number;  // inside the window
+  paths: string[];                   // absolute paths
+  count: number;
+}
+```
+
+The names avoid the ones Svelte delegates, so each handler sits on its own element. Only `ondrop` makes the paths
+usable: **the host allows the dropped paths through the [file limit](io.md#limiting-file-access)** from then on, as it
+does paths picked in a dialog (a dropped folder allows everything below it), so `files.readText(path)` works on
+them even outside the app's `allow` list. The paths in the earlier events are the same, but the app may not read them yet.
+Nothing is allowed for a drop that no element listens for.
+
+```svelte
+<View
+  style={{ borderColor: over ? "#8b5cf6" : "#3a3a42", borderWidth: 2, height: 120 }}
+  ondragenter={() => (over = true)}
+  ondragleave={() => (over = false)}
+  ondrop={async (e) => { over = false; for (const path of e.paths) await open(path); }}
+>
+  <Text>Drop files here</Text>
+</View>
+```
+
+Dragging things inside the app is a different thing, done with `Draggable` and `DropTarget`
+(see [Primitives](primitives.md#draggable-and-droptarget)), which use pointer capture.
 
 ## The window
 

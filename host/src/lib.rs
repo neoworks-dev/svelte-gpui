@@ -9,14 +9,22 @@
 mod assets;
 mod canvas;
 mod diagnostics;
+mod embedded;
+mod errors;
 mod field;
 mod images;
 mod io;
 mod launch;
 mod render;
 mod runtime;
+mod sourcemap;
 mod style;
 mod tree;
+mod watch;
+mod window_control;
 mod workbench;
 
+pub use embedded::{Embedded, Metadata};
+pub use io::{CommandError, Commands, Emitter, Output};
 pub use launch::{Options, run};
+pub use runtime::compile;

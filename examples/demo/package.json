@@ -1,0 +1,14 @@
+{
+  "name": "svelte-gpui-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "svelte-gpui demo",
+    "id": "dev.neoworks.svelte-gpui.demo",
+    "icon": "icon.svg",
+    "description": "Everything svelte-gpui can do, in one app.",
+    "bundle": "dist/demo.js",
+    "build": "build.mjs"
+  }
+}

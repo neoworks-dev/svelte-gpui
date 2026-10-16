@@ -47,16 +47,20 @@ impl Images {
         }
     }
 
+    /// Forgets what is known about every source, for a reload, so each is looked up again.
+    /// The files already cached on disk stay. A job still running may add its result after.
+    pub fn reset(&self) {
+        self.states.lock().expect("image states").clear();
+        self.sizes.lock().expect("image sizes").clear();
+    }
+
     /// The state of a source, starting to load it if this is the first time it is asked for.
     pub fn state(&self, source: &str) -> ImageState {
         if let Some(state) = self.states.lock().expect("image states").get(source) {
             return state.clone();
         }
         let state = self.start(source);
-        self.states
-            .lock()
-            .expect("image states")
-            .insert(source.to_string(), state.clone());
+        self.states.lock().expect("image states").insert(source.to_string(), state.clone());
         state
     }
 
@@ -67,11 +71,7 @@ impl Images {
         if source.starts_with("http://") || source.starts_with("https://") {
             return self.fetch(source);
         }
-        let path = if source.starts_with('/') {
-            PathBuf::from(source)
-        } else {
-            self.base.join(source)
-        };
+        let path = if source.starts_with('/') { PathBuf::from(source) } else { self.base.join(source) };
         if path.is_file() {
             return ImageState::Ready(path);
         }
@@ -153,10 +153,7 @@ impl Images {
         if let Some(state) = self.states.lock().expect("image states").get(&key) {
             return state.clone();
         }
-        self.states
-            .lock()
-            .expect("image states")
-            .insert(key.clone(), ImageState::Loading);
+        self.states.lock().expect("image states").insert(key.clone(), ImageState::Loading);
         let target = self.cache_path(&key);
         let source = path.clone();
         let states = self.states.clone();

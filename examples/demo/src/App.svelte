@@ -4,9 +4,12 @@
 -->
 <script lang="ts">
   import type { Component } from "svelte";
+  import { window } from "@neoworks/svelte-gpui";
   import { Button, Icon, Scroll, Text, View } from "@neoworks/svelte-gpui/ui";
+  import ConfirmClose from "./components/ConfirmClose.svelte";
   import FrameCounter from "./components/FrameCounter.svelte";
   import { colors, mono } from "./theme";
+  import { askToDiscard, unsaved } from "./unsaved.svelte";
 
   import sparkle from "@phosphor-icons/core/regular/sparkle.svg";
   import layout from "@phosphor-icons/core/regular/layout.svg";
@@ -18,6 +21,8 @@
   import wave from "@phosphor-icons/core/regular/wave-sine.svg";
   import globe from "@phosphor-icons/core/regular/globe.svg";
   import hardDrives from "@phosphor-icons/core/regular/hard-drives.svg";
+  import stack from "@phosphor-icons/core/regular/stack.svg";
+  import hand from "@phosphor-icons/core/regular/hand-grabbing.svg";
   import logo from "@phosphor-icons/core/fill/cube-transparent-fill.svg";
 
   import Basics from "./sections/Basics.svelte";
@@ -30,6 +35,8 @@
   import Motion from "./sections/Motion.svelte";
   import Network from "./sections/Network.svelte";
   import Files from "./sections/Files.svelte";
+  import Overlays from "./sections/Overlays.svelte";
+  import DragDrop from "./sections/DragDrop.svelte";
 
   interface Section {
     title: string;
@@ -49,7 +56,12 @@
     { title: "Motion", icon: wave, component: Motion, blurb: "Eased styles, Svelte transitions, tweens and springs." },
     { title: "Network", icon: globe, component: Network, blurb: "fetch and WebSocket, run by the host off the main thread." },
     { title: "Files", icon: hardDrives, component: Files, blurb: "Reading, writing and watching files, within a declared limit." },
+    { title: "Overlays", icon: stack, component: Overlays, blurb: "Popovers, tooltips, menus and dropdowns, drawn above everything." },
+    { title: "Drag and drop", icon: hand, component: DragDrop, blurb: "Files from other programs, and cards moved between lists." },
   ];
+
+  // Closing the window asks first while the Files section's note has unsaved changes.
+  $effect(() => window.onCloseRequested(() => (unsaved.dirty ? askToDiscard() : undefined)));
 
   let current = $state(0);
   const section = $derived(sections[current]);
@@ -119,4 +131,5 @@
       </View>
     </Scroll>
   </View>
+  <ConfirmClose />
 </View>
