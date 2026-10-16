@@ -104,13 +104,13 @@ export async function build(options) {
     conditions: ["svelte", "browser", "production", "default"],
     mainFields: ["browser", "module", "main"],
     alias: {
-      "@neoworks/svelte-gpui": here("./runtime/index.ts"),
+      "@neoworks/svelte-gpui": here("./runtime"),
       "esm-env": here("./runtime/esm-env.ts"),
       ...options.alias,
     },
     define: options.define,
     external: options.external,
-    loader: options.loader,
+    loader: { ".svg": "text", ...options.loader },
     plugins: [dedupeSvelte(dirname(options.entry)), sveltePlugin, ...(options.plugins ?? [])],
     logLevel: "info",
   });

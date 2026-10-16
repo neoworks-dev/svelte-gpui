@@ -4,20 +4,24 @@
   "private": true,
   "type": "module",
   "main": "./runtime/index.ts",
-  "description": "Compiled Svelte 5 components drawn by GPUI. No webview, no browser DOM.",
+  "description": "Native apps from Svelte 5 components, drawn by GPUI. No webview, no DOM, no CSS.",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
   },
   "peerDependencies": {
     "svelte": "^5.57.0"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.3.3",
+    "@phosphor-icons/core": "^2.1.1",
     "esbuild": "^0.24.0",
-    "phosphor-svelte": "^3.1.1",
     "svelte": "^5.57.0",
-    "tailwindcss": "^4.3.3",
+    "svelte-check": "^4.7.7",
     "typescript": "^5.7.2"
+  },
+  "exports": {
+    ".": "./runtime/index.ts",
+    "./ui": "./runtime/ui/index.ts",
+    "./build": "./build.mjs"
   }
 }

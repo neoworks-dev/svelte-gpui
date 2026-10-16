@@ -3,8 +3,9 @@
 // because the host draws nothing for it. Operations are collected as the
 // runtime works and sent as one batch when it has finished.
 
+import protocol from "../../protocol.json";
 import { setMirror } from "../dom/hooks";
-import { documentTarget, windowTarget } from "../dom/globals";
+import { windowTarget } from "../dom/globals";
 import {
   type EventHandler,
   COMMENT_NODE,
@@ -17,23 +18,23 @@ import {
 declare const console: { error(...args: unknown[]): void };
 declare const host: { apply(batch: string): void };
 
-// Operation codes; the host's `ops.rs` reads the same numbers.
-const CREATE_ELEMENT = 0;
-const CREATE_TEXT = 1;
-const SET_TEXT = 2;
-const SET_ATTRIBUTE = 3;
-const INSERT = 4;
-const REMOVE = 5;
-const LISTEN = 6;
-const SET_STYLE = 7;
-const DROP = 8;
-const FOCUS = 9;
-const SCROLL_TO = 10;
-const OBSERVE_SIZE = 11;
-const SELECT = 12;
-const WRITE_CLIPBOARD = 13;
-const GRID = 14;
-const UNLISTEN_GLOBAL = 15;
+// Operation codes: an operation's index in protocol.json, which the host's build reads too.
+const code = (name: string): number => protocol.operations.indexOf(name);
+const CREATE_ELEMENT = code("createElement");
+const CREATE_TEXT = code("createText");
+const SET_TEXT = code("setText");
+const SET_ATTRIBUTE = code("setAttribute");
+const INSERT = code("insert");
+const REMOVE = code("remove");
+const LISTEN = code("listen");
+const UNLISTEN = code("unlisten");
+const SET_STYLE = code("setStyle");
+const DROP = code("drop");
+const FOCUS = code("focus");
+const SCROLL_TO = code("scrollTo");
+const SELECT = code("select");
+const WRITE_CLIPBOARD = code("writeClipboard");
+const DRAW = code("draw");
 
 export const ROOT_ID = 1;
 
@@ -43,20 +44,12 @@ let pending: unknown[][] = [];
 /** Nodes taken out of the tree during this batch; the ones still out at the end are gone. */
 let detached = new Set<SNode>();
 
-/** Sends the host an instruction about a grid it draws for a `<canvas>`, by the canvas's id. */
-export function gridOperation(node: SNode, ...parts: unknown[]): void {
+/** Sends a drawing command to a `g-canvas`, which the host paints into its pixels. */
+export function draw(node: SNode, command: unknown[]): void {
   if (node.hostId === 0) {
     return;
   }
-  pending.push([GRID, node.hostId, ...parts]);
-}
-
-/** Asks the host to measure an element and report its size. */
-export function observeSize(node: SElement): void {
-  if (node.hostId === 0) {
-    return;
-  }
-  pending.push([OBSERVE_SIZE, node.hostId]);
+  pending.push([DRAW, node.hostId, command]);
 }
 
 export function nodeFor(id: number): SNode | undefined {
@@ -195,6 +188,13 @@ export function install(): void {
       pending.push([LISTEN, node.hostId, type]);
     },
 
+    listenerRemoved(node: SElement, type: string): void {
+      if (node.hostId === 0 || (node.listeners.get(type)?.size ?? 0) > 0) {
+        return;
+      }
+      pending.push([UNLISTEN, node.hostId, type]);
+    },
+
     focus(node: SElement): void {
       if (node.hostId === 0) {
         return;
@@ -209,13 +209,6 @@ export function install(): void {
       pending.push([SCROLL_TO, node.hostId, left, top]);
     },
 
-    observeSize(node: SElement): void {
-      if (node.hostId === 0) {
-        return;
-      }
-      pending.push([OBSERVE_SIZE, node.hostId]);
-    },
-
     select(node: SElement, start: number, end: number): void {
       if (node.hostId === 0) {
         return;
@@ -224,24 +217,19 @@ export function install(): void {
     },
   });
 
-  // The host only reports pointer movement and release to `document` and `window` while
-  // one of them has a listener, and an id of 0 stands for that pair.
-  const listening = (type: string): boolean =>
-    (documentTarget.listeners.get(type)?.size ?? 0) + (windowTarget.listeners.get(type)?.size ?? 0) > 0;
-  for (const target of [documentTarget, windowTarget]) {
-    const add = target.addEventListener.bind(target);
-    const remove = target.removeEventListener.bind(target);
-    target.addEventListener = (type: string, handler: EventHandler): void => {
-      add(type, handler);
-      pending.push([LISTEN, 0, type]);
-    };
-    target.removeEventListener = (type: string, handler: EventHandler): void => {
-      remove(type, handler);
-      if (!listening(type)) {
-        pending.push([UNLISTEN_GLOBAL, 0, type]);
-      }
-    };
-  }
+  // The host reports keys to `window` while it has a listener, under id 0.
+  const add = windowTarget.addEventListener.bind(windowTarget);
+  const remove = windowTarget.removeEventListener.bind(windowTarget);
+  windowTarget.addEventListener = (type: string, handler: EventHandler): void => {
+    add(type, handler);
+    pending.push([LISTEN, 0, type]);
+  };
+  windowTarget.removeEventListener = (type: string, handler: EventHandler): void => {
+    remove(type, handler);
+    if ((windowTarget.listeners.get(type)?.size ?? 0) === 0) {
+      pending.push([UNLISTEN, 0, type]);
+    }
+  };
 
   // `navigator.clipboard` reads what the host last saw and writes through it.
   (globalThis as any).navigator.clipboard = {

@@ -83,6 +83,13 @@ class HostAnimation {
       this.resolveFinished = resolve;
     });
     running.add(this);
+    // A browser shows the first keyframe as soon as the animation exists. Waiting for the
+    // next tick would let the element reach the host as it is without the animation, and
+    // an intro would flash fully drawn for a frame before fading in.
+    const backwards = settings.fill === "backwards" || settings.fill === "both";
+    if (this.delay <= 0 || backwards) {
+      this.apply(0);
+    }
   }
 
   get currentTime(): number {

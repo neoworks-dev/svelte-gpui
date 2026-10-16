@@ -7,18 +7,11 @@ declare const console: { error(...args: unknown[]): void };
 // They are built here from a single clock the host pumps with `__pump(now)`.
 
 import "./parse";
-import "./polyfills";
+import "./web";
 import { animating, installAnimate, stepAnimations, useClock } from "./animate";
-import {
-  type EventHandler,
-  SComment,
-  SElement,
-  SFragment,
-  SNode,
-  SText,
-} from "./nodes";
+import { type EventHandler, SComment, SElement, SFragment, SNode, SText } from "./nodes";
 
-/** `document` and `window` take listeners too; the host reports events to them. */
+/** `window` takes listeners too: the host reports keys and the window's size to it. */
 export class EventTargetLite {
   readonly listeners = new Map<string, Set<EventHandler>>();
 
@@ -40,135 +33,37 @@ export class EventTargetLite {
   }
 }
 
-export const documentTarget = new EventTargetLite();
 export const windowTarget = new EventTargetLite();
 
 const globals = globalThis as any;
 
-class SMediaElement extends SElement {}
-
 const documentElement = new SElement("html");
-const head = new SElement("head");
 const body = new SElement("body");
-documentElement.appendChild(head);
 documentElement.appendChild(body);
 
-/** Where the app is mounted, which `document.querySelector` looks in as well as `<html>`. */
-const mountRoots: SElement[] = [];
-
-export function registerRoot(root: SElement): void {
-  mountRoots.push(root);
-}
-
-function queryAll(selector: string): SElement[] {
-  const found: SElement[] = [];
-  for (const root of [...mountRoots, documentElement]) {
-    found.push(...root.querySelectorAll(selector));
-  }
-  return found;
-}
-
-const SHOW_ELEMENT = 1;
-const SHOW_TEXT = 4;
-const SHOW_COMMENT = 128;
-
-/** `NodeFilter` as far as `createTreeWalker` reads it: which kinds of node to visit. */
-const NodeFilterLite = {
-  SHOW_ALL: 0xffffffff,
-  SHOW_ELEMENT,
-  SHOW_TEXT,
-  SHOW_COMMENT,
-  FILTER_ACCEPT: 1,
-  FILTER_REJECT: 2,
-  FILTER_SKIP: 3,
-};
-
-/** Walks the nodes under a root in document order, visiting the kinds `whatToShow` names. */
-class TreeWalkerLite {
-  currentNode: SNode;
-
-  constructor(
-    readonly root: SNode,
-    private readonly whatToShow: number,
-  ) {
-    this.currentNode = root;
-  }
-
-  nextNode(): SNode | null {
-    for (let node = this.following(this.currentNode); node !== null; node = this.following(node)) {
-      if (this.shows(node)) {
-        this.currentNode = node;
-        return node;
-      }
-    }
-    return null;
-  }
-
-  private shows(node: SNode): boolean {
-    return (this.whatToShow & (1 << (node.nodeType - 1))) !== 0;
-  }
-
-  /** The node after `node` in document order, staying inside the root. */
-  private following(node: SNode): SNode | null {
-    if (node.firstChildNode !== null) {
-      return node.firstChildNode;
-    }
-    for (let current: SNode | null = node; current !== null && current !== this.root; current = current.parentNode) {
-      if (current.nextSiblingNode !== null) {
-        return current.nextSiblingNode;
-      }
-    }
-    return null;
-  }
-}
-
+/** The document, as far as Svelte's runtime reads it. */
 const fakeDocument = {
-  querySelector: (selector: string) => queryAll(selector)[0] ?? null,
-  querySelectorAll: (selector: string) => queryAll(selector),
-  getElementById: (id: string) => queryAll(`#${id}`)[0] ?? null,
-  getElementsByClassName: (name: string) => queryAll(`.${name}`),
-  getElementsByTagName: (tag: string) => queryAll(tag),
-  elementFromPoint: () => null,
-  elementsFromPoint: () => [] as SElement[],
-  getSelection: () => null,
-  execCommand: () => false,
   // `IS_XHTML` is derived from this once, at import time; anything with "xml"
   // in it would switch the runtime to XHTML-compliant tag casing.
   contentType: "text/html",
   get defaultView() {
     return globalThis;
   },
-  baseURI: "file:///",
   documentElement,
-  head,
   body,
   activeElement: null as SNode | null,
   nodeType: 9,
-  fonts: {
-    ready: Promise.resolve(),
-    load: () => Promise.resolve([]),
-    check: () => true,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  },
-  hasFocus: () => true,
-  visibilityState: "visible",
-  hidden: false,
   createElement: (tag: string) => new SElement(tag),
   createElementNS: (_ns: string, tag: string) => new SElement(tag),
   createTextNode: (data = "") => new SText(data),
   createComment: (data = "") => new SComment(data),
   createDocumentFragment: () => new SFragment(),
-  createTreeWalker: (root: SNode, whatToShow = 0xffffffff) => new TreeWalkerLite(root, whatToShow),
   importNode: (node: SNode, deep?: boolean) => node.cloneNode(deep),
-  addEventListener: (type: string, handler: EventHandler) =>
-    documentTarget.addEventListener(type, handler),
-  removeEventListener: (type: string, handler: EventHandler) =>
-    documentTarget.removeEventListener(type, handler),
-  dispatchEvent: () => true,
+  addEventListener: () => {},
+  removeEventListener: () => {},
 };
 
-// Every node belongs to the one document; libraries start from `element.ownerDocument`.
+// Every node belongs to the one document.
 Object.defineProperty(SNode.prototype, "ownerDocument", { get: () => fakeDocument, configurable: true });
 
 export { fakeDocument };
@@ -180,6 +75,7 @@ interface Timer {
 }
 
 const timers = new Map<number, Timer>();
+const frames = new Map<number, (time: number) => void>();
 let nextTimer = 1;
 let now = 0;
 
@@ -192,10 +88,22 @@ export function currentTime(): number {
   return now;
 }
 
-/** Runs every timer and animation frame that is due, as of the host's clock. */
-export function pump(clock: number): boolean {
+/**
+ * Runs every timer that is due and, on a display frame, the animation frames, as of
+ * the host's clock.
+ */
+export function pump(clock: number, frame: boolean): boolean {
   now = clock;
-  let ran = stepAnimations();
+  let ran = false;
+  if (frame) {
+    ran = stepAnimations();
+    const due = [...frames.values()];
+    frames.clear();
+    for (const callback of due) {
+      ran = true;
+      callback(clock);
+    }
+  }
   for (const [handle, timer] of [...timers]) {
     if (timer.due > clock) {
       continue;
@@ -211,9 +119,19 @@ export function pump(clock: number): boolean {
   return ran;
 }
 
-/** Whether anything is waiting on the clock: a timer, a frame, or an animation. */
-export function busy(): boolean {
-  return timers.size > 0 || animating();
+/**
+ * When the clock next has work: `0` for the display's next frame (an animation frame
+ * or a running animation), the milliseconds until the first timer, or `-1` for never.
+ */
+export function wake(): number {
+  if (frames.size > 0 || animating()) {
+    return 0;
+  }
+  let first = Infinity;
+  for (const timer of timers.values()) {
+    first = Math.min(first, timer.due);
+  }
+  return first === Infinity ? -1 : Math.max(first - currentTime(), 0.5);
 }
 
 function install(): void {
@@ -224,39 +142,16 @@ function install(): void {
   useClock(currentTime);
 
   globals.document = fakeDocument;
-  globals.NodeFilter = NodeFilterLite;
-  globals.navigator = {
-    userAgent: "Mozilla/5.0 (X11; Linux x86_64) svelte-gpui",
-    language: "en-US",
-    languages: ["en-US"],
-    platform: "Linux x86_64",
-    hardwareConcurrency: 4,
-    onLine: true,
-    maxTouchPoints: 0,
-  };
+  globals.navigator = { userAgent: "svelte-gpui" };
   globals.Node = SNode;
   globals.Element = SElement;
   globals.HTMLElement = SElement;
-  globals.HTMLMediaElement = SMediaElement;
   globals.Text = SText;
   globals.Comment = SComment;
   globals.DocumentFragment = SFragment;
   // `set_custom_element_data` branches on this being present; returning
   // undefined keeps it on the plain setAttribute path.
   globals.customElements = { get: () => undefined, define: () => {} };
-  globals.MutationObserver = class {
-    observe(): void {}
-    disconnect(): void {}
-    takeRecords(): unknown[] {
-      return [];
-    }
-  };
-  globals.ResizeObserver = class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  };
-
   globals.Event = HostEvent;
   globals.CustomEvent = HostEvent;
   globals.queueMicrotask = (fn: () => void) => {
@@ -278,10 +173,12 @@ function install(): void {
   globals.clearInterval = globals.clearTimeout;
   globals.requestAnimationFrame = (fn: (time: number) => void) => {
     const handle = nextTimer++;
-    timers.set(handle, { due: currentTime(), callback: () => fn(currentTime()), repeat: null });
+    frames.set(handle, fn);
     return handle;
   };
-  globals.cancelAnimationFrame = globals.clearTimeout;
+  globals.cancelAnimationFrame = (handle: number) => {
+    frames.delete(handle);
+  };
   globals.performance = { now: () => currentTime() };
 
   globals.window = globals;
@@ -293,13 +190,8 @@ function install(): void {
       windowTarget.removeEventListener(type, handler),
     dispatchEvent: () => true,
     getComputedStyle: (element: SElement) => computedStyle(element),
-    matchMedia: () => ({
-      matches: false,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }),
-    getSelection: () => null,
-    scrollTo: () => {},
+    // `prefersReducedMotion` in svelte/motion asks this; nothing here ever matches.
+    matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
     innerWidth: 0,
     innerHeight: 0,
     devicePixelRatio: 1,

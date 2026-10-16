@@ -5,21 +5,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rquickjs::{CaughtError, Coerced, Context, Function, Object, Runtime, function::Rest, qjs};
+use rquickjs::{ArrayBuffer, CaughtError, Coerced, Context, Function, Object, Runtime, function::Opt, function::Rest, qjs};
 
+use crate::io::{Completion, Io};
 use crate::tree::{NodeId, Tree};
 
-/// What the app did with an event: whether it cancelled the default action, and
-/// any text a clipboard handler asked to be copied.
+/// What the app did with an event: whether it cancelled the default action.
 #[derive(Default)]
 pub struct Outcome {
     pub prevented: bool,
-    pub clipboard: Option<String>,
 }
 
 pub struct App {
-    /// The link to Grove's main process, when there is one.
-    pub bridge: Option<crate::bridge::Bridge>,
     /// The moment the app started; its clock counts milliseconds from here.
     pub started: std::time::Instant,
     runtime: Runtime,
@@ -29,6 +26,12 @@ pub struct App {
     pub clipboard: Rc<RefCell<String>>,
     /// Operations applied and batches received, for the stress report.
     pub counters: Rc<RefCell<Counters>>,
+    /// When each recent frame was drawn and how long building it took, for `frameStats()`.
+    pub frames: Rc<RefCell<std::collections::VecDeque<(std::time::Instant, f64)>>>,
+    /// Network, sockets and files, which run off the main thread.
+    pub io: Rc<Io>,
+    /// Promises that rejected with no handler yet, reported once the microtasks have run.
+    rejections: Rc<RefCell<Vec<(usize, String)>>>,
 }
 
 #[derive(Default)]
@@ -116,11 +119,17 @@ fn run_function(ctx: &rquickjs::Ctx<'_>, function: qjs::JSValue) -> rquickjs::Re
 
 impl App {
     /// Evaluates the bundle, which mounts the component and sends its first batch.
-    pub fn start(bundle_path: &str, bridge: Option<crate::bridge::Bridge>) -> Self {
+    pub fn start(bundle_path: &str) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
-        // A promise nobody catches would otherwise fail without a word.
-        runtime.set_host_promise_rejection_tracker(Some(Box::new(|_ctx, _promise, reason, handled| {
+        // A promise nobody catches would otherwise fail without a word. QuickJS reports a
+        // rejection the moment it happens, and again as handled if a handler attaches
+        // later, so rejections are only reported once the microtasks have run (`report`).
+        let rejections: Rc<RefCell<Vec<(usize, String)>>> = Rc::new(RefCell::new(Vec::new()));
+        let tracked = rejections.clone();
+        runtime.set_host_promise_rejection_tracker(Some(Box::new(move |_ctx, promise, reason, handled| {
+            let key = unsafe { qjs::JS_VALUE_GET_PTR(promise.as_raw()) } as usize;
             if handled {
+                tracked.borrow_mut().retain(|(pending, _)| *pending != key);
                 return;
             }
             let text = reason
@@ -130,35 +139,24 @@ impl App {
             let stack = reason
                 .as_exception()
                 .and_then(|exception| exception.stack())
+                .or_else(|| reason.as_object().and_then(|object| object.get::<_, Coerced<String>>("stack").ok()).map(|value| value.0))
                 .unwrap_or_default();
-            let keys: Vec<String> = reason
-                .as_object()
-                .map(|object| {
-                    object
-                        .keys::<String>()
-                        .filter_map(|key| key.ok())
-                        .collect()
-                })
-                .unwrap_or_default();
-            let fallback = reason
-                .as_object()
-                .and_then(|object| object.get::<_, Coerced<String>>("stack").ok())
-                .map(|value| value.0)
-                .unwrap_or_default();
-            eprintln!("svelte-gpui: unhandled rejection: {text} keys={keys:?}\n{stack}{fallback}");
+            tracked.borrow_mut().push((key, format!("{text}\n{stack}")));
         })));
         let context = Context::full(&runtime).expect("quickjs context");
         let tree = Rc::new(RefCell::new(Tree::new()));
         let counters = Rc::new(RefCell::new(Counters::default()));
         let clipboard = Rc::new(RefCell::new(String::new()));
         let app = Self {
-            bridge,
+            frames: Rc::new(RefCell::new(std::collections::VecDeque::new())),
             started: std::time::Instant::now(),
             runtime,
             context,
             tree,
             clipboard,
             counters,
+            io: Rc::new(Io::new()),
+            rejections,
         };
         app.install_host();
         app.context.with(|ctx| {
@@ -179,16 +177,8 @@ impl App {
         let counters = self.counters.clone();
         let clipboard = self.clipboard.clone();
         let started = self.started;
-        let bridge = self.bridge.clone();
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
-            let send = Function::new(ctx.clone(), move |line: String| {
-                if let Some(bridge) = &bridge {
-                    bridge.send(&line);
-                }
-            })
-            .expect("ipc function");
-            host.set("ipc", send).expect("set ipc");
             let measure = Function::new(ctx.clone(), |size: f64, text: String| -> Vec<f64> {
                 measure_text(size as f32, &text)
             })
@@ -197,10 +187,27 @@ impl App {
             let now = Function::new(ctx.clone(), move || started.elapsed().as_secs_f64() * 1000.0)
                 .expect("now function");
             host.set("now", now).expect("set now");
+            let frames = self.frames.clone();
+            let frame_stats = Function::new(ctx.clone(), move || -> Vec<f64> {
+                let mut frames = frames.borrow_mut();
+                let now = std::time::Instant::now();
+                while frames.front().is_some_and(|(at, _)| now.duration_since(*at).as_secs_f64() > 1.0) {
+                    frames.pop_front();
+                }
+                let count = frames.len() as f64;
+                let building = frames.iter().map(|(_, milliseconds)| milliseconds).sum::<f64>() / count.max(1.0);
+                vec![count, building]
+            })
+            .expect("frameStats function");
+            host.set("frameStats", frame_stats).expect("set frameStats");
             let read_clipboard = Function::new(ctx.clone(), move || clipboard.borrow().clone())
                 .expect("clipboard function");
             host.set("clipboardText", read_clipboard).expect("set clipboardText");
+            let trace = std::env::var_os("SVELTE_GPUI_TRACE_OPS").is_some();
             let apply = Function::new(ctx.clone(), move |batch: String| {
+                if trace {
+                    eprintln!("batch: {batch}");
+                }
                 let operations = tree.borrow_mut().apply(&batch);
                 let mut counters = counters.borrow_mut();
                 counters.batches += 1;
@@ -208,6 +215,21 @@ impl App {
             })
             .expect("apply function");
             host.set("apply", apply).expect("set apply");
+            let io = self.io.clone();
+            let request = Function::new(
+                ctx.clone(),
+                move |op: String, call: f64, args: String, bytes: Opt<rquickjs::Value>| {
+                    let args = serde_json::from_str(&args).unwrap_or(serde_json::Value::Null);
+                    // Copied before any script runs again, which could detach the buffer.
+                    let bytes = bytes
+                        .0
+                        .and_then(|value| ArrayBuffer::from_value(value))
+                        .and_then(|buffer| unsafe { buffer.as_bytes().map(<[u8]>::to_vec) });
+                    io.request(&op, call as u64, args, bytes);
+                },
+            )
+            .expect("io function");
+            host.set("io", request).expect("set io");
             ctx.globals().set("host", host).expect("set host");
 
             let console = Object::new(ctx.clone()).expect("console object");
@@ -244,6 +266,9 @@ impl App {
     /// Runs queued promise jobs until there are none: Svelte schedules work as microtasks.
     fn drain(&self) {
         while self.runtime.execute_pending_job().unwrap_or(false) {}
+        for (_, rejection) in self.rejections.borrow_mut().drain(..) {
+            eprintln!("svelte-gpui: unhandled rejection: {rejection}");
+        }
     }
 
     /// What follows every call into the app: its microtasks, then a flush of what they changed.
@@ -281,27 +306,22 @@ impl App {
         outcome
     }
 
-    /// Hands the app a line from the main process: a reply, or an event.
-    pub fn ipc(&self, line: &str) {
+    /// Settles a call the app made through `host.io`, or passes on what a stream produced.
+    pub fn deliver(&self, completion: Completion) {
         self.context.with(|ctx| {
-            let Ok(function) = ctx.globals().get::<_, Function>("__ipc") else {
+            let Ok(function) = ctx.globals().get::<_, Function>("__io") else {
                 return;
             };
-            if let Err(error) = function.call::<_, ()>((line.to_string(),)) {
-                eprintln!("svelte-gpui: __ipc failed: {}", CaughtError::from_error(&ctx, error));
-            }
-        });
-        self.after_call();
-    }
-
-    /// Tells the app how big the host measured an element it asked about.
-    pub fn size(&self, id: NodeId, left: f32, top: f32, width: f32, height: f32) {
-        self.context.with(|ctx| {
-            let Ok(function) = ctx.globals().get::<_, Function>("__size") else {
-                return;
+            let bytes = match completion.bytes {
+                Some(bytes) => match ArrayBuffer::new(ctx.clone(), bytes) {
+                    Ok(buffer) => buffer.into_value(),
+                    Err(_) => rquickjs::Value::new_undefined(ctx.clone()),
+                },
+                None => rquickjs::Value::new_undefined(ctx.clone()),
             };
-            if let Err(error) = function.call::<_, ()>((id, left as f64, top as f64, width as f64, height as f64)) {
-                eprintln!("svelte-gpui: __size failed: {}", CaughtError::from_error(&ctx, error));
+            let arguments = (completion.call as f64, completion.settle.name(), completion.json, bytes);
+            if let Err(error) = function.call::<_, ()>(arguments) {
+                eprintln!("svelte-gpui: __io failed: {}", CaughtError::from_error(&ctx, error));
             }
         });
         self.after_call();
@@ -320,23 +340,54 @@ impl App {
         self.after_call();
     }
 
-    /// Advances the app's clock, which runs due timers and animation frames. Says whether
-    /// anything is still waiting on the clock.
-    pub fn pump(&self, now_milliseconds: f64) -> bool {
-        let mut busy = false;
+    /// Advances the app's clock, which runs due timers and, on a display frame, the
+    /// animation frames. Says when the clock next has work.
+    pub fn pump(&self, now_milliseconds: f64, frame: bool) -> Wake {
+        let wake = self.call_wake("__pump", (now_milliseconds, frame));
+        self.after_call();
+        wake
+    }
+
+    fn call_wake<A>(&self, name: &str, args: A) -> Wake
+    where
+        A: for<'js> rquickjs::function::IntoArgs<'js>,
+    {
+        let mut answer = -1.0;
         self.context.with(|ctx| {
-            let Ok(function) = ctx.globals().get::<_, Function>("__pump") else {
+            let Ok(function) = ctx.globals().get::<_, Function>(name) else {
                 return;
             };
-            match function.call::<_, bool>((now_milliseconds,)) {
-                Ok(value) => busy = value,
+            match function.call::<_, f64>(args) {
+                Ok(value) => answer = value,
                 Err(error) => {
-                    eprintln!("svelte-gpui: __pump failed: {}", CaughtError::from_error(&ctx, error));
+                    eprintln!("svelte-gpui: {name} failed: {}", CaughtError::from_error(&ctx, error));
                 }
             }
         });
-        self.after_call();
-        busy
+        Wake::from_milliseconds(answer)
+    }
+}
+
+/// When the app's clock next has work.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Wake {
+    /// On the display's next frame: an animation frame was requested or an animation runs.
+    Frame,
+    /// After this long, when the first timer is due.
+    After(std::time::Duration),
+    /// Not until something happens.
+    Idle,
+}
+
+impl Wake {
+    fn from_milliseconds(milliseconds: f64) -> Wake {
+        if milliseconds < 0.0 {
+            Wake::Idle
+        } else if milliseconds == 0.0 {
+            Wake::Frame
+        } else {
+            Wake::After(std::time::Duration::from_secs_f64(milliseconds / 1000.0))
+        }
     }
 }
 
@@ -346,7 +397,6 @@ fn parse_outcome(json: &str) -> Outcome {
     };
     Outcome {
         prevented: value["prevented"].as_bool().unwrap_or(false),
-        clipboard: value["clipboard"].as_str().map(String::from),
     }
 }
 

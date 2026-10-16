@@ -33,9 +33,9 @@ export interface NodeBackend {
   attributeChanged(node: SElement, name: string, value: unknown): void;
   styleChanged(node: SElement, property: string, value: string | null): void;
   listenerAdded(node: SElement, type: string, handler: EventHandler): void;
+  listenerRemoved(node: SElement, type: string): void;
   focus(node: SElement): void;
   scrollTo(node: SElement, left: number, top: number): void;
-  observeSize(node: SElement): void;
   select(node: SElement, start: number, end: number): void;
 }
 
@@ -46,9 +46,9 @@ const noBackend: NodeBackend = {
   attributeChanged() {},
   styleChanged() {},
   listenerAdded() {},
+  listenerRemoved() {},
   focus() {},
   scrollTo() {},
-  observeSize() {},
   select() {},
 };
 
@@ -228,41 +228,6 @@ export class SNode {
 
   cloneNode(_deep?: boolean): SNode {
     throw new Error(`cloneNode is not implemented for ${this.nodeName}`);
-  }
-
-  /** Where `other` is relative to this node, as the DOM's bit flags: 2 before, 4 after, 8 contains, 16 contained. */
-  compareDocumentPosition(other: SNode): number {
-    if (other === this) {
-      return 0;
-    }
-    const chain = (node: SNode): SNode[] => {
-      const path: SNode[] = [];
-      for (let current: SNode | null = node; current !== null; current = current.parentNode) {
-        path.unshift(current);
-      }
-      return path;
-    };
-    const mine = chain(this);
-    const theirs = chain(other);
-    if (mine[0] !== theirs[0]) {
-      return 1;
-    }
-    let depth = 0;
-    while (depth < mine.length && depth < theirs.length && mine[depth] === theirs[depth]) {
-      depth += 1;
-    }
-    if (depth === mine.length) {
-      return 16 | 4;
-    }
-    if (depth === theirs.length) {
-      return 8 | 2;
-    }
-    for (let sibling = mine[depth].nextSiblingNode; sibling !== null; sibling = sibling.nextSiblingNode) {
-      if (sibling === theirs[depth]) {
-        return 4;
-      }
-    }
-    return 2;
   }
 
   get textContent(): string {
@@ -517,6 +482,9 @@ export class SElement extends SNode {
       this.style.cssText = value;
       return;
     }
+    if (this.attributes.get(name) === value) {
+      return;
+    }
     this.attributes.set(name, value);
     backend.attributeChanged(this, name, value);
   }
@@ -524,68 +492,6 @@ export class SElement extends SNode {
   removeAttribute(name: string): void {
     this.attributes.delete(name);
     backend.attributeChanged(this, name, null);
-  }
-
-  /** `element.dataset`: the `data-*` attributes, by camelCase name. */
-  get dataset(): Record<string, string> {
-    const kebab = (name: string): string =>
-      "data-" + name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-    return new Proxy({} as Record<string, string>, {
-      get: (_target, name) => {
-        if (typeof name !== "string") {
-          return undefined;
-        }
-        const value = this.getAttribute(kebab(name));
-        return value === null ? undefined : String(value);
-      },
-      set: (_target, name, value) => {
-        if (typeof name === "string") {
-          this.setAttribute(kebab(name), String(value));
-        }
-        return true;
-      },
-      deleteProperty: (_target, name) => {
-        if (typeof name === "string") {
-          this.removeAttribute(kebab(name));
-        }
-        return true;
-      },
-      has: (_target, name) => typeof name === "string" && this.hasAttribute(kebab(name)),
-    });
-  }
-
-  get className(): string {
-    const value = this.attributes.get("class");
-    if (typeof value !== "string") {
-      return "";
-    }
-    return value;
-  }
-
-  set className(value: string) {
-    this.setAttribute("class", value);
-  }
-
-  get classList() {
-    return {
-      toggle: (name: string, force?: boolean) => {
-        const present = this.className.split(" ").filter((n) => n.length > 0);
-        const has = present.includes(name);
-        const wanted = force === undefined ? !has : force;
-        if (wanted === has) {
-          return;
-        }
-        if (wanted) {
-          present.push(name);
-        } else {
-          present.splice(present.indexOf(name), 1);
-        }
-        this.className = present.join(" ");
-      },
-      add: (name: string) => this.classList.toggle(name, true),
-      remove: (name: string) => this.classList.toggle(name, false),
-      contains: (name: string) => this.className.split(" ").includes(name),
-    };
   }
 
   set innerHTML(html: string) {
@@ -633,220 +539,9 @@ export class SElement extends SNode {
 
   blur(): void {}
 
-  // ---- Form controls ----------------------------------------------------
-  // A control's state is an attribute, so the host sees what the app sets; what
-  // the user does arrives as an event that rewrites the attribute without echoing.
-
-  selectionStartValue = 0;
-  selectionEndValue = 0;
-
-  get value(): string {
-    if (this.localName === "select") {
-      const chosen = this.selectedOptions[0] ?? this.options[0];
-      return chosen === undefined ? "" : chosen.value;
-    }
-    const stored = this.attributes.get("value");
-    if (stored !== undefined && stored !== null) {
-      return String(stored);
-    }
-    if (this.localName === "option" || this.localName === "textarea") {
-      return this.textContent.trim();
-    }
-    return "";
-  }
-
-  set value(next: unknown) {
-    const text = next === null || next === undefined ? "" : String(next);
-    if (this.localName === "select") {
-      const match = this.options.find((option) => option.value === text);
-      this.selectedIndex = match === undefined ? -1 : this.options.indexOf(match);
-      return;
-    }
-    if (this.attributes.get("value") === text) {
-      return;
-    }
-    this.setAttribute("value", text);
-  }
-
-  get defaultValue(): string {
-    return this.textContent;
-  }
-
-  set defaultValue(next: unknown) {
-    this.setAttribute("defaultvalue", String(next));
-  }
-
-  get checked(): boolean {
-    const stored = this.attributes.get("checked");
-    return stored === true || stored === "true" || stored === "";
-  }
-
-  set checked(next: unknown) {
-    this.setAttribute("checked", Boolean(next));
-  }
-
-  get defaultChecked(): boolean {
-    return this.hasAttribute("defaultchecked");
-  }
-
-  set defaultChecked(next: unknown) {
-    this.setAttribute("defaultchecked", Boolean(next));
-  }
-
-  get selected(): boolean {
-    const stored = this.attributes.get("selected");
-    return stored === true || stored === "true" || stored === "";
-  }
-
-  set selected(next: unknown) {
-    const wanted = Boolean(next);
-    if (wanted && this.localName === "option") {
-      const select = this.owningSelect();
-      if (select !== null && !select.multiple) {
-        for (const other of select.options) {
-          if (other !== this && other.selected) {
-            other.setAttribute("selected", false);
-          }
-        }
-      }
-    }
-    this.setAttribute("selected", wanted);
-  }
-
-  get type(): string {
-    const stored = this.attributes.get("type");
-    if (typeof stored === "string" && stored !== "") {
-      return stored.toLowerCase();
-    }
-    return this.localName === "input" ? "text" : "";
-  }
-
-  set type(next: string) {
-    this.setAttribute("type", next);
-  }
-
-  get multiple(): boolean {
-    return this.hasAttribute("multiple") && this.attributes.get("multiple") !== false;
-  }
-
-  get selectionStart(): number {
-    return this.selectionStartValue;
-  }
-
-  set selectionStart(next: number) {
-    this.selectionStartValue = next;
-    backend.select(this, next, this.selectionEndValue);
-  }
-
-  get selectionEnd(): number {
-    return this.selectionEndValue;
-  }
-
-  set selectionEnd(next: number) {
-    this.selectionEndValue = next;
-    backend.select(this, this.selectionStartValue, next);
-  }
-
+  /** Selects part of a `g-input`'s text, in UTF-16 offsets. */
   setSelectionRange(start: number, end: number): void {
-    this.selectionStartValue = start;
-    this.selectionEndValue = end;
     backend.select(this, start, end);
-  }
-
-  select(): void {
-    this.setSelectionRange(0, this.value.length);
-  }
-
-  /** The `option` elements of a select, in order, wherever they sit inside it. */
-  get options(): SElement[] {
-    const found: SElement[] = [];
-    const visit = (node: SNode): void => {
-      for (let child = node.firstChildNode; child !== null; child = child.nextSiblingNode) {
-        if (child instanceof SElement && child.localName === "option") {
-          found.push(child);
-          continue;
-        }
-        visit(child);
-      }
-    };
-    visit(this);
-    return found;
-  }
-
-  get selectedOptions(): SElement[] {
-    return this.options.filter((option) => option.selected);
-  }
-
-  get selectedIndex(): number {
-    return this.options.findIndex((option) => option.selected);
-  }
-
-  set selectedIndex(index: number) {
-    this.options.forEach((option, position) => {
-      const wanted = position === index;
-      if (option.selected !== wanted) {
-        option.setAttribute("selected", wanted);
-      }
-    });
-  }
-
-  private owningSelect(): SElement | null {
-    for (let node = this.parentNode; node !== null; node = node.parentNode) {
-      if (node instanceof SElement && node.localName === "select") {
-        return node;
-      }
-    }
-    return null;
-  }
-
-  get form(): null {
-    return null;
-  }
-
-  get labels(): SElement[] {
-    return [];
-  }
-
-  get files(): null {
-    return null;
-  }
-
-  /** The first descendant matching a simple selector: a tag, class, id, attribute or `:checked`. */
-  querySelector(selector: string): SElement | null {
-    return this.querySelectorAll(selector)[0] ?? null;
-  }
-
-  querySelectorAll(selector: string): SElement[] {
-    const matches = simpleMatcher(selector);
-    const found: SElement[] = [];
-    const visit = (node: SNode): void => {
-      for (let child = node.firstChildNode; child !== null; child = child.nextSiblingNode) {
-        if (child instanceof SElement) {
-          if (matches(child)) {
-            found.push(child);
-          }
-          visit(child);
-        }
-      }
-    };
-    visit(this);
-    return found;
-  }
-
-  /** Whether the element matches a simple selector. */
-  matches(selector: string): boolean {
-    return simpleMatcher(selector)(this);
-  }
-
-  /** The element itself or the nearest ancestor that matches. */
-  closest(selector: string): SElement | null {
-    const matches = simpleMatcher(selector);
-    for (let node: SNode | null = this; node !== null; node = node.parentNode) {
-      if (node instanceof SElement && matches(node)) {
-        return node;
-      }
-    }
-    return null;
   }
 
   scrollTo(first: number | { left?: number; top?: number }, second?: number): void {
@@ -877,37 +572,6 @@ export class SElement extends SNode {
     return { x: left, y: top, top, left, right: left + width, bottom: top + height, width, height };
   }
 
-  // ---- <canvas> ---------------------------------------------------------
-  // A canvas is drawn by the host from what an app sends it, not by a 2D context;
-  // the context here is only enough to measure text and to be asked for.
-
-  private canvasWidth = 300;
-  private canvasHeight = 150;
-
-  get width(): number {
-    return this.canvasWidth;
-  }
-
-  set width(value: number) {
-    this.canvasWidth = Number(value);
-  }
-
-  get height(): number {
-    return this.canvasHeight;
-  }
-
-  set height(value: number) {
-    this.canvasHeight = Number(value);
-  }
-
-  /** A 2D context that draws nothing; there is no GL, so those ask for a context and get none. */
-  getContext(kind = "2d"): CanvasStub | null {
-    if (kind !== "2d") {
-      return null;
-    }
-    return new CanvasStub();
-  }
-
   override addEventListener(type: string, handler: EventHandler): void {
     let handlers = this.listeners.get(type);
     if (handlers === undefined) {
@@ -920,6 +584,7 @@ export class SElement extends SNode {
 
   override removeEventListener(type: string, handler: EventHandler): void {
     this.listeners.get(type)?.delete(handler);
+    backend.listenerRemoved(this, type);
   }
 
   /** Runs the listeners of an event the app made up, bubbling if it asked to. */
@@ -958,129 +623,6 @@ export class SElement extends SNode {
     }
     return copy;
   }
-}
-
-/** A 2D context that draws nothing and can measure text, through the host. */
-class CanvasStub {
-  font = "10px sans-serif";
-  fillStyle = "#000";
-  strokeStyle = "#000";
-  lineWidth = 1;
-  textBaseline = "alphabetic";
-  globalAlpha = 1;
-
-  measureText(text: string) {
-    const size = Number(/(\d+(?:\.\d+)?)px/.exec(this.font)?.[1] ?? 10);
-    const measured = (globalThis as any).host.measureText(size, String(text)) as number[];
-    return {
-      width: measured[0],
-      fontBoundingBoxAscent: measured[1],
-      fontBoundingBoxDescent: measured[2],
-      actualBoundingBoxAscent: measured[1],
-      actualBoundingBoxDescent: measured[2],
-    };
-  }
-
-  save(): void {}
-  restore(): void {}
-  beginPath(): void {}
-  moveTo(): void {}
-  lineTo(): void {}
-  rect(): void {}
-  clip(): void {}
-  stroke(): void {}
-  fill(): void {}
-  fillRect(): void {}
-  clearRect(): void {}
-  fillText(): void {}
-  drawImage(): void {}
-  scale(): void {}
-  translate(): void {}
-  setTransform(): void {}
-}
-
-/** Builds a test for the handful of selectors Svelte's runtime and apps use. */
-function simpleMatcher(selector: string): (element: SElement) => boolean {
-  const alternatives = selector.split(",").map((part) => part.trim());
-  const tests = alternatives.map((part) => {
-    const tag = /^[a-zA-Z][\w-]*/.exec(part)?.[0];
-    const classes = [...part.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
-    const id = /#([\w-]+)/.exec(part)?.[1];
-    const attributes = [...part.matchAll(/\[([\w-]+)(?:=["']?([^\]"']*)["']?)?\]/g)];
-    const checked = part.includes(":checked");
-    return (element: SElement): boolean => {
-      if (tag !== undefined && element.localName !== tag.toLowerCase()) {
-        return false;
-      }
-      if (classes.some((name) => !element.classList.contains(name))) {
-        return false;
-      }
-      if (id !== undefined && element.getAttribute("id") !== id) {
-        return false;
-      }
-      for (const [, name, expected] of attributes) {
-        const actual = element.getAttribute(name);
-        if (actual === null || (expected !== undefined && String(actual) !== expected)) {
-          return false;
-        }
-      }
-      if (checked) {
-        const isChecked = element.localName === "option" ? element.selected : element.checked;
-        if (!isChecked) {
-          return false;
-        }
-      }
-      return true;
-    };
-  });
-  return (element) => tests.some((test) => test(element));
-}
-
-// Svelte writes some names as DOM properties rather than attributes —
-// `element.value = v`, `element.disabled = true` — because that is how a browser
-// element behaves. Nothing here is a browser element, so each of those names
-// gets an accessor that turns the write back into an attribute the host sees.
-const PROPERTY_ATTRIBUTES: Record<string, string> = {
-  muted: "muted",
-  volume: "volume",
-  open: "open",
-  async: "async",
-  autofocus: "autofocus",
-  autoplay: "autoplay",
-  controls: "controls",
-  default: "default",
-  disabled: "disabled",
-  indeterminate: "indeterminate",
-  inert: "inert",
-  loop: "loop",
-  multiple: "multiple",
-  required: "required",
-  reversed: "reversed",
-  seamless: "seamless",
-  webkitdirectory: "webkitdirectory",
-  defer: "defer",
-  formNoValidate: "formnovalidate",
-  isMap: "ismap",
-  noModule: "nomodule",
-  playsInline: "playsinline",
-  readOnly: "readonly",
-  srcObject: "srcobject",
-  noValidate: "novalidate",
-  allowFullscreen: "allowfullscreen",
-  disablePictureInPicture: "disablepictureinpicture",
-  disableRemotePlayback: "disableremoteplayback",
-};
-
-for (const [property, attribute] of Object.entries(PROPERTY_ATTRIBUTES)) {
-  Object.defineProperty(SElement.prototype, property, {
-    get(this: SElement): unknown {
-      return this.getAttribute(attribute);
-    },
-    set(this: SElement, value: unknown) {
-      this.setAttribute(attribute, value);
-    },
-    configurable: true,
-  });
 }
 
 // Assigned by parse.ts to keep the parser out of this module's imports.

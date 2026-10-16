@@ -23,8 +23,13 @@ pub struct Node {
     /// Inline declarations, in the order they were set.
     pub style: Vec<(String, String)>,
     pub listeners: HashSet<String>,
-    /// The app asked to hear about this element's size (`bind:clientWidth`).
-    pub observed: bool,
+}
+
+impl Node {
+    /// The app listens for this element's size and position.
+    pub fn observed(&self) -> bool {
+        self.listeners.contains("layout")
+    }
 }
 
 /// Something the app asked the host to do that is not a change to the tree.
@@ -39,8 +44,10 @@ pub enum Command {
 
 pub struct Tree {
     pub nodes: HashMap<NodeId, Node>,
-    /// The text grids drawn for `<canvas>` elements, by element.
-    pub grids: HashMap<NodeId, std::rc::Rc<std::cell::RefCell<crate::grid::GridModel>>>,
+    /// The pixels of each `g-canvas`, by element.
+    pub canvases: HashMap<NodeId, std::rc::Rc<std::cell::RefCell<crate::canvas::Surface>>>,
+    /// Canvases that were dropped, whose images the window must still free.
+    pub dropped_canvases: Vec<std::rc::Rc<std::cell::RefCell<crate::canvas::Surface>>>,
     /// Bumped by every change; a frame only rebuilds styles when it moved.
     pub version: u64,
     /// Requests from the app, taken by the window on its next tick.
@@ -53,29 +60,15 @@ pub struct Tree {
     pub dirty_deep: HashSet<NodeId>,
 }
 
-// Operation codes; runtime/host/bridge.ts sends the same numbers.
-const CREATE_ELEMENT: i64 = 0;
-const CREATE_TEXT: i64 = 1;
-const SET_TEXT: i64 = 2;
-const SET_ATTRIBUTE: i64 = 3;
-const INSERT: i64 = 4;
-const REMOVE: i64 = 5;
-const LISTEN: i64 = 6;
-const SET_STYLE: i64 = 7;
-const DROP: i64 = 8;
-const FOCUS: i64 = 9;
-const SCROLL_TO: i64 = 10;
-const OBSERVE_SIZE: i64 = 11;
-const SELECT: i64 = 12;
-const WRITE_CLIPBOARD: i64 = 13;
-const GRID: i64 = 14;
-const UNLISTEN_GLOBAL: i64 = 15;
+// Operation codes, generated from protocol.json, which runtime/host/bridge.ts reads too.
+include!(concat!(env!("OUT_DIR"), "/protocol.rs"));
 
 impl Tree {
     pub fn new() -> Self {
         let mut tree = Self {
             nodes: HashMap::new(),
-            grids: HashMap::new(),
+            canvases: HashMap::new(),
+            dropped_canvases: Vec::new(),
             version: 0,
             commands: Vec::new(),
             global_listeners: std::collections::HashSet::new(),
@@ -91,7 +84,6 @@ impl Tree {
                 attributes: HashMap::new(),
                 style: Vec::new(),
                 listeners: HashSet::new(),
-                observed: false,
             },
         );
         tree
@@ -147,8 +139,14 @@ impl Tree {
                     self.dirty_deep.insert(id);
                 }
             }
-            UNLISTEN_GLOBAL => {
-                self.global_listeners.remove(&text_at(parts, 2));
+            UNLISTEN => {
+                let event = text_at(parts, 2);
+                if id == 0 {
+                    self.global_listeners.remove(&event);
+                } else if let Some(node) = self.nodes.get_mut(&id) {
+                    node.listeners.remove(&event);
+                    self.dirty_deep.insert(id);
+                }
             }
             SET_STYLE => self.set_style(id, parts),
             DROP => self.drop_subtree(id),
@@ -163,38 +161,14 @@ impl Tree {
                 let end = parts.get(3).and_then(Value::as_u64).unwrap_or(0) as usize;
                 self.commands.push(Command::Select(id, start, end));
             }
-            GRID => {
-                self.apply_grid(id, &parts[2..]);
-                self.dirty.insert(id);
+            DRAW => {
+                if let Some(Value::Array(command)) = parts.get(2) {
+                    self.canvases.entry(id).or_default().borrow_mut().command(command);
+                    self.dirty.insert(id);
+                }
             }
             WRITE_CLIPBOARD => self.commands.push(Command::WriteClipboard(text_at(parts, 2))),
-            OBSERVE_SIZE => {
-                if let Some(node) = self.nodes.get_mut(&id) {
-                    node.observed = true;
-                }
-            }
             _ => eprintln!("svelte-gpui: unknown operation {code}"),
-        }
-    }
-
-    fn apply_grid(&mut self, id: NodeId, parts: &[Value]) {
-        let kind = parts.first().and_then(Value::as_str).unwrap_or("");
-        match kind {
-            "drop" => {
-                self.grids.remove(&id);
-            }
-            "copy" => {
-                let from = parts.get(1).and_then(Value::as_u64).unwrap_or(0) as NodeId;
-                if let Some(source) = self.grids.get(&from).cloned() {
-                    let copy = source.borrow().clone();
-                    self.grids
-                        .insert(id, std::rc::Rc::new(std::cell::RefCell::new(copy)));
-                }
-            }
-            _ => {
-                let grid = self.grids.entry(id).or_default();
-                grid.borrow_mut().apply(parts);
-            }
         }
     }
 
@@ -208,7 +182,6 @@ impl Tree {
                 attributes: HashMap::new(),
                 style: Vec::new(),
                 listeners: HashSet::new(),
-                observed: false,
             },
         );
     }
@@ -279,16 +252,12 @@ impl Tree {
         self.detach(id);
         let mut pending = vec![id];
         while let Some(next) = pending.pop() {
+            if let Some(surface) = self.canvases.remove(&next) {
+                self.dropped_canvases.push(surface);
+            }
             if let Some(node) = self.nodes.remove(&next) {
                 pending.extend(node.children);
             }
-        }
-    }
-
-    pub fn element_tag(&self, id: NodeId) -> Option<&str> {
-        match &self.nodes.get(&id)?.kind {
-            Kind::Element { tag } => Some(tag),
-            Kind::Text { .. } => None,
         }
     }
 

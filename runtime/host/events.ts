@@ -1,158 +1,123 @@
-// Turns an event the host reports into the DOM event Svelte expects, and walks
-// it up the tree. Svelte delegates the usual events (`click`, `input`, ...) to a
-// listener on the mount root, which reads `composedPath()`; anything else sits
-// on its own element. After the elements come `document` and `window`.
+// Delivers an event the host reports to the element it names. A primitive's events
+// go to that element only: nothing bubbles, so a handler sees exactly what its own
+// element did. The exception is `key`, which goes up through the focused element's
+// ancestors, as a shortcut would, and then reaches `window` as `keydown`.
+//
+// Event names are chosen to stay clear of the ones Svelte delegates to the root
+// (`click`, `input`, `keydown`, ...), so Svelte attaches each handler directly.
 
-import { documentTarget, fakeDocument, windowTarget } from "../dom/globals";
+import { fakeDocument, windowTarget } from "../dom/globals";
 import { type EventHandler, SElement, SNode } from "../dom/nodes";
 import { nodeFor } from "./bridge";
 
-interface HostEvent {
-  type: string;
-  target: unknown;
-  currentTarget: unknown;
-  bubbles: boolean;
-  cancelBubble: boolean;
-  defaultPrevented: boolean;
-  composedPath(): unknown[];
-  stopPropagation(): void;
-  stopImmediatePropagation(): void;
-  preventDefault(): void;
-  [key: string]: unknown;
-}
-
-/**
- * Delivers an event of `type` to the node with `id`, or to the document when
- * `id` is 0, and lets it bubble through the root, `document` and `window`.
- */
 export interface Outcome {
   /** A handler called `preventDefault`, so the host must not do its default action. */
   prevented: boolean;
-  /** Text a clipboard handler put on the clipboard, for the host to write. */
-  clipboard: string | null;
 }
 
-/**
- * Pointer movement and release reach `document` and `window` straight from the host,
- * wherever the pointer is, so a drag keeps going when it leaves the element that began
- * it. The elements' own events therefore stop at the root.
- */
-const REPORTED_GLOBALLY = new Set(["mousemove", "mouseup", "pointermove", "pointerup"]);
+export interface HostEvent {
+  type: string;
+  target: SNode | null;
+  defaultPrevented: boolean;
+  preventDefault(): void;
+  stopPropagation(): void;
+  [field: string]: unknown;
+}
 
-export function dispatch(id: number, type: string, detail: Record<string, unknown>): Outcome {
-  const target: unknown = id === 0 ? fakeDocument : nodeFor(id);
-  if (target === undefined) {
-    return { prevented: false, clipboard: null };
-  }
-  if (target instanceof SElement) {
-    rememberState(target, type, detail);
-  }
-
-  const path: unknown[] = [];
-  for (let node = target as SNode | null; node instanceof SNode; node = node.parentNode) {
-    path.push(node);
-  }
-  if (!(target instanceof SNode)) {
-    path.push(target);
-  }
-  if (id === 0 || !REPORTED_GLOBALLY.has(type)) {
-    path.push(fakeDocument, globalThis);
-  }
-
-  let written: string | null = null;
-  const bubbles = detail.bubbles !== false;
-  const event: HostEvent = {
+function makeEvent(type: string, detail: Record<string, unknown>): HostEvent & { stopped: boolean } {
+  const event = {
     ...detail,
-    clipboardData: {
-      types: ["text/plain"],
-      files: [],
-      items: [],
-      getData: () => String(detail.clipboardText ?? ""),
-      setData: (_format: string, text: string) => {
-        written = String(text);
-      },
-    },
     type,
-    target,
-    currentTarget: null,
-    bubbles,
-    cancelBubble: false,
+    target: null as SNode | null,
     defaultPrevented: false,
-    composedPath: () => path,
-    stopPropagation() {
-      event.cancelBubble = true;
-    },
-    stopImmediatePropagation() {
-      event.cancelBubble = true;
-    },
+    stopped: false,
     preventDefault() {
       event.defaultPrevented = true;
     },
+    stopPropagation() {
+      event.stopped = true;
+    },
   };
-
-  for (const stop of path) {
-    if (stop !== target && !bubbles) {
-      break;
-    }
-    const handlers = listenersOf(stop, type);
-    event.currentTarget = stop;
-    for (const handler of handlers) {
-      handler.call(stop, event);
-    }
-    if (event.cancelBubble) {
-      break;
-    }
-  }
-  return { prevented: event.defaultPrevented, clipboard: written };
+  return event;
 }
 
-function listenersOf(stop: unknown, type: string): EventHandler[] {
-  if (stop instanceof SElement) {
-    return [...(stop.listeners.get(type) ?? [])];
+export function dispatch(id: number, type: string, detail: Record<string, unknown>): Outcome {
+  const event = makeEvent(type, detail);
+  if (id === 0) {
+    toWindow(windowName(type), event);
+    return { prevented: event.defaultPrevented };
   }
-  if (stop === fakeDocument) {
-    return [...(documentTarget.listeners.get(type) ?? [])];
+  const target = nodeFor(id);
+  if (!(target instanceof SElement)) {
+    return { prevented: false };
   }
-  if (stop === globalThis) {
-    return [...(windowTarget.listeners.get(type) ?? [])];
+  remember(target, type, detail);
+  event.target = target;
+  if (type !== "key") {
+    run(target, type, event);
+    return { prevented: event.defaultPrevented };
   }
-  return [];
+  for (let node: SNode | null = target; node !== null && !event.stopped; node = node.parentNode) {
+    if (node instanceof SElement) {
+      run(node, type, event);
+    }
+  }
+  if (!event.stopped) {
+    toWindow("keydown", event);
+  }
+  return { prevented: event.defaultPrevented };
 }
 
-/** What an event says about the element, before any handler reads it. */
-function rememberState(target: SElement, type: string, detail: Record<string, unknown>): void {
-  if (type === "scroll") {
-    target.scrollLeftValue = Number(detail.scrollLeft ?? 0);
-    target.scrollTopValue = Number(detail.scrollTop ?? 0);
+function run(element: SElement, type: string, event: HostEvent): void {
+  for (const handler of [...(element.listeners.get(type) ?? [])]) {
+    handler.call(element, event);
+  }
+}
+
+/** `<svelte:window onkeydown>` expects a DOM keyboard event, so it gets the DOM's names too. */
+function toWindow(type: string, event: HostEvent): void {
+  const handlers: EventHandler[] = [...(windowTarget.listeners.get(type) ?? [])];
+  if (handlers.length === 0) {
     return;
   }
-  if ((type === "input" || type === "change") && target.localName === "select") {
-    const chosen = Number(detail.selectedIndex ?? -1);
-    target.options.forEach((option, index) => {
-      option.attributes.set("selected", index === chosen);
-    });
-    return;
+  Object.assign(event, {
+    ctrlKey: event.ctrl,
+    shiftKey: event.shift,
+    altKey: event.alt,
+    metaKey: event.meta,
+  });
+  for (const handler of handlers) {
+    handler.call(globalThis, event);
   }
-  if (type === "input" || type === "change") {
-    if (typeof detail.value === "string") {
+}
+
+function windowName(type: string): string {
+  return type === "key" ? "keydown" : type;
+}
+
+/** What an event says about the element, written down before any handler reads it. */
+function remember(target: SElement, type: string, detail: Record<string, unknown>): void {
+  switch (type) {
+    case "edit":
+      // The host already shows this text; writing the attribute directly does not echo it back.
       target.attributes.set("value", detail.value);
-    }
-    if (typeof detail.checked === "boolean") {
-      target.attributes.set("checked", detail.checked);
-    }
-    if (typeof detail.selectionStart === "number") {
-      target.selectionStartValue = detail.selectionStart;
-      target.selectionEndValue = Number(detail.selectionEnd ?? detail.selectionStart);
-    }
-    return;
-  }
-  if (type === "focus" || type === "focusin") {
-    fakeDocument.activeElement = target;
-    return;
-  }
-  if (type === "blur" || type === "focusout") {
-    if (fakeDocument.activeElement === target) {
-      fakeDocument.activeElement = null;
-    }
+      return;
+    case "scroll":
+      target.scrollLeftValue = Number(detail.x ?? 0);
+      target.scrollTopValue = Number(detail.y ?? 0);
+      return;
+    case "layout":
+      target.boxLeft = Number(detail.x ?? 0);
+      target.boxTop = Number(detail.y ?? 0);
+      target.offsetWidth = target.clientWidth = Number(detail.width ?? 0);
+      target.offsetHeight = target.clientHeight = Number(detail.height ?? 0);
+      return;
+    case "focus":
+      fakeDocument.activeElement = target;
+      return;
+    case "blur":
+      if (fakeDocument.activeElement === target) {
+        fakeDocument.activeElement = null;
+      }
   }
 }

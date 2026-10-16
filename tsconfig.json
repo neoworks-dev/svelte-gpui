@@ -9,7 +9,11 @@
     "lib": ["ES2022"],
     "types": [],
     "typeRoots": [],
-    "paths": { "@neoworks/svelte-gpui": ["./runtime/index.ts"] }
+    "resolveJsonModule": true,
+    "paths": {
+      "@neoworks/svelte-gpui": ["./runtime/index.ts"],
+      "@neoworks/svelte-gpui/ui": ["./runtime/ui/index.ts"]
+    }
   },
-  "include": ["runtime"]
+  "include": ["runtime", "examples/*/src"]
 }
