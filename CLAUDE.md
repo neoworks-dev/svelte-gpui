@@ -114,7 +114,7 @@ This holds for every agent, and most for subagents on smaller models, where it b
 
 `bun test` and `bun run typecheck` pass on the branch either way.
 
-Then hand it over and stop: what changed in a sentence or two, the evidence, and the branch. When it has an issue, the evidence also goes on the issue as a `gh bot issue comment` with the before and after screenshots — that comment is what I read, so it's written for someone who wasn't in the session.
+Then hand it over and stop: what changed in a sentence or two, the evidence, and the branch. When it has an issue, the evidence also goes on the issue with `scripts/evidence.sh <n> <body> <before.png> <after.png>`, which puts the screenshots on the `evidence` branch and comments as the bot — that comment is what I read, so it's written for someone who wasn't in the session.
 
 ## Merging
 
