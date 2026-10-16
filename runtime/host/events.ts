@@ -8,6 +8,7 @@
 
 import { fakeDocument, windowTarget } from "../dom/globals";
 import { type EventHandler, SElement, SNode } from "../dom/nodes";
+import { focusMoved } from "../dom/focus";
 import { nodeFor } from "./bridge";
 
 export interface Outcome {
@@ -113,7 +114,7 @@ function remember(target: SElement, type: string, detail: Record<string, unknown
       target.offsetHeight = target.clientHeight = Number(detail.height ?? 0);
       return;
     case "focus":
-      fakeDocument.activeElement = target;
+      focusMoved(target, typeof detail.from === "number" ? nodeFor(detail.from) : undefined);
       return;
     case "blur":
       if (fakeDocument.activeElement === target) {

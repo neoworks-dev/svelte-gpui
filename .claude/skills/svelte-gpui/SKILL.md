@@ -39,17 +39,17 @@ are the reference. The app in `examples/demo` uses every feature.
 
 | Component | Key props | Methods |
 |---|---|---|
-| `View` | `style hover active focus focusable onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
+| `View` | `style hover active focus focusable onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()`, `blur()` |
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
-| `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()` |
-| `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `select(start?, end?)` |
+| `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
+| `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `blur()`, `select(start?, end?)` |
 | `Scroll` | `style horizontal onscroll onlayout` (needs a bounded height) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
 | `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
 | `Canvas` | `style ondown onmove onup onhover onwheel onlayout` | `begin(x,y,pen) lineTo end line fillRect fillCircle clear` |
 | `Presence` | `in out style`, each a transition or `[fn, params]` | |
-| `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()` |
+| `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()`, `blur()` |
 
 `View` is a column. `Button` and `Input` are rows. Text properties (`color`,
 `fontSize`, `fontWeight`, `fontFamily`, …) are inherited by children.

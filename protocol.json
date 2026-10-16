@@ -12,6 +12,7 @@
     "setStyle",
     "drop",
     "focus",
+    "blur",
     "scrollTo",
     "select",
     "writeClipboard",
