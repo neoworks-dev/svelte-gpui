@@ -32,6 +32,9 @@ pub struct Options {
     /// for with `start(..., { window })`; without either, the window is 668 by 821.
     pub width: Option<f32>,
     pub height: Option<f32>,
+    /// The window's app id, which the desktop matches window rules against. It overrides a
+    /// packaged app's own id; tests set it so the window can be kept out of the way.
+    pub app_id: Option<String>,
     /// Paths file access is narrowed to, on top of the app's own limit.
     pub allow_files: Vec<String>,
     /// Scripted input steps, for testing (see docs/testing.md).
@@ -62,6 +65,7 @@ impl Options {
             assets: None,
             width: None,
             height: None,
+            app_id: None,
             allow_files: Vec::new(),
             steps: Vec::new(),
             exit_after_ms: None,
@@ -86,7 +90,7 @@ impl Options {
         self
     }
 
-    /// Reads the host's command line: `--bundle`, `--width`, `--height`, `--assets`,
+    /// Reads the host's command line: `--bundle`, `--width`, `--height`, `--app-id`, `--assets`,
     /// `--allow-files`, `--do`, `--exit-after-ms`, `--report`, `--watch` and `--dev`. `None` without a bundle.
     pub fn from_command_line() -> Option<Self> {
         Self::read_command_line(None)
@@ -108,6 +112,7 @@ impl Options {
         options.assets = one("--assets").map(PathBuf::from);
         options.width = number("--width");
         options.height = number("--height");
+        options.app_id = one("--app-id");
         options.allow_files = all("--allow-files");
         options.steps = all("--do");
         options.steps.extend(all("--click-text").into_iter().map(|text| format!("click:{text}")));
@@ -264,6 +269,9 @@ fn open_options(options: &Options, settings: WindowSettings, cx: &mut App) -> Wi
             let title = metadata.title.unwrap_or(metadata.name);
             opening.titlebar = Some(TitlebarOptions { title: Some(title.into()), ..Default::default() });
         }
+    }
+    if let Some(app_id) = &options.app_id {
+        opening.app_id = Some(app_id.clone());
     }
     if settings.min_width.is_some() || settings.min_height.is_some() {
         let minimum = size(px(settings.min_width.unwrap_or(0.0)), px(settings.min_height.unwrap_or(0.0)));
