@@ -54,6 +54,8 @@ impl Workbench {
         // The old app, its QuickJS runtime and its element tree, are dropped here, and with
         // them the sockets and watches its `Io` owns.
         self.svelte = next;
+        // The new app reads the fields through its own handle.
+        self.interaction.fields = self.svelte.fields.clone();
         self.interaction.reset();
         self.interaction.images.reset();
         window.focus(&self.interaction.root_focus);

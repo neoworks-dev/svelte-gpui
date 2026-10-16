@@ -81,12 +81,12 @@ pub struct Interaction {
 }
 
 impl Interaction {
-    pub fn new(images: Images, cx: &mut Context<Workbench>) -> Self {
+    pub fn new(images: Images, fields: Rc<RefCell<HashMap<NodeId, Field>>>, cx: &mut Context<Workbench>) -> Self {
         Interaction {
             root_focus: cx.focus_handle(),
             focus: RefCell::new(HashMap::new()),
             scroll: RefCell::new(HashMap::new()),
-            fields: Rc::new(RefCell::new(HashMap::new())),
+            fields,
             bounds: Rc::new(RefCell::new(HashMap::new())),
             hovered: RefCell::new(HashSet::new()),
             animations: RefCell::new(HashMap::new()),

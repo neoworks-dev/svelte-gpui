@@ -71,8 +71,30 @@ impl Workbench {
             "selectionStart": start,
             "selectionEnd": end,
         });
-        self.caret_moved(id, cx);
         self.emit(id, "edit", detail.to_string(), cx);
+        // After `edit`, so the app has the new text when it hears where the cursor went.
+        self.caret_moved(id, cx);
+    }
+
+    /// Tells the app where a field's cursor and selection are, if it listens and they moved.
+    pub fn report_selection(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        let listens = self.svelte.tree.borrow().nodes.get(&id).is_some_and(|node| node.listeners.contains("select"));
+        if !listens {
+            return;
+        }
+        let now = {
+            let mut fields = self.interaction.fields.borrow_mut();
+            let Some(field) = fields.get_mut(&id) else {
+                return;
+            };
+            let now = field.selection_utf16();
+            if field.reported == Some(now) {
+                return;
+            }
+            field.reported = Some(now);
+            now
+        };
+        self.emit(id, "select", json!({ "start": now.0, "end": now.1 }).to_string(), cx);
     }
 
     /// Fires `commit` when the text differs from what it was on focus.
