@@ -47,45 +47,122 @@ fn split_step(step: &str) -> Parts {
     Parts { action, target, argument }
 }
 
+/// What the scripted steps did: how many ran, and which of them could not be carried out.
+#[derive(Default)]
+pub(crate) struct StepLog {
+    ran: usize,
+    /// `(number, step, why)` for each step that matched nothing or could not be read.
+    failures: Vec<(usize, String, String)>,
+}
+
+impl StepLog {
+    /// Counts a step that is about to run, and gives its number, from 1.
+    fn begin(&mut self) -> usize {
+        self.ran += 1;
+        self.ran
+    }
+
+    /// Whether the run went wrong: a step failed, or the run ended before all of them had run.
+    pub(crate) fn failed(&self, total: usize) -> bool {
+        !self.failures.is_empty() || self.ran < total
+    }
+
+    /// What the summary prints about the steps, nothing when there were none.
+    pub(crate) fn summary(&self, total: usize) -> Vec<String> {
+        if total == 0 {
+            return Vec::new();
+        }
+        let mut line = format!("steps: {} of {total} ran, {} failed", self.ran, self.failures.len());
+        if self.ran < total {
+            line += &format!(", {} never ran because the run ended first", total - self.ran);
+        }
+        let mut lines = vec![line];
+        for (number, step, why) in &self.failures {
+            lines.push(format!("  step {number} {step:?}: {why}"));
+        }
+        lines
+    }
+}
+
+/// The two or three numbers of a pointer step, `x,y` and optionally the button. Nothing at all is `0,0`.
+fn pointer_argument(argument: &str) -> Result<(f32, f32, i32), String> {
+    if argument.is_empty() {
+        return Ok((0.0, 0.0, 0));
+    }
+    let numbers: Vec<&str> = argument.split(',').map(str::trim).collect();
+    let number =
+        |text: &str| text.parse::<f32>().map_err(|_| format!("cannot read {text:?} as a number in {argument:?}"));
+    match numbers.as_slice() {
+        [x, y] => Ok((number(x)?, number(y)?, 0)),
+        [x, y, button] => Ok((number(x)?, number(y)?, number(button)? as i32)),
+        _ => Err(format!("expected x,y or x,y,button, not {argument:?}")),
+    }
+}
+
 impl Workbench {
-    /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor.
+    /// What the scripted steps did so far, for the summary.
+    pub(crate) fn step_summary(&self, total: usize) -> Vec<String> {
+        self.steps.summary(total)
+    }
+
+    /// Whether a scripted step failed, or the run ended before they had all run.
+    pub(crate) fn steps_failed(&self, total: usize) -> bool {
+        self.steps.failed(total)
+    }
+
+    /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor. A step that
+    /// matches nothing or cannot be read is written down and printed as it happens, and counted in the
+    /// summary at the end of a run.
     pub(crate) fn run_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let number = self.steps.begin();
+        if let Err(why) = self.carry_out_step(step, window, cx) {
+            eprintln!("step {number} failed: {step}: {why}");
+            self.steps.failures.push((number, step.to_string(), why));
+        }
+    }
+
+    fn carry_out_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
         let Parts { action, target: needle, argument } = split_step(step);
         let (action, needle, argument) = (action.as_str(), needle.as_str(), argument.as_str());
         if action == "wait" {
-            return;
+            return Ok(());
         }
         if action == "dismiss" {
             self.dismiss_errors(cx);
-            return;
+            return Ok(());
         }
         if action == "frames" {
+            let frames = needle.parse().map_err(|_| format!("cannot read {needle:?} as a number of frames"))?;
             self.frame_times.clear();
-            self.frame_target = needle.parse().unwrap_or(0);
+            self.frame_target = frames;
             cx.notify();
-            return;
+            return Ok(());
+        }
+        if matches!(action, "press" | "click" | "hover" | "unhover" | "focus" | "poke") && !argument.is_empty() {
+            return Err(format!(
+                "{action} takes no argument, but got {argument:?}; a colon in the target is written \\:"
+            ));
         }
         let Some(id) = self.find_node(needle) else {
-            eprintln!("nothing matches {needle:?}");
-            return;
+            return Err(format!("nothing matches {needle:?}"));
         };
         if action == "hover" || action == "unhover" {
             let target = self.listening_ancestor(id, "hover");
             self.hover_changed(target, action == "hover", cx);
-            return;
+            return Ok(());
         }
         if action == "poke" {
             self.poked = Some(id);
-            return;
+            return Ok(());
         }
         if action == "drop" || action == "dragover" {
             self.simulate_drag(id, argument, action == "drop", cx);
-            return;
+            return Ok(());
         }
         if matches!(action, "down" | "move" | "up") {
+            let (_, _, button) = pointer_argument(argument)?;
             let id = if action == "down" {
                 // A press goes to the nearest element that takes this button, as a real one does.
-                let button = argument.split(',').nth(2).and_then(|button| button.trim().parse().ok()).unwrap_or(0);
                 self.pressed_ancestor(id, button)
             } else {
                 self.listening_ancestor(id, action)
@@ -93,7 +170,7 @@ impl Workbench {
             self.run_pointer_step(action, id, if argument.is_empty() { "0,0" } else { argument }, cx);
             self.dirty_all_views(cx);
             cx.notify();
-            return;
+            return Ok(());
         }
         match action {
             "click" | "press" => {
@@ -134,23 +211,21 @@ impl Workbench {
                 }
             }
             "key" => {
-                let spelled = argument;
-                match Keystroke::parse(spelled) {
-                    Ok(keystroke) => {
-                        self.handle_key(id, &keystroke, false, true, cx);
-                    }
-                    Err(_) => eprintln!("cannot read keystroke {spelled:?}"),
-                }
+                let keystroke =
+                    Keystroke::parse(argument).map_err(|_| format!("cannot read {argument:?} as a keystroke"))?;
+                self.handle_key(id, &keystroke, false, true, cx);
             }
             "scroll" => {
-                let pixels: f32 = argument.parse().unwrap_or(0.0);
+                let pixels: f32 =
+                    argument.parse().map_err(|_| format!("cannot read {argument:?} as a number of pixels"))?;
                 let target = self.scrollable_ancestor(id);
                 self.queued.push((Command::ScrollTo(target, 0.0, pixels), 20));
             }
-            _ => eprintln!("unknown step {step:?}"),
+            _ => return Err(format!("unknown step {action:?}")),
         }
         self.dirty_all_views(cx);
         cx.notify();
+        Ok(())
     }
 
     /// `down` presses on an element, which then holds the pointer; `move` and `up` go to the
@@ -319,5 +394,60 @@ mod tests {
         assert_eq!(split(r"press:a\\b"), parts("press", r"a\b", ""));
         assert_eq!(split(r"press:a\\:b"), parts("press", r"a\", "b"));
         assert_eq!(split(r"press:C:\dir"), parts("press", "C", r"\dir"));
+    }
+
+    #[test]
+    fn a_pointer_argument_is_two_or_three_numbers() {
+        assert_eq!(pointer_argument(""), Ok((0.0, 0.0, 0)));
+        assert_eq!(pointer_argument("10,20"), Ok((10.0, 20.0, 0)));
+        assert_eq!(pointer_argument(" 10 , 20 , 2 "), Ok((10.0, 20.0, 2)));
+    }
+
+    #[test]
+    fn a_pointer_argument_that_cannot_be_read_is_an_error() {
+        assert!(pointer_argument("10").is_err());
+        assert!(pointer_argument("ten,20").is_err());
+        assert!(pointer_argument("1,2,3,4").is_err());
+        assert!(pointer_argument("1,2,right").is_err());
+    }
+
+    #[test]
+    fn a_run_without_steps_has_nothing_to_report() {
+        let log = StepLog::default();
+        assert!(log.summary(0).is_empty());
+        assert!(!log.failed(0));
+    }
+
+    #[test]
+    fn a_failed_step_is_listed_and_fails_the_run() {
+        let mut log = StepLog::default();
+        assert_eq!(log.begin(), 1);
+        assert_eq!(log.begin(), 2);
+        log.failures.push((2, "press:Save".to_string(), "nothing matches \"Save\"".to_string()));
+        assert!(log.failed(2));
+        assert_eq!(
+            log.summary(2),
+            vec![
+                "steps: 2 of 2 ran, 1 failed".to_string(),
+                "  step 2 \"press:Save\": nothing matches \"Save\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn steps_the_run_ended_before_reaching_fail_it() {
+        let mut log = StepLog::default();
+        log.begin();
+        assert!(log.failed(3));
+        assert_eq!(log.summary(3), vec!["steps: 1 of 3 ran, 0 failed, 2 never ran because the run ended first"]);
+    }
+
+    #[test]
+    fn steps_that_all_ran_do_not_fail_it() {
+        let mut log = StepLog::default();
+        log.begin();
+        log.begin();
+        assert!(!log.failed(2));
+        assert_eq!(log.summary(2), vec!["steps: 2 of 2 ran, 0 failed"]);
     }
 }
