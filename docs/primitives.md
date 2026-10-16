@@ -159,12 +159,31 @@ column or a fixed `height`.
 |---|---|---|
 | `style` | `Style` | |
 | `horizontal` | `boolean` | Scroll sideways instead of down. |
-| `onscroll` | `(p: ScrollPosition) => void` | The offset and how far it can go: `{ x, y, maxX, maxY }`. |
+| `onscroll` | `(p: ScrollPosition) => void` | The offset and how far it can go: `{ x, y, maxX, maxY }`. It fires when the offset changes, and also when the content grows or shrinks and `maxY` changes with it. |
 | `onlayout` | `(l: Layout) => void` | |
 
 | Method | |
 |---|---|
 | `scrollTo(offset)` | Moves the top (or left) edge to `offset` pixels. |
+| `scrollBy(delta)` | Moves by `delta` pixels, down or right when positive, and stops at the ends. |
+| `position()` | `{ x, y, maxX, maxY }`: where it is and how far it can go. |
+
+`position()` is known without an `onscroll` handler, and is right straight after `scrollTo` or `scrollBy`. Read in a
+template or an effect, it updates the way state does. It reads zeros until the host has laid the content out, so
+`scrollBy` does nothing before the first frame. Together they make keyboard scrolling short:
+
+```svelte
+<script lang="ts">
+  let scroller: Scroll;
+</script>
+
+<View focusable onkey={(e) => {
+  if (e.key === "ArrowDown") scroller.scrollBy(40);
+  if (e.key === "ArrowUp") scroller.scrollBy(-40);
+}}>
+  <Scroll bind:this={scroller} style={{ flex: 1 }}>…</Scroll>
+</View>
+```
 
 ## List
 
