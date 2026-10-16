@@ -52,6 +52,10 @@ impl Painter<'_> {
                 element.overflow_y_scroll()
             };
         }
+        if node.attributes.contains_key("keepfocus") {
+            // Before the elements under it can take focus: a press here leaves focus where it is.
+            element = element.capture_any_mouse_down(|_, window, _| window.prevent_default());
+        }
         if disabled {
             return element.into_any_element();
         }
@@ -83,7 +87,7 @@ impl Painter<'_> {
                 }
                 element = element.on_mouse_down(
                     button,
-                    cx.listener(move |workbench, event: &MouseDownEvent, _window, cx| {
+                    cx.listener(move |workbench, event: &MouseDownEvent, window, cx| {
                         let detail = pointer_detail(
                             id,
                             event.position,
@@ -94,6 +98,10 @@ impl Painter<'_> {
                         );
                         workbench.capture_pointer(id);
                         workbench.emit(id, "down", detail, cx);
+                        // Nothing above this element hears the press, so what they would do with focus is done here.
+                        if !window.default_prevented() {
+                            workbench.press_focus(id, window);
+                        }
                         cx.stop_propagation();
                     }),
                 );

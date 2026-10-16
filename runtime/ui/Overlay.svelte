@@ -43,6 +43,8 @@
     layer?: number;
     /** Takes keyboard focus when pressed, and when `focus()` is called. */
     focusable?: boolean;
+    /** A press here does not take focus from the field that has it, nor give it to anything. */
+    keepFocus?: boolean;
     /** A button went down outside it (and outside any overlay opened from inside it). */
     onoutside?: (event: OutsideEvent) => void;
     onpress?: (event: PointerEvent) => void;
@@ -73,6 +75,7 @@
     passthrough: props.passthrough ? "" : undefined,
     layer: props.layer === undefined ? undefined : String(props.layer),
     focusable: props.focusable ? "" : undefined,
+    keepfocus: props.keepFocus ? "" : undefined,
     onoutside: listener(props.onoutside, itself<OutsideEvent>),
     onpress: listener(props.onpress, itself<PointerEvent>),
     onhover: listener(props.onhover, (event: { hovered: boolean }) => event.hovered),

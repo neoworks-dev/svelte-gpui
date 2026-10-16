@@ -77,6 +77,19 @@ takes the keyboard for a while can hand it back this way without knowing who had
 `blur()` does nothing on an element that does not have focus, and two `blur()` calls in a row do not bounce between
 the same two elements: the second one gives focus up altogether.
 
+A press anywhere that cannot take focus, such as empty space or a `View` that is not `focusable`, takes focus
+away from the field that has it, as on the web. The field hears `onblur`, and `oncommit` if its text changed. That
+holds for a press on a `View` that has `ondown` too. To press something without taking focus from the field it
+belongs to, such as a list of suggestions under it, give the element `keepFocus`:
+
+```svelte
+<Input bind:value={text} />
+<View keepFocus>{#each suggestions as item}<Button onpress={() => (text = item)}>{item}</Button>{/each}</View>
+```
+
+`keepFocus` applies to everything inside the element: the buttons in it take no focus either. A field inside it
+still takes focus when pressed.
+
 | Event | On | Carries |
 |---|---|---|
 | `onkey` | `View`, `Button`, `Input` | `KeyEvent` |
