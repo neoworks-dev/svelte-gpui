@@ -68,6 +68,19 @@ A double click arrives as a press with `clicks: 2`.
 `Button` and `Input` take focus when pressed, as does a `View` with `focusable`.
 `Button.focus()` and `Input.focus()` give focus from code.
 
+A press anywhere that cannot take focus, such as empty space or a `View` that is not `focusable`, takes focus
+away from the field that has it, as on the web. The field hears `onblur`, and `oncommit` if its text changed. That
+holds for a press on a `View` that has `ondown` too. To press something without taking focus from the field it
+belongs to, such as a list of suggestions under it, give the element `keepFocus`:
+
+```svelte
+<Input bind:value={text} />
+<View keepFocus>{#each suggestions as item}<Button onpress={() => (text = item)}>{item}</Button>{/each}</View>
+```
+
+`keepFocus` applies to everything inside the element: the buttons in it take no focus either. A field inside it
+still takes focus when pressed.
+
 | Event | On | Carries |
 |---|---|---|
 | `onkey` | `View`, `Button`, `Input` | `KeyEvent` |

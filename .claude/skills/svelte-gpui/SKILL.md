@@ -39,7 +39,7 @@ are the reference. The app in `examples/demo` uses every feature.
 
 | Component | Key props | Methods |
 |---|---|---|
-| `View` | `style hover active focus focusable onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
+| `View` | `style hover active focus focusable keepFocus onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `select(start?, end?)` |
@@ -49,7 +49,7 @@ are the reference. The app in `examples/demo` uses every feature.
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
 | `Canvas` | `style ondown onmove onup onhover onwheel onlayout` | `begin(x,y,pen) lineTo end line fillRect fillCircle clear` |
 | `Presence` | `in out style`, each a transition or `[fn, params]` | |
-| `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()` |
+| `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable keepFocus onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()` |
 
 `View` is a column. `Button` and `Input` are rows. Text properties (`color`,
 `fontSize`, `fontWeight`, `fontFamily`, …) are inherited by children.
@@ -140,6 +140,9 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
   (`e.paths`, readable once dropped). Inside the app, `Draggable` and `DropTarget`.
 - **Shortcuts:** `<svelte:window onkeydown>` with `event.ctrlKey` and similar. Call
   `preventDefault()` so a focused field does not type the key too.
+- **Focus:** a press that lands on nothing focusable blurs the field that has focus, as on the web
+  (`onblur`, `oncommit`). Put `keepFocus` on a `View` or `Overlay` that must be pressed without that, such as
+  suggestions under a field.
 - **Shared state:** a `.svelte.ts` module exporting `$state`.
 
 ## Floating content, dragging and trees
@@ -209,7 +212,7 @@ scripts/shot.sh BUNDLE /tmp/out.png SECONDS --do "press:Save" --do "type:@placeh
 Then read the PNG. Steps run 0.9 s apart, so make `SECONDS` at least one per step plus
 one. `docs/testing.md` lists the steps:
 
-- `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit`;
+- `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit` (`press` and `down` move focus as a real press does);
 - `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
 - `scroll`, `wait`, `frames`.

@@ -12,6 +12,7 @@ mod file_drop;
 mod media;
 mod motion;
 mod overlay;
+mod press;
 mod primitive;
 mod text;
 
@@ -38,6 +39,7 @@ pub use field::{caret_visible, next_blink};
 use file_drop::external_drag_ended;
 use media::icon_content;
 use motion::Animation;
+use press::press_ends_focus;
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use text::Inherited;
@@ -248,7 +250,8 @@ impl<'a> Painter<'a> {
             .on_drop(cx.listener(|workbench, dropped: &ExternalPaths, window, cx| {
                 workbench.external_drop(window.mouse_position(), dropped.paths().to_vec(), cx);
             }))
-            .child(external_drag_ended(cx));
+            .child(external_drag_ended(cx))
+            .child(press_ends_focus(cx));
         let inherited = Inherited::root();
         for child in self.children(ROOT, &inherited, false, cx) {
             element = element.child(child);

@@ -83,6 +83,9 @@ impl Workbench {
             return;
         }
         if matches!(action, "down" | "move" | "up") {
+            if action == "down" {
+                self.press_focus(id, window);
+            }
             let id = if action == "down" {
                 // A press goes to the nearest element that takes this button, as a real one does.
                 let button = argument.split(',').nth(2).and_then(|button| button.trim().parse().ok()).unwrap_or(0);
@@ -103,6 +106,7 @@ impl Workbench {
                 if let Some(middle) = middle {
                     self.simulate_press_outside(middle, 0, cx);
                 }
+                self.press_focus(id, window);
                 self.emit(target, "press", "{\"x\":0,\"y\":0,\"button\":0,\"clicks\":1}".to_string(), cx);
             }
             "focus" => {

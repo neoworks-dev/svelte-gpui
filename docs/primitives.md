@@ -32,6 +32,7 @@ the full set of pointer events.
 | `style` | `Style` | |
 | `hover`, `active`, `focus` | `Style` | State styles. `active` applies while a button is held on it. |
 | `focusable` | `boolean` | Takes keyboard focus when pressed, which lets it receive `onkey`. |
+| `keepFocus` | `boolean` | A press on it, or on anything inside it, does not move focus: the field that has it keeps it, and nothing inside takes it. See [Events](events.md#keyboard-and-focus). |
 | `onpress` | `(e: PointerEvent) => void` | A click: a button pressed and released on it. |
 | `onhover` | `(hovered: boolean) => void` | The pointer entered (`true`) or left (`false`). |
 | `ondown` | `(e: PointerEvent) => void` | A button went down on it. This captures the pointer: `onmove` and `onup` follow it anywhere until release. |
@@ -344,6 +345,7 @@ children. Other components build on it; use it directly for anything `Popover` d
 | `passthrough` | `boolean` | Lets the pointer through to what is behind it. Otherwise it blocks it. |
 | `layer` | `number` | Overlays with a higher layer are drawn over those with a lower one. |
 | `focusable` | `boolean` | Takes keyboard focus when pressed or when `focus()` is called. |
+| `keepFocus` | `boolean` | As on `View`: a press inside it does not move focus. For a list of suggestions under a field. |
 | `onoutside` | `(e: OutsideEvent) => void` | A button went down outside it (and outside any overlay opened from inside it). `e.anchor` says it went down on the parent. |
 | `style`, `hover`, `active`, `focus` | `Style` | As on `View`. |
 | `onpress`, `onhover`, `onlayout`, `onkey`, `onfocus`, `onblur` | | As on `View`. |
