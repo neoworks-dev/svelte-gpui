@@ -175,6 +175,33 @@ pub fn compile(source: &std::path::Path, output: &std::path::Path) -> Result<(),
     std::fs::write(output, bytes).map_err(|error| format!("cannot write {}: {error}", output.display()))
 }
 
+/// QuickJS's own limit, 256 KB, which is all the app gets where the thread's stack is unknown.
+const DEFAULT_STACK_SIZE: usize = 256 * 1024;
+
+/// Stack left to the host and GPUI below the deepest JavaScript frame: what was used before the
+/// runtime started, and the host functions the app calls.
+const HOST_STACK_RESERVE: usize = 1024 * 1024;
+
+/// How much stack JavaScript may use. Svelte mounts a component's children while the parent's
+/// effect is still running, so each level of nesting costs about 60 KB of stack: QuickJS's 256 KB
+/// fit only 15. The app runs on the main thread, whose stack is the process's stack limit (8 MB
+/// on most systems, about 110 levels), so it gets all of that but `HOST_STACK_RESERVE`.
+fn javascript_stack_size() -> usize {
+    const MOST: usize = 64 * 1024 * 1024;
+    #[cfg(unix)]
+    {
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        if unsafe { libc::getrlimit(libc::RLIMIT_STACK, &mut limit) } != 0 {
+            return DEFAULT_STACK_SIZE;
+        }
+        let stack = if limit.rlim_cur == libc::RLIM_INFINITY { MOST } else { (limit.rlim_cur as usize).min(MOST) };
+        stack.saturating_sub(HOST_STACK_RESERVE).max(DEFAULT_STACK_SIZE)
+    }
+    // Windows gives the main thread 1 MB, so QuickJS's default is already a quarter of it.
+    #[cfg(not(unix))]
+    DEFAULT_STACK_SIZE
+}
+
 fn pending_error(ctx: &rquickjs::Ctx<'_>) -> String {
     CaughtError::from_error(ctx, rquickjs::Error::Exception).to_string()
 }
@@ -198,6 +225,7 @@ impl App {
     /// `commands` is what the app can call in Rust.
     pub fn start_with(bundle_path: &str, script: Script, allow_files: &[String], commands: Commands) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
+        runtime.set_max_stack_size(javascript_stack_size());
         // A promise nobody catches would otherwise fail without a word. QuickJS reports a
         // rejection the moment it happens, and again as handled if a handler attaches
         // later, so rejections are only reported once the microtasks have run (`report`).
