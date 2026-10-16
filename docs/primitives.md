@@ -458,16 +458,37 @@ stay inside the window, closes on an outside press or Escape, and gives focus ba
 
 | Prop | Type | |
 |---|---|---|
-| `items` | `MenuItem[]` \| `(e: PointerEvent) => MenuItem[]` | A function makes the menu depend on what is under the pointer. |
+| `items` | `MenuItem[]` \| `(e: PointerEvent) => MenuItem[]` | A function makes the menu depend on what is under the pointer. Optional when `openAt` is always given its own. |
 | `onselect` | `(item, index) => void` | |
-| `onopen` | `(e: PointerEvent) => void` | |
+| `onopen` | `(e: PointerEvent) => void` | Called when the menu's own right press opens it, not by `openAt`. |
 | `style`, `menuStyle`, `panelStyle` | `Style` | The region, the menu, and the card around it. |
+
+| Method | |
+|---|---|
+| `openAt(x, y, items?)` | Opens the menu at a point in the window, such as a pointer event's `windowX` and `windowY`. It uses `items`, or the `items` prop without them (a function prop is called with a pointer at that point). It flips and shifts like the pointer's own menu, and moves there when it is already open. |
+| `close()` | Closes it. |
 
 ```svelte
 <ContextMenu items={[{ label: "Rename", onselect: rename }, { label: "Delete", danger: true, onselect: remove }]}>
   <Text>Right-press me</Text>
 </ContextMenu>
 ```
+
+**From code.** A `ContextMenu` with no children is not a region: it draws nothing, takes no room and listens for
+nothing, so it can sit anywhere. Call `openAt` from the right press your app handles itself, such as a list row that
+selects first and then decides which menu to show:
+
+```svelte
+<script lang="ts">
+  let menu: ContextMenu;
+</script>
+
+<View ondown={(e) => e.button === 2 && menu.openAt(e.windowX, e.windowY, itemsFor(row))}>…</View>
+<ContextMenu bind:this={menu} />
+```
+
+Focus goes into the menu and comes back as for the pointer's own menu. A right press outside an open menu closes it first,
+so pressing another row opens that row's menu in place of the first.
 
 ## Select
 

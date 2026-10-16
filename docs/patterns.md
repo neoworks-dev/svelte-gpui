@@ -187,7 +187,7 @@ element's box, flipped and shifted to stay in the window, drawn above everything
   button with `close()` from the snippet argument.
 - **Menus and dropdowns:** `Menu` inside a `Popover` with `focusPanel={false}` (the menu takes focus itself),
   or the ready-made `Select` and `ContextMenu`.
-- **A context menu** is a right press: `ondown` with `event.button === 2`. `ContextMenu` does that for a region.
+- **A context menu** is a right press: `ondown` with `event.button === 2`. `ContextMenu` does that for a region, or `menu.openAt(x, y, items)` when your own code takes the press.
 - **Tooltips** wrap their content: `<Tooltip text="Save"><Button>…</Button></Tooltip>`.
 - **A panel's width** is its content's, so give wide content a `width`. `matchWidth` makes it at least as wide as the trigger.
 - **Do not clip them.** An overlay inside another overlay is drawn in place, so `overflow: "hidden"` on the content around it cuts it off.
