@@ -133,7 +133,9 @@ use it to feed the same element's size back in a loop.
 | `onoutside` | `Overlay` | `PointerEvent` plus `anchor: boolean`. A button went down outside the overlay, and outside any overlay opened from inside it. `anchor` says it went down on the element the overlay is placed against, which usually handles the press itself. |
 
 A right press reaches the app as `ondown` with `button: 2`, which is how `ContextMenu` opens. Note that `ondown` captures the
-pointer for any button.
+pointer for any button. A press goes to the innermost element whose `ondown` takes its button, and no further. A `View` takes
+all three buttons unless `buttons` lists fewer, such as `buttons={["left"]}`, which is what `Draggable` does so that a right
+press reaches a `ContextMenu` around it.
 
 ## Files dragged in
 

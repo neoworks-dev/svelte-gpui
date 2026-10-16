@@ -76,6 +76,11 @@ impl Painter<'_> {
         }
         if listens("down") {
             for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
+                // A button it does not take is left for the elements around it, which is also how
+                // GPUI passes a press up: only a handler that stops it keeps it.
+                if !takes_button(node, button_number(button)) {
+                    continue;
+                }
                 element = element.on_mouse_down(
                     button,
                     cx.listener(move |workbench, event: &MouseDownEvent, _window, cx| {
@@ -128,6 +133,21 @@ pub const DRAG_EVENTS: [&str; 4] = ["dragenter", "dragleave", "dragover", "drop"
 
 pub fn listens_for_drag(node: &Node) -> bool {
     DRAG_EVENTS.iter().any(|name| node.listeners.contains(*name))
+}
+
+/// Whether the `down` listener on a node takes presses of this button (0 left, 1 middle, 2 right).
+/// Its `buttons` attribute names the ones it takes, such as `left,middle`; without one it takes all.
+pub fn takes_button(node: &Node, button: i32) -> bool {
+    let Some(buttons) = node.attributes.get("buttons") else {
+        return true;
+    };
+    let name = match button {
+        0 => "left",
+        1 => "middle",
+        2 => "right",
+        _ => return false,
+    };
+    buttons.split(',').any(|taken| taken.trim() == name)
 }
 
 pub(super) fn button_number(button: MouseButton) -> i32 {
