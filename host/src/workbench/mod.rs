@@ -36,7 +36,8 @@ pub struct Workbench {
     pub(crate) stats: Stats,
     /// The node that had focus at the last tick.
     focused: Option<NodeId>,
-    last_scroll: HashMap<NodeId, (f32, f32)>,
+    /// Each scroller's offset and furthest offset, as the app was last told: `(x, y, max x, max y)`.
+    last_scroll: HashMap<NodeId, (f32, f32, f32, f32)>,
     sent_sizes: HashMap<NodeId, (f32, f32, f32, f32)>,
     /// What the app was last told about the window, so it hears only changes.
     reported_window: Option<WindowState>,

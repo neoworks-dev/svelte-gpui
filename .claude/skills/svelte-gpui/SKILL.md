@@ -43,7 +43,7 @@ are the reference. The app in `examples/demo` uses every feature.
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `select(start?, end?)` |
-| `Scroll` | `style horizontal onscroll onlayout` (needs a bounded height) | `scrollTo(offset)` |
+| `Scroll` | `style horizontal onscroll onlayout` (needs a bounded height) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
 | `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
