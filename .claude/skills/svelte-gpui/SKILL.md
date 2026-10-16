@@ -214,7 +214,9 @@ one. `docs/testing.md` lists the steps:
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
 - `scroll`, `wait`, `frames`.
 
-Targets are text, `@attr=value` or `@tag=g-canvas`. The host log is at
+Targets are text, `@attr=value` or `@tag=g-canvas`. A colon in a target is written `\:`
+(`press:echo #1\: hello`); `key`, `scroll`, `down`, `move` and `up` take their argument from the
+last colon, so `key:echo #1: hello:down` needs no escape. The host log is at
 `/tmp/svelte-gpui-host.log`, and `console.log` from the app lands there.
 `nothing matches "…"` in the log means a step's target was wrong.
 

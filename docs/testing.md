@@ -39,6 +39,18 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 
 A target that matches nothing prints `nothing matches "…"` to standard error.
 
+### Colons in a target
+
+A colon splits a step, so a target with one, such as `echo #1: hello` or `12:30`, needs help:
+
+- **`\:` is a colon that does not split**, and `\\` is a backslash: `press:echo #1\: hello`. This works in every
+  step. Quote the whole step so the shell leaves the backslash alone.
+- **`key`, `scroll`, `down`, `move` and `up` take their argument from the last colon**, so their target can
+  hold colons as it is: `key:echo #1: hello:down` presses Down on the element with that text.
+
+In `type`, `compose`, `commit`, `drop` and `dragover` the target ends at the first colon and the rest is the
+argument, which may hold colons (`type:@placeholder=Time:12:30`). Escape a colon in the target of those.
+
 `--exit-after-ms N` quits after N ms and prints:
 
 - memory: resident and proportional, QuickJS's share, and the malloc heap;
