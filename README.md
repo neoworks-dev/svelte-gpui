@@ -35,8 +35,8 @@ web. AI agents can load the `svelte-gpui` skill in
 ```
 bun install
 bun examples/demo/build.mjs
-cargo build --release --manifest-path host/Cargo.toml
-host/target/release/svelte-gpui --bundle examples/demo/dist/demo.js --width 1100 --height 760
+scripts/host.sh
+target/release/svelte-gpui --bundle examples/demo/dist/demo.js --width 1100 --height 760
 ```
 
 The demo sets its own title and minimum size, and asks before closing while the note in its
@@ -48,9 +48,9 @@ terminals, or in one with `--host`:
 
 ```
 bun examples/demo/build.mjs --watch
-host/target/release/svelte-gpui --bundle examples/demo/dist/demo.js --watch
+target/release/svelte-gpui --bundle examples/demo/dist/demo.js --watch
 
-bun examples/demo/build.mjs --watch --host host/target/release/svelte-gpui
+bun examples/demo/build.mjs --watch --host target/release/svelte-gpui
 ```
 
 Saving a `.svelte` file updates the window in about a quarter of a second, keeping its

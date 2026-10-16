@@ -17,8 +17,11 @@ See README.md. svelte-gpui is its own project; Grove is one app that may use it.
   listener: a listener is what gives an element its GPUI handler.
 - `firstChild` and `nextSibling` must be prototype accessors in `nodes.ts`:
   Svelte's `init_operations()` pulls the getters off `Node.prototype` once.
-- The host build reuses the GPUI artifacts of the grove `gpui-spike` worktree via
-  `CARGO_TARGET_DIR`; `host/vendor/xattr` patches a `libc` incompatibility.
+- Build the host with `scripts/host.sh`, into the checkout's own `target/`, which it
+  seeds with the GPUI artifacts of the grove `gpui-spike` worktree. Never point
+  `CARGO_TARGET_DIR` at a directory another checkout builds into: cargo names the
+  host's artifacts the same from any checkout, so one's build stands in for another's.
+  `host/vendor/xattr` patches a `libc` incompatibility.
 - Test with `scripts/shot.sh`, which opens the window on a headless Hyprland output
   without focus. Never open a test window any other way: it takes the user's focus.
   Scripted steps run 0.9 s apart, so wait long enough before the
