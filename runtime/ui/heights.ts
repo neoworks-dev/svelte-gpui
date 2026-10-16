@@ -111,6 +111,19 @@ export class Heights {
     this.build(length, values);
   }
 
+  /**
+   * Forgets the height of every row outside `from` up to (not including) `to`, and keeps the rest.
+   * This is what a list does when its width changes: rows that are built report their own height
+   * again as part of the same change, and what they reported must not be wiped by it.
+   */
+  forgetOutside(from: number, to: number): void {
+    const kept = new Float64Array(this.length);
+    for (let index = Math.max(from, 0); index < Math.min(to, this.length); index++) {
+      kept[index] = this.measured[index];
+    }
+    this.build(this.length, kept);
+  }
+
   /** Changes how many rows there are, keeping what is known about the ones that remain. */
   resize(length: number): void {
     if (length === this.length) {
