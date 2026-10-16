@@ -83,16 +83,11 @@ pub struct Files {
 }
 
 impl Files {
-    /// Reads the host's flags: `--bundle` names where `$bundle` is, and each `--allow-files`
-    /// narrows access to a path (and everything below it) for every app the host runs.
-    pub fn from_command_line() -> Self {
-        let arguments: Vec<String> = std::env::args().collect();
-        let after = |name: &str| -> Vec<String> {
-            let positions = arguments.iter().enumerate().filter(|(_, argument)| *argument == name);
-            positions.filter_map(|(index, _)| arguments.get(index + 1).cloned()).collect()
-        };
-        let directories = Directories::find(after("--bundle").first().map(String::as_str));
-        let operator = after("--allow-files");
+    /// File access for an app whose bundle is at `bundle`, which is where `$bundle` points.
+    /// Each path in `operator` narrows access to it (and everything below it), on top of any
+    /// limit the app declares; an empty list narrows nothing.
+    pub fn new(bundle: Option<&str>, operator: &[String]) -> Self {
+        let directories = Directories::find(bundle);
         let operator = (!operator.is_empty())
             .then(|| operator.iter().map(|path| canonical(&directories.expand(path), true)).collect());
         Files {

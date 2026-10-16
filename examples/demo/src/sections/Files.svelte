@@ -30,16 +30,25 @@
     paths = await files.paths();
     const home = `${paths.data}/svelte-gpui-demo`;
     notePath = `${home}/note.md`;
-    await files.mkdir(home, { recursive: true });
-    if (await files.exists(notePath)) {
-      note = await files.readText(notePath);
-      saved = "Loaded";
+    try {
+      await files.mkdir(home, { recursive: true });
+      if (await files.exists(notePath)) {
+        note = await files.readText(notePath);
+        saved = "Loaded";
+      }
+    } catch (error) {
+      // Refused when the host was started with an --allow-files that leaves this out.
+      saved = (error as Error).message;
     }
   }
 
   async function save(): Promise<void> {
-    await files.writeText(notePath, note);
-    saved = `Saved at ${new Date().toLocaleTimeString()}`;
+    try {
+      await files.writeText(notePath, note);
+      saved = `Saved at ${new Date().toLocaleTimeString()}`;
+    } catch (error) {
+      saved = (error as Error).message;
+    }
   }
 
   async function choose(): Promise<void> {

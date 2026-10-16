@@ -119,7 +119,7 @@ fn run_function(ctx: &rquickjs::Ctx<'_>, function: qjs::JSValue) -> rquickjs::Re
 
 impl App {
     /// Evaluates the bundle, which mounts the component and sends its first batch.
-    pub fn start(bundle_path: &str) -> Self {
+    pub fn start(bundle_path: &str, allow_files: &[String]) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
         // A promise nobody catches would otherwise fail without a word. QuickJS reports a
         // rejection the moment it happens, and again as handled if a handler attaches
@@ -155,7 +155,7 @@ impl App {
             tree,
             clipboard,
             counters,
-            io: Rc::new(Io::new()),
+            io: Rc::new(Io::new(Some(bundle_path), allow_files)),
             rejections,
         };
         app.install_host();

@@ -109,14 +109,15 @@ pub struct Io {
 }
 
 impl Io {
-    pub fn new() -> Self {
+    /// See [`files::Files::new`] for `bundle` and `allow_files`.
+    pub fn new(bundle: Option<&str>, allow_files: &[String]) -> Self {
         let (sender, receiver) = unbounded();
         Io {
             sink: Sink { sender },
             receiver: RefCell::new(Some(receiver)),
             main_jobs: Rc::new(RefCell::new(Vec::new())),
             sockets: websocket::Sockets::default(),
-            files: files::Files::from_command_line(),
+            files: files::Files::new(bundle, allow_files),
         }
     }
 
