@@ -58,9 +58,10 @@ scripts/shot.sh examples/demo/dist/demo.js /tmp/demo.png 4 --do press:Lists
 ```
 
 It creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing. The host runs with
-`--app-id svelte-gpui-shot`, and a window rule opens that window on the output without
-focus, so nothing on the real monitors moves or loses the keyboard. `WIDTH` and `HEIGHT`
-set the size the host asks for, and the host's log goes to `/tmp/svelte-gpui-host.log`. Make
+`--app-id svelte-gpui-shot` (`<output>-shot` in general), and a window rule opens that
+window on the output without focus, so nothing on the real monitors moves or loses the
+keyboard. Runs with different outputs can go at the same time. `WIDTH` and `HEIGHT`
+set the size the host asks for, and the host's log goes to `/tmp/svelte-gpui-host.log` (`/tmp/<output>-host.log`). Make
 `SECONDS` long enough for every step to run: about one second per step, plus one.
 
 `HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
