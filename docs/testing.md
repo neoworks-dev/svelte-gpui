@@ -29,7 +29,7 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 | `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. |
 | `compose:TARGET:TEXT` | Input-method composition, which is underlined and not yet committed. |
 | `commit:TARGET:TEXT` | Input-method text committed. |
-| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. A third number names the button: `down:TARGET:X,Y,2` is a right press. |
+| `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. A third number names the button: `down:TARGET:X,Y,2` is a right press, which goes to the nearest element at or above the target whose `ondown` takes that button. |
 | `drop:TARGET:PATH,PATH` | Files dragged from another program onto the nearest element at or above the target that listens for `drop`, and dropped there. It goes through the code a real drop takes, so the paths are allowed through the file limit as a real drop's are. |
 | `dragover:TARGET:PATH,PATH` | The same, but the files are held over the element and not dropped, which shows its `ondragenter` feedback. |
 | `scroll:TARGET:PIXELS` | Scrolls the nearest scrollable element at or above the target to that offset. |

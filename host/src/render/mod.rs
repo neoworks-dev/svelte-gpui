@@ -33,7 +33,7 @@ use crate::tree::{Kind, Node, NodeId, ROOT, Tree};
 use crate::workbench::Workbench;
 
 use events::listens_for_pointer;
-pub use events::{listens_for_drag, pointer_detail};
+pub use events::{listens_for_drag, pointer_detail, takes_button};
 pub use field::{caret_visible, next_blink};
 use file_drop::external_drag_ended;
 use media::icon_content;

@@ -43,7 +43,13 @@ impl Workbench {
             return;
         }
         if matches!(action, "down" | "move" | "up") {
-            let id = self.listening_ancestor(id, action);
+            let id = if action == "down" {
+                // A press goes to the nearest element that takes this button, as a real one does.
+                let button = parts.clone().next().and_then(|at| at.split(',').nth(2)?.trim().parse().ok()).unwrap_or(0);
+                self.pressed_ancestor(id, button)
+            } else {
+                self.listening_ancestor(id, action)
+            };
             self.run_pointer_step(action, id, parts.next().unwrap_or("0,0"), cx);
             self.dirty_all_views(cx);
             cx.notify();
@@ -140,6 +146,20 @@ impl Workbench {
         while let Some(candidate) = current {
             let node = tree.nodes.get(&candidate);
             if node.is_some_and(|node| node.listeners.contains(event)) {
+                return candidate;
+            }
+            current = node.and_then(|node| node.parent);
+        }
+        id
+    }
+
+    /// The closest element at or above `id` that listens for `down` and takes this button.
+    fn pressed_ancestor(&self, id: NodeId, button: i32) -> NodeId {
+        let tree = self.svelte.tree.borrow();
+        let mut current = Some(id);
+        while let Some(candidate) = current {
+            let node = tree.nodes.get(&candidate);
+            if node.is_some_and(|node| node.listeners.contains("down") && render::takes_button(node, button)) {
                 return candidate;
             }
             current = node.and_then(|node| node.parent);

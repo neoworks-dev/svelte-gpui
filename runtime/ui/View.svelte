@@ -27,6 +27,8 @@
     onhover?: (hovered: boolean) => void;
     /** A button went down here; `onmove` and `onup` follow wherever the pointer goes until release. */
     ondown?: (event: PointerEvent) => void;
+    /** The buttons `ondown` takes. A press of another button passes to what is around the view. The default is all three. */
+    buttons?: ("left" | "middle" | "right")[];
     onmove?: (event: PointerEvent) => void;
     onup?: (event: PointerEvent) => void;
     onwheel?: (event: WheelEvent) => void;
@@ -55,6 +57,7 @@
     onpress: listener(props.onpress, itself<PointerEvent>),
     onhover: listener(props.onhover, (event: { hovered: boolean }) => event.hovered),
     ondown: listener(props.ondown, itself<PointerEvent>),
+    buttons: props.buttons?.join(","),
     onmove: listener(props.onmove, itself<PointerEvent>),
     onup: listener(props.onup, itself<PointerEvent>),
     onwheel: listener(props.onwheel, itself<WheelEvent>),
