@@ -23,6 +23,8 @@
     focus?: Style;
     /** Takes keyboard focus when pressed. */
     focusable?: boolean;
+    /** A press here does not take focus from the field that has it, nor give it to anything. */
+    keepFocus?: boolean;
     onpress?: (event: PointerEvent) => void;
     onhover?: (hovered: boolean) => void;
     /** A button went down here; `onmove` and `onup` follow wherever the pointer goes until release. */
@@ -54,6 +56,7 @@
     active: encode(props.active),
     focus: encode(props.focus),
     focusable: props.focusable ? "" : undefined,
+    keepfocus: props.keepFocus ? "" : undefined,
     onpress: listener(props.onpress, itself<PointerEvent>),
     onhover: listener(props.onhover, (event: { hovered: boolean }) => event.hovered),
     ondown: listener(props.ondown, itself<PointerEvent>),

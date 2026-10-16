@@ -4,13 +4,61 @@
 use gpui::{Context, KeyDownEvent, KeyUpEvent, Keystroke, Window};
 
 use super::Workbench;
-use crate::tree::NodeId;
+use crate::tree::{NodeId, Tree};
+
+/// What a press does to focus.
+#[derive(Debug, PartialEq)]
+pub(super) enum Pressed {
+    /// Focus stays where it is.
+    Keep,
+    /// This element takes it.
+    Focus(NodeId),
+    /// No element has it any more.
+    Blur,
+}
+
+/// What a press on `id` does to focus: the nearest element at or above it that takes focus gets it,
+/// and when there is none, nothing has focus. An element with `keepfocus` ends the search first and
+/// leaves focus where it is, even if it could take focus itself.
+pub(super) fn press_outcome(tree: &Tree, takes_focus: impl Fn(NodeId) -> bool, id: NodeId) -> Pressed {
+    let mut current = Some(id);
+    while let Some(candidate) = current {
+        let node = tree.nodes.get(&candidate);
+        if node.is_some_and(|node| node.attributes.contains_key("keepfocus")) {
+            return Pressed::Keep;
+        }
+        if takes_focus(candidate) {
+            return Pressed::Focus(candidate);
+        }
+        current = node.and_then(|node| node.parent);
+    }
+    Pressed::Blur
+}
 
 impl Workbench {
     /// Focuses an element the host made a focus handle for.
     pub fn focus_node(&self, id: NodeId, window: &mut Window) {
         if let Some(handle) = self.interaction.focus.borrow().get(&id) {
             window.focus(handle);
+        }
+    }
+
+    /// Takes focus from whatever has it. Focus goes to the window itself, so no element of the
+    /// app has it, as when a press lands on empty space.
+    pub fn blur_focused(&self, window: &mut Window) {
+        window.focus(&self.interaction.root_focus);
+    }
+
+    /// What a press on `id` does to focus, for a press the window did not already settle.
+    pub fn press_focus(&self, id: NodeId, window: &mut Window) {
+        let outcome = {
+            let handles = self.interaction.focus.borrow();
+            press_outcome(&self.svelte.tree.borrow(), |candidate| handles.contains_key(&candidate), id)
+        };
+        match outcome {
+            Pressed::Keep => {}
+            Pressed::Focus(target) => self.focus_node(target, window),
+            Pressed::Blur => self.blur_focused(window),
         }
     }
 
@@ -157,4 +205,46 @@ fn key_detail(keystroke: &Keystroke, repeat: bool) -> String {
         keystroke.modifiers.alt,
         keystroke.modifiers.platform
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::{CREATE_ELEMENT, INSERT, ROOT, SET_ATTRIBUTE};
+
+    /// A tree of `g-view`s: 2 holds 3 and 4, and 3 holds 5. Node 3 keeps focus; 2 and 5 can take it.
+    fn tree() -> Tree {
+        let mut tree = Tree::new();
+        let mut batch: Vec<String> = (2..=5).map(|id| format!("[{CREATE_ELEMENT},{id},\"g-view\"]")).collect();
+        for (parent, child) in [(ROOT, 2), (2, 3), (2, 4), (3, 5)] {
+            batch.push(format!("[{INSERT},{parent},{child},0]"));
+        }
+        batch.push(format!("[{SET_ATTRIBUTE},3,\"keepfocus\",\"\"]"));
+        tree.apply(&format!("[{}]", batch.join(",")));
+        tree
+    }
+
+    #[test]
+    fn a_press_where_nothing_takes_focus_drops_it() {
+        assert_eq!(press_outcome(&tree(), |_| false, 4), Pressed::Blur);
+    }
+
+    #[test]
+    fn the_nearest_element_that_takes_focus_gets_it() {
+        assert_eq!(press_outcome(&tree(), |id| id == 2 || id == 4, 4), Pressed::Focus(4));
+        assert_eq!(press_outcome(&tree(), |id| id == 2, 4), Pressed::Focus(2));
+    }
+
+    #[test]
+    fn keepfocus_leaves_focus_alone_for_everything_inside_it() {
+        assert_eq!(press_outcome(&tree(), |_| false, 3), Pressed::Keep);
+        assert_eq!(press_outcome(&tree(), |_| false, 5), Pressed::Keep);
+        // Even an element that could take focus, or has one around it, does not.
+        assert_eq!(press_outcome(&tree(), |id| id == 3 || id == 2, 5), Pressed::Keep);
+    }
+
+    #[test]
+    fn keepfocus_does_not_reach_outside_the_element() {
+        assert_eq!(press_outcome(&tree(), |id| id == 2, 4), Pressed::Focus(2));
+    }
 }
