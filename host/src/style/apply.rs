@@ -237,11 +237,13 @@ fn apply_text<T: Styled>(mut element: T, style: &Style) -> T {
         Some(TextAlign::Right) => element.text_right(),
         None => element,
     };
-    if style.nowrap == Some(true) {
-        element = element.whitespace_nowrap();
-    }
     if style.truncate == Some(true) {
-        element = element.truncate();
+        // Not GPUI's `truncate()`, which also sets no-wrap: it measures unwrapped text once and
+        // reuses that for any later width, so the ellipsis is cut at whatever width the first
+        // probe had. A clamp to one line measures again whenever the width changes.
+        element = element.overflow_hidden().text_ellipsis().line_clamp(1);
+    } else if style.nowrap == Some(true) {
+        element = element.whitespace_nowrap();
     }
     if let Some(lines) = style.max_lines {
         element = element.line_clamp(lines);
