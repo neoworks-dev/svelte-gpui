@@ -71,6 +71,21 @@ describe("Heights", () => {
     expect(heights.snapshot()).toEqual(new Float64Array([5, 0, 0, 15]));
   });
 
+  test("forgets the rows outside a range and keeps the ones inside", () => {
+    const heights = new Heights(10, 40);
+    for (let index = 0; index < 10; index++) {
+      heights.set(index, 20 + index);
+    }
+    heights.forgetOutside(3, 6);
+    expect(heights.snapshot()).toEqual(new Float64Array([0, 0, 0, 23, 24, 25, 0, 0, 0, 0]));
+    expect(heights.average).toBe(24);
+    // A range that reaches past either end is cut to the list.
+    heights.forgetOutside(-5, 4);
+    expect(heights.snapshot()).toEqual(new Float64Array([0, 0, 0, 23, 0, 0, 0, 0, 0, 0]));
+    heights.forgetOutside(0, 99);
+    expect(heights.snapshot()).toEqual(new Float64Array([0, 0, 0, 23, 0, 0, 0, 0, 0, 0]));
+  });
+
   test("handles a hundred thousand rows", () => {
     const heights = new Heights(100_000, 40);
     const started = performance.now();
