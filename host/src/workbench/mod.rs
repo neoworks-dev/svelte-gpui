@@ -275,6 +275,10 @@ impl Workbench {
                 window.focus(handle);
                 true
             }
+            Command::Blur(id) => {
+                self.blur_node(*id, window);
+                true
+            }
             Command::ScrollTo(id, left, top) => {
                 let Some(handle) = self.interaction.scroll.borrow().get(id).cloned() else {
                     return false;

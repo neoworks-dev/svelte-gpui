@@ -35,6 +35,7 @@ export interface NodeBackend {
   listenerAdded(node: SElement, type: string, handler: EventHandler): void;
   listenerRemoved(node: SElement, type: string): void;
   focus(node: SElement): void;
+  blur(node: SElement): void;
   scrollTo(node: SElement, left: number, top: number): void;
   select(node: SElement, start: number, end: number): void;
 }
@@ -48,6 +49,7 @@ const noBackend: NodeBackend = {
   listenerAdded() {},
   listenerRemoved() {},
   focus() {},
+  blur() {},
   scrollTo() {},
   select() {},
 };
@@ -537,7 +539,13 @@ export class SElement extends SNode {
     backend.focus(this);
   }
 
-  blur(): void {}
+  /**
+   * Gives up keyboard focus, if this element has it: to the element that had it before, when
+   * that is still there, and otherwise to nothing. Does nothing on an element without focus.
+   */
+  blur(): void {
+    backend.blur(this);
+  }
 
   /** Selects part of a `g-input`'s text, in UTF-16 offsets. */
   setSelectionRange(start: number, end: number): void {
