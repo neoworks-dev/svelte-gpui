@@ -29,7 +29,8 @@ impl Workbench {
         }
     }
 
-    /// Sends `scroll` for the scrollable elements that listen and have moved.
+    /// Sends `scroll` for the scrollable elements that listen and have moved, or whose furthest
+    /// offset changed because their content grew or shrank.
     pub(super) fn report_scroll(&mut self, cx: &mut Context<Self>) {
         let mut moved: Vec<(NodeId, f32, f32, f32, f32)> = Vec::new();
         {
@@ -44,16 +45,17 @@ impl Workbench {
                 }
                 let offset = handle.offset();
                 let current = (-f32::from(offset.x), -f32::from(offset.y));
-                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0));
-                if (current.0 - previous.0).abs() < 0.5 && (current.1 - previous.1).abs() < 0.5 {
+                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
+                let content = handle.max_offset();
+                let furthest = (f32::from(content.width), f32::from(content.height));
+                if !scroll_changed(previous, (current.0, current.1, furthest.0, furthest.1)) {
                     continue;
                 }
-                let content = handle.max_offset();
-                moved.push((*id, current.0, current.1, f32::from(content.width), f32::from(content.height)));
+                moved.push((*id, current.0, current.1, furthest.0, furthest.1));
             }
         }
         for (id, left, top, extra_width, extra_height) in moved {
-            self.last_scroll.insert(id, (left, top));
+            self.last_scroll.insert(id, (left, top, extra_width, extra_height));
             let detail = format!("{{\"x\":{left},\"y\":{top},\"maxX\":{extra_width},\"maxY\":{extra_height}}}");
             self.emit(id, "scroll", detail, cx);
         }
@@ -141,5 +143,32 @@ impl Workbench {
             let kind = if loaded { "load" } else { "error" };
             self.emit(id, kind, "{}".to_string(), cx);
         }
+    }
+}
+
+/// Whether a scroller's offset or furthest offset, as `(x, y, max x, max y)`, differs from what the app was told.
+fn scroll_changed(told: (f32, f32, f32, f32), now: (f32, f32, f32, f32)) -> bool {
+    let differs = |a: f32, b: f32| (a - b).abs() >= 0.5;
+    differs(now.0, told.0) || differs(now.1, told.1) || differs(now.2, told.2) || differs(now.3, told.3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_changed;
+
+    #[test]
+    fn a_move_is_reported() {
+        assert!(scroll_changed((0.0, 0.0, 0.0, 500.0), (0.0, 40.0, 0.0, 500.0)));
+    }
+
+    #[test]
+    fn content_growing_under_a_still_scroller_is_reported() {
+        assert!(scroll_changed((0.0, 0.0, 0.0, 500.0), (0.0, 0.0, 0.0, 900.0)));
+    }
+
+    #[test]
+    fn a_scroller_that_has_not_changed_stays_quiet() {
+        assert!(!scroll_changed((0.0, 40.0, 0.0, 500.0), (0.0, 40.2, 0.0, 500.3)));
+        assert!(!scroll_changed((0.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)));
     }
 }
