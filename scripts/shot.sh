@@ -8,8 +8,8 @@
 # A BUNDLE of `-` passes no --bundle, and then no size either, for an app that has its own.
 # The output (OUTPUT, by default `svelte-gpui`) is created when it does not exist:
 #   hyprctl output create headless svelte-gpui
-# A window rule sends windows with the app id `svelte-gpui-shot` to it, silently.
-# The host's log goes to /tmp/svelte-gpui-host.log.
+# A window rule sends windows with the app id `<output>-shot` to it, silently, so runs on
+# different outputs can go side by side. The host's log goes to /tmp/<output>-host.log.
 set -euo pipefail
 
 bundle=$1
@@ -21,7 +21,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 target=${CARGO_TARGET_DIR:-$HOME/Documents/neoworks/grove/.worktrees/gpui-spike/spike/plugin-views/target}
 host=${HOST:-$target/release/svelte-gpui}
 output=${OUTPUT:-svelte-gpui}
-app_id=svelte-gpui-shot
+app_id=$output-shot
+log=/tmp/$output-host.log
 
 if ! hyprctl monitors -j | python3 -c "import json,sys; sys.exit(0 if any(m['name']=='$output' for m in json.load(sys.stdin)) else 1)"; then
   hyprctl output create headless "$output" >/dev/null
@@ -40,7 +41,7 @@ trap cleanup EXIT
 flags=(--bundle "$bundle" --width "${WIDTH:-1100}" --height "${HEIGHT:-760}")
 if [ "$bundle" = "-" ]; then flags=(); fi
 "$host" "${flags[@]}" --app-id "$app_id" "$@" \
-  >/tmp/svelte-gpui-host.log 2>&1 &
+  >"$log" 2>&1 &
 host_pid=$!
 
 address=""
@@ -50,7 +51,7 @@ for _ in $(seq 100); do
   sleep 0.1
 done
 if [ -z "$address" ]; then
-  echo "no window appeared; see /tmp/svelte-gpui-host.log" >&2
+  echo "no window appeared; see $log" >&2
   exit 1
 fi
 sleep "$seconds"
