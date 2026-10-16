@@ -9,6 +9,8 @@
     </Draggable>
 
   Presses on what is inside still work, because the drag only starts once the pointer has moved.
+  Only the left button picks it up. A right or middle press passes through to what is around it,
+  such as a `ContextMenu` or a view with `ondown`.
 -->
 <script lang="ts" generics="T">
   import type { Snippet } from "svelte";
@@ -58,7 +60,7 @@
   let size = $state({ width: 0, height: 0 });
 
   function down(event: PointerEvent): void {
-    if (disabled || event.button !== 0) {
+    if (disabled) {
       return;
     }
     pressed = { x: event.windowX, y: event.windowY, grabX: event.x, grabY: event.y };
@@ -109,6 +111,7 @@
   style={{ ...style, ...(held ? draggingStyle : undefined) }}
   {hover}
   ondown={down}
+  buttons={["left"]}
   onmove={move}
   onup={up}
   onlayout={(layout: Layout) => (size = layout)}
