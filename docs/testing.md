@@ -94,7 +94,8 @@ scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]
 scripts/shot.sh examples/demo/dist/demo.js /tmp/demo.png 4 --do press:Lists
 ```
 
-It creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing. The host runs with
+It runs the checkout's own host, `target/release/svelte-gpui`, which `scripts/host.sh` builds,
+and creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing. The host runs with
 `--app-id svelte-gpui-shot` (`<output>-shot` in general), and a window rule opens that
 window on the output without focus, so nothing on the real monitors moves or loses the
 keyboard. Runs with different outputs can go at the same time. `WIDTH` and `HEIGHT`

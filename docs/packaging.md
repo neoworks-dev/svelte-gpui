@@ -161,9 +161,9 @@ found by the `Icon=` name, which is the app's `id`.
 
 ## Building
 
-The packager builds with cargo, so it follows `CARGO_TARGET_DIR`. Inside this repository,
-set it to the shared target directory `CLAUDE.md` names, so GPUI's artifacts are reused;
-without it set, the packager uses that directory when it exists. The first package of an
+The packager builds with cargo, so it follows `CARGO_TARGET_DIR`. Without it, it builds
+into the checkout's own `target/`, which `scripts/host.sh --seed` first fills with the GPUI
+artifacts it can reuse. The first package of an
 app compiles the app's crate and the host library again (about ten seconds with GPUI
 built); the packaged app does not need cargo or bun to run.
 

@@ -4,7 +4,8 @@
 #
 #   scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]   e.g. --do press:Count
 #
-# HOST names another executable to run, such as an app's own binary or a packaged one.
+# It runs this checkout's host, built by scripts/host.sh. HOST names another executable to
+# run instead, such as an app's own binary or a packaged one.
 # A BUNDLE of `-` passes no --bundle, and then no size either, for an app that has its own.
 # The output (OUTPUT, by default `svelte-gpui`) is created when it does not exist:
 #   hyprctl output create headless svelte-gpui
@@ -22,8 +23,11 @@ seconds=${3:-3}
 shift 2
 if [ $# -gt 0 ]; then shift; fi
 root=$(cd "$(dirname "$0")/.." && pwd)
-target=${CARGO_TARGET_DIR:-$HOME/Documents/neoworks/grove/.worktrees/gpui-spike/spike/plugin-views/target}
-host=${HOST:-$target/release/svelte-gpui}
+host=${HOST:-$root/target/release/svelte-gpui}
+if [ ! -x "$host" ]; then
+  echo "no host at $host; build this checkout's with scripts/host.sh" >&2
+  exit 1
+fi
 output=${OUTPUT:-svelte-gpui}
 app_id=$output-shot
 log=/tmp/$output-host.log

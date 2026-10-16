@@ -14,7 +14,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { arch, homedir } from "node:os";
+import { arch } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,11 +63,16 @@ function run(command, args, options = {}) {
   if (result.status !== 0) fail(`${command} failed`);
 }
 
-/** Where cargo puts what it builds: the shared target directory of the GPUI artifacts, when there is one. */
+/**
+ * Where cargo puts what it builds: `CARGO_TARGET_DIR` when it is set, otherwise this checkout's own
+ * `target/`, seeded with the GPUI artifacts by `scripts/host.sh` so they are not compiled again.
+ */
 function cargoEnvironment() {
-  const shared = join(homedir(), "Documents/neoworks/grove/.worktrees/gpui-spike/spike/plugin-views/target");
-  const target = process.env.CARGO_TARGET_DIR ?? (existsSync(shared) ? shared : undefined);
-  return { ...process.env, ...(target === undefined ? {} : { CARGO_TARGET_DIR: target }) };
+  if (process.env.CARGO_TARGET_DIR !== undefined) {
+    return process.env;
+  }
+  run("bash", [join(root, "scripts", "host.sh"), "--seed"]);
+  return { ...process.env, CARGO_TARGET_DIR: join(root, "target") };
 }
 
 /** Builds with cargo, and returns the path of the executable it made. */
