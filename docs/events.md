@@ -66,7 +66,16 @@ A double click arrives as a press with `clicks: 2`.
 ## Keyboard and focus
 
 `Button` and `Input` take focus when pressed, as does a `View` with `focusable`.
-`Button.focus()` and `Input.focus()` give focus from code.
+`Button.focus()` and `Input.focus()` give focus from code, and `blur()` on the same components gives it up: back to
+the element that had focus before this one took it, when that is still there, and otherwise to nothing. A panel that
+takes the keyboard for a while can hand it back this way without knowing who had it:
+
+```svelte
+<View focusable bind:this={panel} onkey={(e) => e.key === "Escape" && panel.blur()}>…</View>
+```
+
+`blur()` does nothing on an element that does not have focus, and two `blur()` calls in a row do not bounce between
+the same two elements: the second one gives focus up altogether.
 
 | Event | On | Carries |
 |---|---|---|

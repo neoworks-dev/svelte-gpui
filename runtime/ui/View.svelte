@@ -78,6 +78,11 @@
   export function focus(): void {
     element?.focus();
   }
+
+  /** Gives focus up if it has it: back to what had it before, when that is still there. */
+  export function blur(): void {
+    element?.blur();
+  }
 </script>
 
 <g-view bind:this={element} {...attributes}>{@render props.children?.()}</g-view>

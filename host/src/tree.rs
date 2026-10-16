@@ -36,6 +36,8 @@ impl Node {
 #[derive(Debug, Clone)]
 pub enum Command {
     Focus(NodeId),
+    /// Drops focus from an element, if it has it.
+    Blur(NodeId),
     ScrollTo(NodeId, f32, f32),
     /// Select a range of a field, in UTF-16 offsets.
     Select(NodeId, usize, usize),
@@ -151,6 +153,7 @@ impl Tree {
             SET_STYLE => self.set_style(id, parts),
             DROP => self.drop_subtree(id),
             FOCUS => self.commands.push(Command::Focus(id)),
+            BLUR => self.commands.push(Command::Blur(id)),
             SCROLL_TO => {
                 let left = parts.get(2).and_then(Value::as_f64).unwrap_or(0.0) as f32;
                 let top = parts.get(3).and_then(Value::as_f64).unwrap_or(0.0) as f32;

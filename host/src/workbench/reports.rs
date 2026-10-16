@@ -25,7 +25,9 @@ impl Workbench {
         if let Some(id) = now {
             self.field_focused(id);
             self.caret_moved(id, cx);
-            self.emit(id, "focus", "{}".to_string(), cx);
+            // Where it came from, so the app can hand focus back.
+            let detail = before.map_or("{}".to_string(), |from| format!("{{\"from\":{from}}}"));
+            self.emit(id, "focus", detail, cx);
         }
     }
 

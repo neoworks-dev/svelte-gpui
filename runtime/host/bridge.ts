@@ -5,7 +5,8 @@
 
 import protocol from "../../protocol.json";
 import { setMirror } from "../dom/hooks";
-import { windowTarget } from "../dom/globals";
+import { fakeDocument, windowTarget } from "../dom/globals";
+import { handBackFocus } from "../dom/focus";
 import {
   type EventHandler,
   COMMENT_NODE,
@@ -31,6 +32,7 @@ const UNLISTEN = code("unlisten");
 const SET_STYLE = code("setStyle");
 const DROP = code("drop");
 const FOCUS = code("focus");
+const BLUR = code("blur");
 const SCROLL_TO = code("scrollTo");
 const SELECT = code("select");
 const WRITE_CLIPBOARD = code("writeClipboard");
@@ -200,6 +202,18 @@ export function install(): void {
         return;
       }
       pending.push([FOCUS, node.hostId]);
+    },
+
+    blur(node: SElement): void {
+      if (node.hostId === 0) {
+        return;
+      }
+      const back = handBackFocus(node);
+      if (back !== null) {
+        back.focus();
+      } else if (fakeDocument.activeElement === node) {
+        pending.push([BLUR, node.hostId]);
+      }
     },
 
     scrollTo(node: SElement, left: number, top: number): void {
