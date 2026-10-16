@@ -37,7 +37,31 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 | `wait` | Does nothing for one step. |
 | `frames:N` | Draws N frames as fast as the display allows and prints their timing. |
 
-A target that matches nothing prints `nothing matches "…"` to standard error.
+### Steps that fail
+
+A step fails when its target matches nothing, when its argument cannot be read (a pixel count or a position that is not
+a number, or a keystroke GPUI rejects), when it is not a step at all, or when `press`, `hover` or `focus` is given an
+argument they do not take, which is what an unescaped colon in the target leaves behind: `press:echo #1: hello` presses
+nothing, where it used to press `echo #1` and drop `hello`. A failed step does nothing else, and does not stop the
+steps after it.
+
+The host prints each failure as it happens, on standard error:
+
+```
+step 2 failed: press:Nothing like this: nothing matches "Nothing like this"
+```
+
+A run that `--exit-after-ms` ends lists them with the other figures, and exits with status 1 when any step failed, or
+when the run ended before all of them had run:
+
+```
+steps: 8 of 8 ran, 4 failed
+  step 2 "press:Nothing like this": nothing matches "Nothing like this"
+```
+
+`scripts/shot.sh` prints the failed steps after the screenshot's path and exits with 1. When the host quit by itself
+before the screenshot, which `--exit-after-ms` shorter than `SECONDS` does, there is no screenshot: the script prints
+the summary and exits with the host's status.
 
 ### Colons in a target
 
@@ -56,7 +80,8 @@ argument, which may hold colons (`type:@placeholder=Time:12:30`). Escape a colon
 - memory: resident and proportional, QuickJS's share, and the malloc heap;
 - event count and time;
 - the batches and operations the app sent;
-- frames built and their timing.
+- frames built and their timing;
+- how many steps ran and which failed (see below), with exit status 1 when any did.
 
 Add `--report` to print an outline of the element tree as well.
 

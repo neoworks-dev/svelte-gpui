@@ -218,7 +218,9 @@ Targets are text, `@attr=value` or `@tag=g-canvas`. A colon in a target is writt
 (`press:echo #1\: hello`); `key`, `scroll`, `down`, `move` and `up` take their argument from the
 last colon, so `key:echo #1: hello:down` needs no escape. The host log is at
 `/tmp/svelte-gpui-host.log`, and `console.log` from the app lands there.
-`nothing matches "…"` in the log means a step's target was wrong.
+A step that matches nothing or cannot be read (a bad number, a `press` with an argument) prints
+`step N failed: …` to the log and does nothing; `scripts/shot.sh` lists those after the screenshot's path and exits
+with 1, and a run ended by `--exit-after-ms` summarises them and exits with 1.
 
 ## When something does not show
 

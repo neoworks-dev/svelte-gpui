@@ -121,7 +121,7 @@ Host flags:
 | `--watch` | Watch the bundle, and start it again in the same window whenever a build writes it. Implies `--dev`. See below. |
 | `--dev` | Show errors in an overlay over the app, with stacks mapped to your source files. Without it, errors are logged to a file and the window carries on. |
 | `--do STEP` | A scripted input step, repeatable. See [Testing](testing.md). |
-| `--exit-after-ms N` | Quit after N ms and print memory and timing figures. |
+| `--exit-after-ms N` | Quit after N ms and print memory and timing figures, and the scripted steps that failed. The exit status is 1 when one did. |
 | `--report` | With `--exit-after-ms`, also print an outline of the element tree. |
 
 To build the host itself:
