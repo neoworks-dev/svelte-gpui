@@ -175,8 +175,8 @@ Vulkan's loader.
 
 ## Testing without a pointer
 
-`scripts/shot.sh BUNDLE OUT.png [SECONDS] [flags]` runs a bundle in a window on the focused
-monitor and saves a screenshot of it. Steps act on the deepest element containing some text, or
+`scripts/shot.sh BUNDLE OUT.png [SECONDS] [flags]` runs a bundle on a headless Hyprland
+output, without taking focus, and saves a screenshot. Steps act on the deepest element containing some text, or
 on an attribute with `@name=value`:
 
 - `--do press:TEXT` presses what listens for it at or above that element.

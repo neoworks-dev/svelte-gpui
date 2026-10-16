@@ -138,7 +138,7 @@ why it fails to compile without the variable: keep it behind the feature, so
 `cargo run` in development needs nothing.
 
 `Options::embedded` still reads the command line, for flags that suit testing
-(`--exit-after-ms`, `--do`, `--allow-files`, `--width`, `--height`), and `--bundle FILE`
+(`--exit-after-ms`, `--do`, `--allow-files`, `--width`, `--height`, `--app-id`), and `--bundle FILE`
 runs that file instead of the embedded app. A packaged app therefore takes no flags, but
 accepts them.
 
