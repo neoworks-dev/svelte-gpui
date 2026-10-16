@@ -82,9 +82,9 @@ pub fn heap_megabytes() -> (f64, f64) {
 }
 
 impl Workbench {
-    /// What the run cost, printed when `--exit-after-ms` ends it; `--report` adds an
-    /// outline of the tree.
-    pub fn print_summary(&self, report: bool) {
+    /// What the run cost, printed when `--exit-after-ms` ends it, and which of the `steps` scripted
+    /// steps failed; `--report` adds an outline of the tree.
+    pub fn print_summary(&self, report: bool, steps: usize) {
         let (resident, proportional) = memory_megabytes();
         println!("memory: {resident:.1} MB RSS, {proportional:.1} MB PSS");
         let (used, free) = heap_megabytes();
@@ -105,6 +105,9 @@ impl Workbench {
             stats.render_seconds / stats.renders.max(1) as f64 * 1000.0,
             stats.worst_render_seconds * 1000.0
         );
+        for line in self.step_summary(steps) {
+            println!("{line}");
+        }
         if report {
             print_report(&self.svelte.tree.borrow());
         }

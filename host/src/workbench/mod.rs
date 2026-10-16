@@ -69,6 +69,8 @@ pub struct Workbench {
     timer_due: Option<Instant>,
     /// Files being dragged in from another program, and what they are over.
     external_drag: file_drop::ExternalDrag,
+    /// The scripted steps that have run, and which of them failed.
+    steps: script::StepLog,
 }
 
 impl Workbench {
@@ -98,6 +100,7 @@ impl Workbench {
             frame_tick_pending: false,
             timer_due: None,
             external_drag: Default::default(),
+            steps: Default::default(),
         };
         workbench.listen_for_io(cx);
         workbench.watch_window(window, cx);

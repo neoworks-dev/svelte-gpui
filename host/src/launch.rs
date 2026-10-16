@@ -2,6 +2,8 @@
 //! the window and runs until it closes.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size};
@@ -142,6 +144,10 @@ pub fn run(options: Options) {
     );
     let images = Images::new(source.assets_dir);
     let steps = options.steps.clone();
+    let step_count = steps.len();
+    // Set by the summary of a run that `--exit-after-ms` ends, when a step failed.
+    let steps_failed = Arc::new(AtomicBool::new(false));
+    let failed_in_run = steps_failed.clone();
     let exit_after = options.exit_after_ms;
     let report = options.report;
     let settings = svelte.window_settings.borrow().clone().unwrap_or_default();
@@ -199,7 +205,12 @@ pub fn run(options: Options) {
             cx.spawn(async move |cx| {
                 cx.background_executor().timer(Duration::from_millis(milliseconds)).await;
                 cx.update(|cx| {
-                    window.update(cx, |workbench, _window, _cx| workbench.print_summary(report)).ok();
+                    window
+                        .update(cx, |workbench, _window, _cx| {
+                            workbench.print_summary(report, step_count);
+                            failed_in_run.store(workbench.steps_failed(step_count), Ordering::Relaxed);
+                        })
+                        .ok();
                 })
                 .ok();
                 cx.update(|cx| cx.quit()).ok();
@@ -207,6 +218,10 @@ pub fn run(options: Options) {
             .detach();
         }
     });
+    // A run that quit on its own with a step that failed ends with a status a test can see.
+    if steps_failed.load(Ordering::Relaxed) {
+        std::process::exit(1);
+    }
 }
 
 /// Where an app's script and files are.

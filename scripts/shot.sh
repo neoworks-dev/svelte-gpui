@@ -10,6 +10,10 @@
 #   hyprctl output create headless svelte-gpui
 # A window rule sends windows with the app id `<output>-shot` to it, silently, so runs on
 # different outputs can go side by side. The host's log goes to /tmp/<output>-host.log.
+#
+# A step that matched nothing or could not be read is listed after the screenshot's path, and
+# the script then exits with 1. A host that quit by itself (`--exit-after-ms`) before the
+# screenshot leaves none; the script then reports its summary and exits with its status.
 set -euo pipefail
 
 bundle=$1
@@ -55,5 +59,19 @@ if [ -z "$address" ]; then
   exit 1
 fi
 sleep "$seconds"
-grim -o "$output" "$out"
-echo "$out"
+status=0
+if kill -0 "$host_pid" 2>/dev/null; then
+  grim -o "$output" "$out"
+  echo "$out"
+  failed=$(grep -E '^step [0-9]+ failed: ' "$log" || true)
+  if [ -n "$failed" ]; then
+    echo "steps that failed:" >&2
+    echo "$failed" >&2
+    status=1
+  fi
+else
+  wait "$host_pid" || status=$?
+  echo "the host quit by itself with status $status before the screenshot, so there is none; see $log" >&2
+  grep -E '^steps: |^  step [0-9]+ ' "$log" >&2 || true
+fi
+exit "$status"
