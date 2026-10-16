@@ -30,13 +30,22 @@ React Native works. There is no webview and no DOM.
    and pointer capture.
 5. [Motion](motion.md): eased styles, Svelte transitions through `Presence`, tweens,
    springs and animation frames.
-6. [Patterns](patterns.md): building your own controls, long lists, drawing, shortcuts
-   and layout recipes.
+6. [Patterns](patterns.md): building your own controls, long lists and trees, popovers, menus
+   and tooltips, dragging, drawing, shortcuts and layout recipes.
 7. [Network and files](io.md): `fetch`, `WebSocket`, the `files` API, and limiting
    file access.
-8. [Coming from Svelte on the web](web-differences.md): what works the same, what does
-   not, and why.
-9. [Testing](testing.md): running an app headless and scripting input.
+8. [The window](window.md): its title, size and minimum size, what the app can read
+   about it, and asking before it closes.
+9. [Calling Rust](rust.md): commands your own crate registers, `invoke`, and events
+   Rust pushes with `listen`.
+10. [Packaging](packaging.md): one executable with the bundle and its files inside, a
+    `.desktop` file and an icon.
+11. [Coming from Svelte on the web](web-differences.md): what works the same, what does
+    not, and why.
+12. [Testing](testing.md): running an app headless and scripting input.
+
+[Getting started](getting-started.md#development-hot-reload-and-errors) also covers
+developing with hot reload and the error overlay.
 
 The demo in `examples/demo` uses every feature described here. When the docs and the
 demo disagree, the types in `runtime/ui/` are the reference.

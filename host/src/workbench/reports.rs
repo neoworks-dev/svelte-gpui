@@ -59,7 +59,8 @@ impl Workbench {
         }
     }
 
-    /// Tells the app where every element that listens for `layout` came out, when it changed.
+    /// Tells the app where every element that listens for `layout` came out, when it changed, and
+    /// the size of those that listen for `resize`, when that changed.
     pub(super) fn report_sizes(&mut self, cx: &mut Context<Self>) {
         let measured: Vec<(NodeId, (f32, f32, f32, f32))> = {
             let tree = self.svelte.tree.borrow();
@@ -80,19 +81,33 @@ impl Workbench {
                 .collect()
         };
         for (id, found) in measured {
-            let unchanged = matches!(
-                self.sent_sizes.get(&id),
-                Some(old) if (old.0 - found.0).abs() < 0.5
-                    && (old.1 - found.1).abs() < 0.5
-                    && (old.2 - found.2).abs() < 0.5
-                    && (old.3 - found.3).abs() < 0.5
-            );
-            if unchanged {
+            let (moved, resized) = match self.sent_sizes.get(&id) {
+                Some(old) => (
+                    (old.0 - found.0).abs() >= 0.5 || (old.1 - found.1).abs() >= 0.5,
+                    (old.2 - found.2).abs() >= 0.05 || (old.3 - found.3).abs() >= 0.05,
+                ),
+                None => (true, true),
+            };
+            if !moved && !resized {
                 continue;
             }
             self.sent_sizes.insert(id, found);
             let (x, y, width, height) = found;
-            self.emit(id, "layout", format!("{{\"x\":{x},\"y\":{y},\"width\":{width},\"height\":{height}}}"), cx);
+            let detail = format!("{{\"x\":{x},\"y\":{y},\"width\":{width},\"height\":{height}}}");
+            let (wants_layout, wants_resize) = {
+                let tree = self.svelte.tree.borrow();
+                let node = tree.nodes.get(&id);
+                (
+                    node.is_some_and(|node| node.listeners.contains("layout")),
+                    node.is_some_and(|node| node.listeners.contains("resize")),
+                )
+            };
+            if wants_layout {
+                self.emit(id, "layout", detail.clone(), cx);
+            }
+            if resized && wants_resize {
+                self.emit(id, "resize", detail, cx);
+            }
         }
     }
 
@@ -126,15 +141,5 @@ impl Workbench {
             let kind = if loaded { "load" } else { "error" };
             self.emit(id, kind, "{}".to_string(), cx);
         }
-    }
-
-    pub(super) fn report_window(&mut self, window: &Window) {
-        let size = window.viewport_size();
-        let current = (f32::from(size.width), f32::from(size.height));
-        if current == self.window_size {
-            return;
-        }
-        self.window_size = current;
-        self.svelte.window(current.0, current.1);
     }
 }

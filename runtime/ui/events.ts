@@ -41,6 +41,23 @@ export interface Layout {
   height: number;
 }
 
+/** Files dragged in from another program. `paths` are absolute; only `ondrop` makes them readable by the app. */
+export interface FileDragEvent {
+  /** The pointer inside the element, and in the window. */
+  x: number;
+  y: number;
+  windowX: number;
+  windowY: number;
+  paths: string[];
+  count: number;
+}
+
+/** A button went down outside an overlay. */
+export interface OutsideEvent extends PointerEvent {
+  /** It went down on the element the overlay is anchored to, which usually handles the press itself. */
+  anchor: boolean;
+}
+
 export interface ScrollPosition {
   x: number;
   y: number;

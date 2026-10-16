@@ -28,6 +28,10 @@ impl Workbench {
     /// A key press: first to the app, up from whatever has focus, and then, unless the
     /// app cancelled it, to the field that has focus or the clipboard shortcut it spells.
     pub(crate) fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.errors_visible() && event.keystroke.key == "escape" {
+            self.dismiss_errors(cx);
+            return true;
+        }
         let target = self.focused_node(window).unwrap_or(0);
         self.handle_key(target, &event.keystroke, event.is_held, false, cx)
     }

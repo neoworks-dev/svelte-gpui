@@ -7,12 +7,15 @@
   "description": "Native apps from Svelte 5 components, drawn by GPUI. No webview, no DOM, no CSS.",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun test tests"
   },
   "peerDependencies": {
     "svelte": "^5.57.0"
   },
   "devDependencies": {
+    "@jridgewell/remapping": "^2.3.5",
+    "@jridgewell/trace-mapping": "^0.3.25",
     "@phosphor-icons/core": "^2.1.1",
     "esbuild": "^0.24.0",
     "svelte": "^5.57.0",

@@ -142,6 +142,17 @@ impl Sockets {
         sink.resolve(call, json!({}));
     }
 
+    /// Starts closing every open socket, for an app that is going away. The sockets' threads
+    /// finish the closing handshake on their own and then end.
+    pub fn close_all(&self) {
+        for (_, handle) in self.sockets.borrow_mut().drain() {
+            let delivered = handle.commands.send(Command::Close(None)).is_ok();
+            if delivered {
+                let _ = handle.waker.notify();
+            }
+        }
+    }
+
     /// Drops the senders of sockets whose threads have ended.
     fn forget_finished(&self) {
         self.sockets.borrow_mut().retain(|_, handle| handle.commands.send(Command::Probe).is_ok());

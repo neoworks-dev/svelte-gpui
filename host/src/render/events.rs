@@ -122,6 +122,14 @@ pub(super) fn listens_for_pointer(node: &Node) -> bool {
     node.listeners.contains("down") || node.listeners.contains("move")
 }
 
+/// The events for files dragged in from other programs. Which element gets them is decided
+/// by where it was laid out, so an element that listens for any of them is measured.
+pub const DRAG_EVENTS: [&str; 4] = ["dragenter", "dragleave", "dragover", "drop"];
+
+pub fn listens_for_drag(node: &Node) -> bool {
+    DRAG_EVENTS.iter().any(|name| node.listeners.contains(*name))
+}
+
 pub(super) fn button_number(button: MouseButton) -> i32 {
     match button {
         MouseButton::Left => 0,

@@ -7,9 +7,11 @@
 //! its call open and sends `event`s until it ends with `close`.
 //!
 //! Each area lives in its own module and handles the operations named after it:
-//! `fetch`, `ws.*`, `fs.*`. Operations that need GPUI itself, such as a file dialog,
+//! `fetch`, `ws.*`, `fs.*`, and `invoke` and `events.*`, which reach the Rust code of the
+//! app's own crate (see [`commands`]). Operations that need GPUI itself, such as a file dialog,
 //! are queued as [`MainJob`]s for the window to run.
 
+pub mod commands;
 mod fetch;
 mod files;
 mod websocket;
@@ -19,6 +21,8 @@ use std::rc::Rc;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde_json::Value;
+
+pub use commands::{CommandError, Commands, Emitter, Output};
 
 /// How a completion settles its call.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -106,14 +110,18 @@ pub struct Io {
     pub main_jobs: Rc<RefCell<Vec<MainJob>>>,
     pub sockets: websocket::Sockets,
     pub files: files::Files,
+    /// The app's own Rust commands, and the events they push.
+    commands: commands::Router,
 }
 
 impl Io {
     /// See [`files::Files::new`] for `bundle` and `allow_files`.
-    pub fn new(bundle: Option<&str>, allow_files: &[String]) -> Self {
+    pub fn new(bundle: Option<&str>, allow_files: &[String], commands: Commands) -> Self {
         let (sender, receiver) = unbounded();
+        let sink = Sink { sender };
         Io {
-            sink: Sink { sender },
+            commands: commands::Router::new(commands, &sink),
+            sink,
             receiver: RefCell::new(Some(receiver)),
             main_jobs: Rc::new(RefCell::new(Vec::new())),
             sockets: websocket::Sockets::default(),
@@ -137,7 +145,17 @@ impl Io {
             "fetch" => fetch::fetch(&self.sink, call, args, bytes),
             op if op.starts_with("ws.") => self.sockets.request(&self.sink, op, call, args, bytes),
             op if op.starts_with("fs.") => self.files.request(&self.sink, &self.main_jobs, op, call, args, bytes),
+            "invoke" | "events.listen" | "events.unlisten" => self.commands.request(&self.sink, op, call, args, bytes),
             _ => self.sink.reject(call, format!("svelte-gpui: unknown operation {op}")),
         }
+    }
+}
+
+impl Drop for Io {
+    /// Ends the sockets and watches the app left running. Their threads end on their own, and
+    /// what they still send has no receiver to reach.
+    fn drop(&mut self) {
+        self.sockets.close_all();
+        self.files.stop_watches();
     }
 }

@@ -1,14 +1,17 @@
 //! Draws the host's tree with GPUI. Every element is one of a fixed set of
 //! primitives (`g-view`, `g-text`, `g-button`, `g-input`, `g-scroll`, `g-image`,
-//! `g-icon`, `g-canvas`), styled by the object the app passed and drawn as a `div`.
+//! `g-icon`, `g-canvas`, `g-overlay`), styled by the object the app passed and drawn as a `div`.
+//! An overlay is drawn in a layer above the rest (`overlay.rs`).
 //!
 //! Input goes the other way. Which events an element listens for decides which
 //! GPUI handlers it gets, and each handler reports to the app by node id.
 
 mod events;
 mod field;
+mod file_drop;
 mod media;
 mod motion;
+mod overlay;
 mod primitive;
 mod text;
 
@@ -18,8 +21,9 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, AnyView, Bounds, Context, Entity, FocusHandle, IntoElement, MouseMoveEvent, MouseUpEvent, Render, Rgba,
-    ScrollHandle, WeakEntity, Window, canvas, div, prelude::*, px, relative,
+    AnyElement, AnyView, Bounds, Context, DragMoveEvent, Entity, ExternalPaths, FocusHandle, IntoElement,
+    MouseMoveEvent, MouseUpEvent, Render, Rgba, ScrollHandle, WeakEntity, Window, canvas, div, prelude::*, px,
+    relative,
 };
 
 use crate::field::Field;
@@ -29,8 +33,9 @@ use crate::tree::{Kind, Node, NodeId, ROOT, Tree};
 use crate::workbench::Workbench;
 
 use events::listens_for_pointer;
-pub use events::pointer_detail;
+pub use events::{listens_for_drag, pointer_detail};
 pub use field::{caret_visible, next_blink};
+use file_drop::external_drag_ended;
 use media::icon_content;
 use motion::Animation;
 use primitive::compute;
@@ -98,6 +103,25 @@ impl Interaction {
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
         }
+    }
+
+    /// Forgets everything kept for the old app's elements, for a reload: the new tree
+    /// numbers its elements from the start again, so nothing may carry over by id.
+    pub fn reset(&self) {
+        self.focus.borrow_mut().clear();
+        self.scroll.borrow_mut().clear();
+        self.bounds.borrow_mut().clear();
+        self.fields.borrow_mut().clear();
+        self.hovered.borrow_mut().clear();
+        self.animations.borrow_mut().clear();
+        self.animating.set(false);
+        self.animating_ids.borrow_mut().clear();
+        *self.styles.borrow_mut() = (u64::MAX, HashMap::new());
+        self.caret_epoch.set(Instant::now());
+        self.caret_on.set(true);
+        self.bounds_changed.borrow_mut().clear();
+        self.views.borrow_mut().clear();
+        self.view_roots.borrow_mut().clear();
     }
 
     fn focus_handle(&self, id: NodeId, cx: &mut Context<Workbench>) -> FocusHandle {
@@ -216,7 +240,15 @@ impl<'a> Painter<'a> {
             }))
             .on_mouse_move(cx.listener(|workbench, event: &MouseMoveEvent, _window, cx| {
                 workbench.captured_motion(event, cx);
-            }));
+            }))
+            .on_drag_move(cx.listener(|workbench, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
+                let paths = event.drag(cx).paths().to_vec();
+                workbench.external_drag_over(event.event.position, paths, cx);
+            }))
+            .on_drop(cx.listener(|workbench, dropped: &ExternalPaths, window, cx| {
+                workbench.external_drop(window.mouse_position(), dropped.paths().to_vec(), cx);
+            }))
+            .child(external_drag_ended(cx));
         let inherited = Inherited::root();
         for child in self.children(ROOT, &inherited, false, cx) {
             element = element.child(child);
@@ -345,6 +377,10 @@ impl<'a> Painter<'a> {
         if computed.style.hidden == Some(true) {
             return None;
         }
+        if primitive == Primitive::Overlay {
+            // An overlay is drawn in a layer of its own, never as a cached view in the flow.
+            return self.overlay_element(id, node, &computed, inherited, cx);
+        }
         let is_view_top = self.inside_view == Some(id);
         if !is_view_top {
             if let Some(view) = self.view_element(id, &computed.style, inherited, cx) {
@@ -369,12 +405,12 @@ impl<'a> Painter<'a> {
             Primitive::Icon => icon_content(element, node, style, &inherited),
             Primitive::Input => self.field_content(element, id, node, style, &inherited, cx),
             Primitive::Canvas => self.canvas_content(element, id, style),
-            Primitive::View | Primitive::Button | Primitive::Scroll => {
+            Primitive::View | Primitive::Button | Primitive::Scroll | Primitive::Overlay => {
                 let row = style.row == Some(true);
                 element.children(self.children(id, &inherited, row, cx))
             }
         };
-        if node.observed() || listens_for_pointer(node) {
+        if node.observed() || listens_for_pointer(node) || listens_for_drag(node) {
             element = element.child(self.measure(id));
         }
         Some(self.interactive(element, id, node, primitive, &computed, eased, cx))

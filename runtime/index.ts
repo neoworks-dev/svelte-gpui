@@ -8,9 +8,14 @@ import { adoptRoot, flush, install } from "./host/bridge";
 import { dispatch } from "./host/events";
 import { receive } from "./io/channel";
 import { limitFiles, type FilesLimit } from "./io/files";
+import { askToClose, declareWindow, receive as receiveWindow, type WindowOptions } from "./window.svelte";
 
 export type { HostEvent } from "./host/events";
+export { window } from "./window.svelte";
+export type { CloseHandler, WindowOptions } from "./window.svelte";
 export { files, FileError } from "./io/files";
+export { invoke, invokeBytes, listen } from "./io/invoke";
+export type { CommandMap, EventMap, InvokeBytes, InvokeResult } from "./io/invoke";
 export type {
   FileEntry,
   FileErrorCode,
@@ -28,17 +33,22 @@ export type {
 export interface StartOptions {
   /** Limits the files the app may reach. Without it, everything is allowed. */
   files?: FilesLimit;
+  /** How the window opens. The host's `--width` and `--height` flags override its size. */
+  window?: WindowOptions;
 }
 
 /**
  * Mounts a component into the host's root, and exposes the entry points the host
  * calls back into: `__event` for input, `__io` for background calls finishing,
- * `__window` for the window's size, and `__pump` for the clock, which answers when it next has work (see `wake`).
+ * `__window` for the window's state, `__closeRequested` for the close button, and `__pump` for the clock, which answers when it next has work (see `wake`).
  */
 export function start(Component: unknown, props: Record<string, unknown> = {}, options: StartOptions = {}): void {
   // The limit goes first, so nothing the app does while mounting can run without it.
   if (options.files !== undefined) {
     limitFiles(options.files);
+  }
+  if (options.window !== undefined) {
+    declareWindow(options.window);
   }
   install();
   const root = new SElement("#root");
@@ -60,12 +70,22 @@ export function start(Component: unknown, props: Record<string, unknown> = {}, o
     return JSON.stringify(outcome);
   };
   globals.__io = receive;
-  globals.__window = (width: number, height: number): void => {
+  globals.__window = (
+    width: number,
+    height: number,
+    scale: number,
+    focused: boolean,
+    maximized: boolean,
+    fullscreen: boolean,
+  ): void => {
     globals.innerWidth = width;
     globals.innerHeight = height;
-    dispatch(0, "resize", {});
+    if (receiveWindow(width, height, scale, focused, maximized, fullscreen)) {
+      dispatch(0, "resize", {});
+    }
     settle();
   };
+  globals.__closeRequested = askToClose;
   globals.__pump = (clock: number, frame: boolean): number => {
     if (pump(clock, frame)) {
       settle();

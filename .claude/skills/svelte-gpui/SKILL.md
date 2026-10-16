@@ -16,7 +16,7 @@ are the reference. The app in `examples/demo` uses every feature.
 ## Rules
 
 1. **Only primitives draw.** Import from `@neoworks/svelte-gpui/ui`: `View`, `Text`,
-   `Button`, `Input`, `Scroll`, `List`, `Image`, `Icon`, `Canvas`, `Presence`. Never
+   `Button`, `Input`, `Scroll`, `List`, `Image`, `Icon`, `Canvas`, `Presence`, `Overlay`. Never
    write `<div>`, `<span>`, `<button>`, `<input>`, `<img>`, `<svg>` or `<canvas>`.
 2. **Style with objects, never CSS.** Use `style={{ … }}`, plus `hover`, `active` and
    `focus` objects for states. There is no `class`, no `<style>` block, no CSS strings
@@ -39,16 +39,17 @@ are the reference. The app in `examples/demo` uses every feature.
 
 | Component | Key props | Methods |
 |---|---|---|
-| `View` | `style hover active focus focusable onpress onhover ondown onmove onup onwheel onlayout onkey onfocus onblur` | |
+| `View` | `style hover active focus focusable onpress onhover ondown onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()` |
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onkey` | `focus()`, `select(start?, end?)` |
 | `Scroll` | `style horizontal onscroll onlayout` (needs a bounded height) | `scrollTo(offset)` |
-| `List` | `items rowHeight row={snippet(item, index)} key overscan style` (fixed-height rows, virtualised) | `scrollToIndex(i)` |
+| `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
 | `Canvas` | `style ondown onmove onup onhover onwheel onlayout` | `begin(x,y,pen) lineTo end line fillRect fillCircle clear` |
 | `Presence` | `in out style`, each a transition or `[fn, params]` | |
+| `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()` |
 
 `View` is a column. `Button` and `Input` are rows. Text properties (`color`,
 `fontSize`, `fontWeight`, `fontFamily`, …) are inherited by children.
@@ -102,6 +103,26 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
   `start(App, {}, { files: { allow: ["$data/my-app"] } })`. Dialog picks are always
   allowed. The `--allow-files` host flag narrows it further.
 
+## Rust commands and packaging
+
+- **Rust code of the app's own** is called with `invoke` and `listen` from
+  `@neoworks/svelte-gpui`; the app is then built from its own crate (`docs/rust.md`,
+  `examples/rust-commands`).
+  - `await invoke<T>(name, args?, bytes?)` runs a command registered in Rust with
+    `Commands::new().command(name, |args| ...)`, on a thread. A failure rejects with an
+    `Error` that has `message` and, if given, `code` (`UnknownCommand` for a bad name).
+  - `invokeBytes` also returns the bytes the command sent back: `{ value, bytes }`.
+  - `const stop = listen<T>(name, (payload, bytes?) => ...)` hears what Rust
+    `Emitter::emit`s. Call `stop()` from the `$effect` cleanup.
+  - Declare commands once for type checking: `declare module "@neoworks/svelte-gpui" {
+    interface CommandMap { greet: { args: { name: string }; result: string } } }`.
+  - Commands never touch the UI; they answer, or emit events.
+- **Packaging** (`docs/packaging.md`): `bun scripts/package.mjs --app examples/demo` makes
+  one executable with the bundle (as bytecode) and its files embedded, plus a `.desktop`
+  file and an icon, in `dist/package/<app>/`. The app's metadata (`name`, `id`, `bundle`,
+  `icon`, ...) is the `"svelte-gpui"` key in its `package.json`. Embedded files are
+  unpacked to `~/.cache/<id>/`, which is `files.paths().bundle`. Linux only.
+
 ## Patterns
 
 - **Controls** such as checkboxes, switches, sliders and tabs are Svelte components
@@ -109,12 +130,37 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
 - **Drag or slider:** set a flag in `ondown`, update in `onmove`, clear it in `onup`.
   The pointer is captured, so moves keep arriving outside the element. Clamp `e.x`.
 - **Many marks** (drawings, plots): use one `Canvas`, never a `View` per mark.
-- **Long uniform lists:** `List`. For rows of varying height, `Scroll` with `{#each}`.
-- **Overlays and dialogs:** the last child of the root, with
-  `position: "absolute", inset: 0`.
+- **Long lists:** `List`. Give `rowHeight` for one height; leave it out for rows that differ (chat,
+  wrapped text): they are measured as drawn, the window keeps its place, `stickToEnd` follows a chat.
+  Give `key` when items insert at the start or reorder. A tree is `Tree`, built on it.
+- **Modal dialogs:** the last child of the root, with `position: "absolute", inset: 0`.
+- **Anything that floats next to an element:** `Popover` (trigger snippet + content, `bind:open`),
+  `Tooltip`, `Menu` in a `Popover` with `focusPanel={false}`, `ContextMenu`, `Select`. See below.
+- **Dragging:** files from other programs are `ondragenter`/`ondragleave`/`ondrop` on a `View`
+  (`e.paths`, readable once dropped). Inside the app, `Draggable` and `DropTarget`.
 - **Shortcuts:** `<svelte:window onkeydown>` with `event.ctrlKey` and similar. Call
   `preventDefault()` so a focused field does not type the key too.
 - **Shared state:** a `.svelte.ts` module exporting `$state`.
+
+## Floating content, dragging and trees
+
+`import { Popover, Tooltip, Menu, ContextMenu, Select, Overlay, Draggable, DropTarget, Tree } from "@neoworks/svelte-gpui/ui"`.
+
+- **`Overlay`** is the primitive (`g-overlay`): it is drawn above everything, takes no room where it
+  sits, is never clipped by ancestors, and is placed after layout against its **parent's** box
+  (`side`, `align`, `offset`), flipped and shifted to stay in the window, or at a point with
+  `at={[x, y]}`. Put it inside the element it belongs to. An overlay inside another is drawn in
+  place, so no `overflow: "hidden"` around it.
+- **`Popover`** wraps a trigger and an overlay: `<Popover bind:open>{#snippet trigger({ toggle })}…{/snippet}
+  {#snippet children({ close })}…{/snippet}</Popover>`. An outside press and Escape close it; focus
+  moves in and returns. A press on the trigger is not "outside".
+- **A right press** is `ondown` with `event.button === 2`; `ContextMenu` does it.
+- **`Draggable data={x}`** inside a **`DropTarget ondragover={(info) => …} ondrop={({ data }) => …}`**;
+  `info` has `x y width height` inside the target, for before/after decisions.
+- **`Tree`** takes `items`, `key`, `childrenOf` (called for expanded branches only, so make or load children
+  lazily) and a `row` snippet; `bind:expanded`, `bind:selected`, `onexpand`, `onactivate`.
+- **A bare `x;` or `void x;` is deleted by the build** (esbuild drops what looks pure before Svelte sees
+  it), so it cannot be used to make `$derived` depend on a state variable. Read it in an expression.
 
 ## Build, run, verify
 
@@ -128,6 +174,31 @@ bun run typecheck                                  # tsc + svelte-check: catches
 Inside the svelte-gpui repo, the host build shares GPUI artifacts through
 `CARGO_TARGET_DIR`; `CLAUDE.md` there has the path.
 
+**Develop with hot reload.** Run `bun build.mjs --watch` (the build passes `watch: true` to
+`build()`) and `svelte-gpui --bundle dist/app.js --watch`. Saving a source file reloads the app
+in the same window within about a quarter of a second, and its state starts over. `--watch`
+implies `--dev`: build failures, exceptions in handlers and effects, and unhandled rejections
+show in an overlay, with stacks mapped to source files through a source map. Esc dismisses it
+and the next good build clears it. Without `--dev`, errors go to
+`~/.cache/svelte-gpui/<app>/errors.log` and nothing is drawn. Pass `--dev` when testing
+headless, so an error shows up in the screenshot.
+
+## The window
+
+`import { window } from "@neoworks/svelte-gpui"` (`docs/window.md`).
+
+- **Open it:** `start(App, {}, { window: { title, width, height, minWidth, minHeight } })`.
+  `--width` and `--height` override the size.
+- **Read it,** reactively: `window.size` (`{ width, height }`), `scale`, `focused`,
+  `maximized`, `fullscreen`.
+- **Ask things of it:** `setTitle`, `minimize`, `maximize`, `unmaximize`, `toggleMaximize`,
+  `setFullscreen(on)`, `toggleFullscreen`, `close()` (asks the handlers) and `destroy()`.
+- **Confirm before closing:** `$effect(() => window.onCloseRequested(() => dirty ? ask() :
+  undefined))`. Return `false` or a promise of `false` to keep the window open. The
+  `$effect` returns the unsubscribe function.
+- **Not there:** position, `center`, `setSize` and `setMinSize` after opening, and
+  `resizable`. GPUI 0.2.2 on Wayland cannot do them; do not write them.
+
 Always check a UI change on screen, not just in the types. Use the headless runner:
 
 ```
@@ -138,7 +209,8 @@ Then read the PNG. Steps run 0.9 s apart, so make `SECONDS` at least one per ste
 one. `docs/testing.md` lists the steps:
 
 - `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit`;
-- `down`/`move`/`up` with window `x,y`;
+- `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
+- `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
 - `scroll`, `wait`, `frames`.
 
 Targets are text, `@attr=value` or `@tag=g-canvas`. The host log is at

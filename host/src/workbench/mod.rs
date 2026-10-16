@@ -2,23 +2,32 @@
 
 mod clock;
 mod editing;
+mod file_drop;
 mod ime;
 mod io;
 mod keys;
+mod overlay;
 mod pointer;
+mod reload;
 mod reports;
 mod script;
+mod scrolling;
+mod windowing;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use gpui::{Context, IntoElement, Render, Window, point, px};
+use gpui::{Context, IntoElement, Render, Window, div, point, prelude::*, px};
 
 use crate::diagnostics::Stats;
+use crate::errors::AppError;
 use crate::images::Images;
 use crate::render::{self, Interaction, Painter};
 use crate::runtime::{App as Svelte, Outcome};
 use crate::tree::{Command, NodeId, Tree};
+use crate::window_control::WindowState;
+
+pub use overlay::ErrorOutput;
 
 pub struct Workbench {
     pub(crate) svelte: Svelte,
@@ -29,7 +38,19 @@ pub struct Workbench {
     focused: Option<NodeId>,
     last_scroll: HashMap<NodeId, (f32, f32)>,
     sent_sizes: HashMap<NodeId, (f32, f32, f32, f32)>,
-    window_size: (f32, f32),
+    /// What the app was last told about the window, so it hears only changes.
+    reported_window: Option<WindowState>,
+    /// Where the app's errors go: an overlay over it, or a log file.
+    error_output: ErrorOutput,
+    /// Why the last build failed, while the app still runs the build before it.
+    build_error: Option<AppError>,
+    /// How many errors the app had run into when the window last looked.
+    errors_seen: u64,
+    /// Whether the user has dismissed the overlay since the last new error.
+    errors_dismissed: bool,
+    /// Which run of the app this is. A reload starts a new one, and whatever the old one
+    /// had in flight is ignored when it arrives.
+    generation: u64,
     /// The source each `img` has been told about, so `load` and `error` fire once.
     announced_images: HashMap<NodeId, String>,
     /// Requests for elements that did not exist yet when the app asked, with tries left.
@@ -46,13 +67,15 @@ pub struct Workbench {
     frame_tick_pending: bool,
     /// When the earliest tick waiting on a timer fires.
     timer_due: Option<Instant>,
+    /// Files being dragged in from another program, and what they are over.
+    external_drag: file_drop::ExternalDrag,
 }
 
 impl Workbench {
     pub fn new(svelte: Svelte, images: Images, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let interaction = Interaction::new(images, cx);
         window.focus(&interaction.root_focus);
-        Workbench {
+        let mut workbench = Workbench {
             svelte,
             interaction,
             seen_version: 0,
@@ -60,7 +83,12 @@ impl Workbench {
             focused: None,
             last_scroll: HashMap::new(),
             sent_sizes: HashMap::new(),
-            window_size: (0.0, 0.0),
+            reported_window: None,
+            error_output: ErrorOutput::Overlay,
+            build_error: None,
+            errors_seen: 0,
+            errors_dismissed: false,
+            generation: 0,
             announced_images: HashMap::new(),
             queued: Vec::new(),
             frame_times: Vec::new(),
@@ -69,7 +97,11 @@ impl Workbench {
             captured: None,
             frame_tick_pending: false,
             timer_due: None,
-        }
+            external_drag: Default::default(),
+        };
+        workbench.listen_for_io(cx);
+        workbench.watch_window(window, cx);
+        workbench
     }
 
     /// Reports an event on a node to the app, then redraws.
@@ -79,6 +111,7 @@ impl Workbench {
         let outcome = self.svelte.event(id, kind, &detail);
         self.write_requested_clipboard(cx);
         self.run_main_jobs(cx);
+        self.run_scroll_commands(cx);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
         self.flush_dirty(cx);
@@ -243,11 +276,12 @@ impl Workbench {
                 true
             }
             Command::ScrollTo(id, left, top) => {
-                let handles = self.interaction.scroll.borrow();
-                let Some(handle) = handles.get(id) else {
+                let Some(handle) = self.interaction.scroll.borrow().get(id).cloned() else {
                     return false;
                 };
                 handle.set_offset(point(px(-left), px(-top)));
+                // A view that holds the scroller keeps what it drew until it is told otherwise.
+                self.touch(*id, cx);
                 true
             }
         }
@@ -270,6 +304,10 @@ impl Render for Workbench {
         let tree = tree.borrow();
         let painter = Painter::new(&tree, &self.interaction, None);
         let document = painter.document(cx);
+        let document = match self.error_overlay(window, cx) {
+            Some(overlay) => div().size_full().relative().child(document).child(overlay).into_any_element(),
+            None => document,
+        };
         let wanted = self.frame_target;
         if wanted > 0 && self.frame_times.len() < wanted {
             self.frame_times.push(Instant::now());

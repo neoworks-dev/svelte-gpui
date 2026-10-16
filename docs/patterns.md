@@ -94,7 +94,7 @@ selected, with `transition` so the change eases.
 **Pushing something to the end of a row**: a spacer `<View style={{ flex: 1 }} />`, or
 `marginLeft: "auto"` on the item.
 
-**An overlay or dialog**: an absolutely positioned `View` with `inset: 0`, placed last
+**A modal dialog**: an absolutely positioned `View` with `inset: 0`, placed last
 in the root so it draws on top:
 
 ```svelte
@@ -112,15 +112,16 @@ in the root so it draws on top:
 
 The empty `onpress` on the dialog stops presses inside it from reaching a
 close-on-press handler on the backdrop. That works because nothing bubbles, and the
-dialog is the element pressed.
+dialog is the element pressed. For things that float next to an element rather than cover the window, use
+[an overlay](#overlays-menus-and-tooltips).
 
-**Positioning against something else**: read its position with `onlayout` and place an
-absolute element from that.
+**Positioning against something else**: use `Popover` or `Overlay`, below. For anything else, read
+its position with `onlayout` and place an absolute element from that.
 
 ## Long lists
 
-Use `List` when rows share one height. It builds only the rows near the window, so a
-100,000-item array is fine. Filter and sort the array with `$derived`; the list follows.
+Use `List`. It builds only the rows near the window, so a 100,000-item array is fine. Filter and sort the
+array with `$derived`; the list follows.
 
 ```svelte
 <script lang="ts">
@@ -140,8 +141,76 @@ Use `List` when rows share one height. It builds only the rows near the window, 
 <Button onpress={() => list?.scrollToIndex(0)}><Text>Top</Text></Button>
 ```
 
-For rows of different heights, use `Scroll` with `{#each}`. It builds every row, which
-is fine up to a few thousand.
+**Rows of different heights**, such as chat messages or wrapped text: leave out `rowHeight`. Each row is
+measured as it is drawn, and rows not drawn yet count as the average. A row above the window that turns out
+taller than guessed scrolls the list by the difference, so what you are looking at does not move.
+
+```svelte
+<List items={messages} key={(message) => message.id} stickToEnd style={{ flex: 1 }}>
+  {#snippet row(message)}
+    <View style={{ padding: 8 }}><Text>{message.text}</Text></View>
+  {/snippet}
+</List>
+```
+
+- Give `key` when items are inserted at the start or reordered, so measured heights follow their items.
+- `stickToEnd` keeps a chat at its end while it is there, and leaves it alone once the user has scrolled up.
+- `list.scrollToIndex(i, { align: "end" })` and `"center"` and `"nearest"` bring a row into view.
+- Content inside a row that changes its height later (an image loading, a row that expands) is measured again.
+
+**A tree** is a `List` of the rows of expanded branches. Give `Tree` the top level, how to find a node's children
+and a key, and draw a row:
+
+```svelte
+<Tree items={roots} key={(n) => n.path} childrenOf={(n) => children[n.path]} isBranch={(n) => n.folder}
+      bind:selected onexpand={load} style={{ height: 320 }}>
+  {#snippet row(node, info)}<Text style={{ color: info.selected ? "#fff" : "#a1a1aa" }}>{node.name}</Text>{/snippet}
+</Tree>
+```
+
+`childrenOf` is called only for expanded branches, so children can be made, or loaded, when asked for: load a
+folder in `onexpand` into a `$state` map and let `childrenOf` read it.
+
+## Overlays, menus and tooltips
+
+Everything that floats next to an element is a `Popover` (or an `Overlay` under it): placed against the
+element's box, flipped and shifted to stay in the window, drawn above everything.
+
+```svelte
+<Popover bind:open side="bottom" align="end">
+  {#snippet trigger({ toggle })}<Button onpress={toggle}><Text>Share</Text></Button>{/snippet}
+  <View style={{ padding: 12, width: 260 }}>…</View>
+</Popover>
+```
+
+- **Closing:** an outside press and Escape close it, and focus returns to what had it. Build your own close
+  button with `close()` from the snippet argument.
+- **Menus and dropdowns:** `Menu` inside a `Popover` with `focusPanel={false}` (the menu takes focus itself),
+  or the ready-made `Select` and `ContextMenu`.
+- **A context menu** is a right press: `ondown` with `event.button === 2`. `ContextMenu` does that for a region.
+- **Tooltips** wrap their content: `<Tooltip text="Save"><Button>…</Button></Tooltip>`.
+- **A panel's width** is its content's, so give wide content a `width`. `matchWidth` makes it at least as wide as the trigger.
+- **Do not clip them.** An overlay inside another overlay is drawn in place, so `overflow: "hidden"` on the content around it cuts it off.
+
+## Dragging
+
+**Files from other programs**: `ondragenter`, `ondragleave` and `ondrop` on a `View`, with absolute paths that the
+app may read once dropped. See [Events](events.md#files-dragged-in).
+
+**Inside the app**: wrap what can be picked up in `Draggable` and where it can go in `DropTarget`. A reorderable
+list marks where the card would land from the pointer's place in the target under it:
+
+```svelte
+{#each items as item, index (item.id)}
+  <DropTarget ondragover={(info) => (at = info.y < info.height / 2 ? index : index + 1)} ondrop={({ data }) => move(data, at)}>
+    <Draggable data={item.id} onend={() => (at = null)}><Text>{item.title}</Text></Draggable>
+  </DropTarget>
+{/each}
+```
+
+`dragging.active` (from `@neoworks/svelte-gpui/ui`) is reactive, for dimming or outlining things everywhere
+while a drag is under way. For a drag that is not about dropping, such as a slider or a resize handle, pointer
+capture alone is enough, as shown above.
 
 ## Drawing
 

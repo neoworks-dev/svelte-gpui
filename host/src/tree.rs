@@ -26,9 +26,9 @@ pub struct Node {
 }
 
 impl Node {
-    /// The app listens for this element's size and position.
+    /// The app listens for this element's size and position, or only for its size.
     pub fn observed(&self) -> bool {
-        self.listeners.contains("layout")
+        self.listeners.contains("layout") || self.listeners.contains("resize")
     }
 }
 
@@ -268,11 +268,7 @@ impl Tree {
         };
         match &node.kind {
             Kind::Text { data } => data.clone(),
-            Kind::Element { .. } => node
-                .children
-                .iter()
-                .map(|child| self.text_content(*child))
-                .collect(),
+            Kind::Element { .. } => node.children.iter().map(|child| self.text_content(*child)).collect(),
         }
     }
 }
