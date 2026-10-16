@@ -6,12 +6,52 @@ use super::Workbench;
 use crate::render::{self};
 use crate::tree::{Command, Kind, NodeId, ROOT};
 
+/// A step taken apart: `ACTION:TARGET:ARGUMENT`.
+#[derive(Debug, PartialEq)]
+struct Parts {
+    action: String,
+    target: String,
+    argument: String,
+}
+
+/// Steps whose argument is never free text, so it is the part after the last colon and the target
+/// may contain colons as they are.
+const LAST_COLON: [&str; 5] = ["key", "scroll", "down", "move", "up"];
+
+/// Splits a step at its colons. `\:` is a colon that does not split, and `\\` is a backslash. Of the
+/// steps that take an argument, `key`, `scroll`, `down`, `move` and `up` end in it, so a target
+/// such as `echo #1: hello` needs no escape there; for the others (`type`, `compose`, `commit`,
+/// `drop`, `dragover`) the target ends at its first colon and the rest is the argument, which
+/// may hold colons.
+fn split_step(step: &str) -> Parts {
+    let mut fields = vec![String::new()];
+    let mut characters = step.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' if matches!(characters.peek(), Some(':' | '\\')) => {
+                fields.last_mut().unwrap().push(characters.next().unwrap());
+            }
+            ':' => fields.push(String::new()),
+            other => fields.last_mut().unwrap().push(other),
+        }
+    }
+    let mut fields = fields.into_iter();
+    let action = fields.next().unwrap_or_default();
+    let rest: Vec<String> = fields.collect();
+    if LAST_COLON.contains(&action.as_str()) && rest.len() >= 2 {
+        let (argument, target) = rest.split_last().unwrap();
+        return Parts { action, target: target.join(":"), argument: argument.clone() };
+    }
+    let target = rest.first().cloned().unwrap_or_default();
+    let argument = rest.iter().skip(1).cloned().collect::<Vec<_>>().join(":");
+    Parts { action, target, argument }
+}
+
 impl Workbench {
     /// One scripted step: a click, a focus, or a scroll of the nearest scrollable ancestor.
     pub(crate) fn run_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let mut parts = step.splitn(3, ':');
-        let action = parts.next().unwrap_or("");
-        let needle = parts.next().unwrap_or("");
+        let Parts { action, target: needle, argument } = split_step(step);
+        let (action, needle, argument) = (action.as_str(), needle.as_str(), argument.as_str());
         if action == "wait" {
             return;
         }
@@ -39,12 +79,12 @@ impl Workbench {
             return;
         }
         if action == "drop" || action == "dragover" {
-            self.simulate_drag(id, parts.next().unwrap_or(""), action == "drop", cx);
+            self.simulate_drag(id, argument, action == "drop", cx);
             return;
         }
         if matches!(action, "down" | "move" | "up") {
             let id = self.listening_ancestor(id, action);
-            self.run_pointer_step(action, id, parts.next().unwrap_or("0,0"), cx);
+            self.run_pointer_step(action, id, if argument.is_empty() { "0,0" } else { argument }, cx);
             self.dirty_all_views(cx);
             cx.notify();
             return;
@@ -68,7 +108,7 @@ impl Workbench {
             "type" => {
                 let command = Command::Focus(id);
                 self.carry_out(&command, window, cx);
-                for character in parts.next().unwrap_or("").chars() {
+                for character in argument.chars() {
                     let text = character.to_string();
                     let keystroke =
                         Keystroke { modifiers: Default::default(), key: text.clone(), key_char: Some(text) };
@@ -78,7 +118,7 @@ impl Workbench {
             "compose" | "commit" => {
                 let command = Command::Focus(id);
                 self.carry_out(&command, window, cx);
-                let text = parts.next().unwrap_or("");
+                let text = argument;
                 if action == "compose" {
                     <Self as gpui::EntityInputHandler>::replace_and_mark_text_in_range(
                         self, None, text, None, window, cx,
@@ -88,7 +128,7 @@ impl Workbench {
                 }
             }
             "key" => {
-                let spelled = parts.next().unwrap_or("");
+                let spelled = argument;
                 match Keystroke::parse(spelled) {
                     Ok(keystroke) => {
                         self.handle_key(id, &keystroke, false, true, cx);
@@ -97,7 +137,7 @@ impl Workbench {
                 }
             }
             "scroll" => {
-                let pixels: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+                let pixels: f32 = argument.parse().unwrap_or(0.0);
                 let target = self.scrollable_ancestor(id);
                 self.queued.push((Command::ScrollTo(target, 0.0, pixels), 20));
             }
@@ -213,5 +253,51 @@ impl Workbench {
                 None => return Some(current),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn split(step: &str) -> (String, String, String) {
+        let Parts { action, target, argument } = split_step(step);
+        (action, target, argument)
+    }
+
+    fn parts(action: &str, target: &str, argument: &str) -> (String, String, String) {
+        (action.to_string(), target.to_string(), argument.to_string())
+    }
+
+    #[test]
+    fn plain_steps_split_as_before() {
+        assert_eq!(split("press:Save"), parts("press", "Save", ""));
+        assert_eq!(split("wait"), parts("wait", "", ""));
+        assert_eq!(split("type:@placeholder=Name:Ada"), parts("type", "@placeholder=Name", "Ada"));
+        assert_eq!(split("type:Name:a:b"), parts("type", "Name", "a:b"));
+        assert_eq!(split("down:Canvas:10,20,2"), parts("down", "Canvas", "10,20,2"));
+        assert_eq!(split("frames:30"), parts("frames", "30", ""));
+    }
+
+    #[test]
+    fn a_target_with_a_colon_splits_from_the_end_for_steps_that_end_in_their_argument() {
+        assert_eq!(split("key:echo #1: hello:down"), parts("key", "echo #1: hello", "down"));
+        assert_eq!(split("scroll:Time 12:30:400"), parts("scroll", "Time 12:30", "400"));
+        assert_eq!(split("down:12:30:5,6"), parts("down", "12:30", "5,6"));
+    }
+
+    #[test]
+    fn an_escaped_colon_does_not_split() {
+        assert_eq!(split(r"press:echo #1\: hello"), parts("press", "echo #1: hello", ""));
+        assert_eq!(split(r"type:Time 12\:30:ok"), parts("type", "Time 12:30", "ok"));
+        assert_eq!(split(r"key:a\:b:enter"), parts("key", "a:b", "enter"));
+        assert_eq!(split(r"press:@href=http\://x"), parts("press", "@href=http://x", ""));
+    }
+
+    #[test]
+    fn a_backslash_before_a_backslash_or_colon_is_one_backslash() {
+        assert_eq!(split(r"press:a\\b"), parts("press", r"a\b", ""));
+        assert_eq!(split(r"press:a\\:b"), parts("press", r"a\", "b"));
+        assert_eq!(split(r"press:C:\dir"), parts("press", "C", r"\dir"));
     }
 }
