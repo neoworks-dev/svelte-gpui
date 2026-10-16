@@ -128,6 +128,7 @@ clipboard all work without app code. Each change reaches the app through
 | `oninput` | `(value: string) => void` | Every change to the text. |
 | `onsubmit` | `(value: string) => void` | Enter in a single-line field. |
 | `oncommit` | `(value: string) => void` | The text changed since the field took focus, and then focus left or Enter was pressed. |
+| `onselect` | `(s: { start, end }) => void` | The cursor or the selection moved, whether by keys, the pointer, typing, or `select()`. `start` and `end` are UTF-16 offsets, equal when nothing is selected. It does not fire when the app sets `value`; ask `getSelection()` for that. |
 | `onkey` | `(e: KeyEvent) => void` | Comes before the field handles the key. `preventDefault()` stops the field from handling it. |
 | `onfocus`, `onblur` | `() => void` | |
 
@@ -136,6 +137,22 @@ clipboard all work without app code. Each change reaches the app through
 | `focus()` | Gives it keyboard focus. |
 | `blur()` | Gives focus up, if it has it. It goes back to the element that had it before, when that is still there, and otherwise to nothing. |
 | `select(start?, end?)` | Selects a range in UTF-16 offsets, which is how JavaScript string indices count. Selects everything by default. |
+| `getSelection()` | Where the cursor is right now: `{ start, end, firstRow, lastRow }`, or `null` until the field has been drawn. `start` and `end` are UTF-16 offsets as for `select()`. `firstRow` and `lastRow` say whether the cursor is on the first and the last row of the text as drawn, so a long line that wraps counts as several rows. |
+
+Reading the cursor in `onkey` gives where it is before the field handles the key, which is what a field
+that walks a history with Up and Down needs: take the arrow only when the cursor cannot move any further.
+
+```svelte
+<Input bind:this={field} multiline onkey={(e) => {
+  if (e.key === "ArrowUp" && field.getSelection()?.firstRow) {
+    e.preventDefault();
+    showOlderEntry();
+  }
+}} />
+```
+
+The rows are those of the last frame, so they are right for any key that comes after the text on screen has
+changed, which is every key a person types.
 
 ```svelte
 <script lang="ts">

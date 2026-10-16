@@ -121,6 +121,7 @@ elements yet.
 | `oninput` | `Input` | The new text, on every change. `bind:value` is usually simpler. |
 | `onsubmit` | `Input` | The text, on Enter in a single-line field. |
 | `oncommit` | `Input` | The text, when it changed since focus and then focus left or Enter was pressed. Good for saving. |
+| `onselect` | `Input` | `{ start, end }`, when the cursor or selection moved. See [Input](primitives.md#input) for `getSelection()`, which also says which row the cursor is on. |
 
 ## Layout, scrolling and loading
 

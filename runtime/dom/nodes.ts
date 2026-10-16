@@ -38,6 +38,8 @@ export interface NodeBackend {
   blur(node: SElement): void;
   scrollTo(node: SElement, left: number, top: number): void;
   select(node: SElement, start: number, end: number): void;
+  /** A field's selection, and where its cursor is among the rows, right now; nothing if it is not a drawn field. */
+  fieldState(node: SElement): number[];
 }
 
 export type EventHandler = (event: any) => void;
@@ -52,6 +54,7 @@ const noBackend: NodeBackend = {
   blur() {},
   scrollTo() {},
   select() {},
+  fieldState: () => [],
 };
 
 let backend = noBackend;
@@ -550,6 +553,18 @@ export class SElement extends SNode {
   /** Selects part of a `g-input`'s text, in UTF-16 offsets. */
   setSelectionRange(start: number, end: number): void {
     backend.select(this, start, end);
+  }
+
+  /**
+   * A `g-input`'s selection in UTF-16 offsets, and whether the cursor is on its first and last row
+   * as drawn, where a line that wraps is several rows. Null until the field has been drawn.
+   */
+  fieldState(): { start: number; end: number; firstRow: boolean; lastRow: boolean } | null {
+    const [start, end, row, rows] = backend.fieldState(this as unknown as SElement);
+    if (start === undefined) {
+      return null;
+    }
+    return { start, end, firstRow: row === 0, lastRow: row === rows - 1 };
   }
 
   scrollTo(first: number | { left?: number; top?: number }, second?: number): void {

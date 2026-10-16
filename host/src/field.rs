@@ -21,6 +21,11 @@ pub struct Field {
     pub marked: Option<Range<usize>>,
     /// How far a single-line field has scrolled sideways to keep the cursor in view.
     pub scroll_x: f32,
+    /// The row the cursor was drawn on, counting from 0, and how many rows the text fills, as of
+    /// the last time the field was drawn. Rows are what is on screen, so a long line that wraps is several.
+    pub caret_row: (usize, usize),
+    /// The selection the app was last told about, in UTF-16 offsets.
+    pub reported: Option<(usize, usize)>,
 }
 
 impl Field {
@@ -35,7 +40,15 @@ impl Field {
             dragging: false,
             marked: None,
             scroll_x: 0.0,
+            caret_row: (0, 1),
+            reported: None,
         }
+    }
+
+    /// The selection in UTF-16 offsets, which is how a script's string indices count.
+    pub fn selection_utf16(&self) -> (usize, usize) {
+        let range = self.selection();
+        (utf16_offset(&self.text, range.start), utf16_offset(&self.text, range.end))
     }
 
     pub fn selection(&self) -> std::ops::Range<usize> {
@@ -158,4 +171,25 @@ pub fn byte_offset(text: &str, utf16: usize) -> usize {
         units += character.len_utf16();
     }
     text.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_selection_counts_utf16_units_in_either_direction() {
+        let mut field = Field::new();
+        // "é" is two bytes and one unit, "😀" four bytes and two units.
+        field.text = "aé😀b".to_string();
+        field.anchor = 1;
+        field.cursor = 7;
+        assert_eq!(field.selection_utf16(), (1, 4));
+        // A selection made backwards still reads from its start.
+        field.anchor = 7;
+        field.cursor = 1;
+        assert_eq!(field.selection_utf16(), (1, 4));
+        field.cursor = field.anchor;
+        assert_eq!(field.selection_utf16(), (4, 4));
+    }
 }

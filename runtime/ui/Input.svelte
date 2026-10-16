@@ -30,6 +30,8 @@
     onsubmit?: (value: string) => void;
     /** The text changed since the field took focus, and focus left or Enter was pressed. */
     oncommit?: (value: string) => void;
+    /** The cursor or the selection moved, with the text offsets (UTF-16, as for `select()`) of its two ends. */
+    onselect?: (selection: { start: number; end: number }) => void;
     onkey?: (event: KeyEvent) => void;
     onfocus?: () => void;
     onblur?: () => void;
@@ -51,6 +53,7 @@
     readonly: props.readonly ? "" : undefined,
     onsubmit: listener(props.onsubmit, (event: { value: string }) => event.value),
     oncommit: listener(props.oncommit, (event: { value: string }) => event.value),
+    onselect: listener(props.onselect, (event: { start: number; end: number }) => event),
     onkey: listener(props.onkey, itself<KeyEvent>),
     onfocus: listener(props.onfocus, () => undefined),
     onblur: listener(props.onblur, () => undefined),
@@ -70,6 +73,15 @@
   /** Gives focus up if it has it: back to what had it before, when that is still there. */
   export function blur(): void {
     element?.blur();
+  }
+
+  /**
+   * Where the cursor is, right now: the selection's two ends in UTF-16 offsets, as for `select()`,
+   * which are equal when nothing is selected, and whether the cursor is on the first and on the last
+   * row of the text as drawn. A line that wraps counts as several rows. Null until the field is drawn.
+   */
+  export function getSelection(): { start: number; end: number; firstRow: boolean; lastRow: boolean } | null {
+    return element?.fieldState() ?? null;
   }
 
   /** Selects part of the text, in UTF-16 offsets; all of it by default. */
