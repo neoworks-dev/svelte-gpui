@@ -25,8 +25,8 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 | `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. Focus moves as it does for a real press: to the nearest element at or above the target that takes it, or to nothing, unless an element above the target has `keepFocus`. |
 | `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves the nearest element at or above the target that listens for `hover`. |
 | `focus:TARGET` | Gives focus to the nearest element at or above the target that can take it. |
-| `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. |
-| `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. |
+| `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. On a view the app's crate draws (`g-element`), the keys go through GPUI to the view, as a keyboard's do. |
+| `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. On a `g-element`, it goes through GPUI to the view first, and what the view leaves alone bubbles to the UI. |
 | `compose:TARGET:TEXT` | Input-method composition, which is underlined and not yet committed. |
 | `commit:TARGET:TEXT` | Input-method text committed. |
 | `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. It moves focus as `press` does. A third number names the button: `down:TARGET:X,Y,2` is a right press, which goes to the nearest element at or above the target whose `ondown` takes that button. |
