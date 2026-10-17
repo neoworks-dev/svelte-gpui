@@ -192,6 +192,24 @@ impl Workbench {
                     self.queued.push((command, 20));
                 }
             }
+            "type" | "key" if self.focus_element(id, window, cx) => {
+                // A view of the app's own gets the keys as a keyboard sends them, through GPUI, so its key
+                // listeners and input handler see them.
+                let keystrokes = match action {
+                    "key" => {
+                        vec![
+                            Keystroke::parse(argument)
+                                .map_err(|_| format!("cannot read {argument:?} as a keystroke"))?,
+                        ]
+                    }
+                    _ => argument.chars().map(typed_keystroke).collect(),
+                };
+                window.defer(cx, move |window, cx| {
+                    for keystroke in keystrokes {
+                        window.dispatch_keystroke(keystroke, cx);
+                    }
+                });
+            }
             "type" => {
                 let command = Command::Focus(id);
                 self.carry_out(&command, window, cx);
@@ -286,6 +304,16 @@ impl Workbench {
         id
     }
 
+    /// Gives focus to the view of the app's own at or above `id`, if there is one, and says whether there was.
+    fn focus_element(&mut self, id: NodeId, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let target = self.focusable_ancestor(id);
+        if !self.is_element(target) {
+            return false;
+        }
+        self.carry_out(&Command::Focus(target), window, cx);
+        true
+    }
+
     /// The closest element at or above `id` that can take focus, as pressing it would give focus to.
     fn focusable_ancestor(&self, id: NodeId) -> NodeId {
         let tree = self.svelte.tree.borrow();
@@ -353,6 +381,13 @@ impl Workbench {
             }
         }
     }
+}
+
+/// The keystroke typing one character makes.
+fn typed_keystroke(character: char) -> Keystroke {
+    let text = character.to_string();
+    let key = if character == ' ' { "space".to_string() } else { text.clone() };
+    Keystroke { modifiers: Default::default(), key, key_char: Some(text) }
 }
 
 #[cfg(test)]

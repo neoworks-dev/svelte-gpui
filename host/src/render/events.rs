@@ -78,6 +78,15 @@ impl Painter<'_> {
         if primitive == Primitive::Input {
             element = self.wire_field(element, id, cx);
         }
+        if primitive == Primitive::Element && self.interaction.focus.borrow().contains_key(&id) {
+            // After the view's own handlers, a press that nothing took gives the view focus.
+            element = element.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |workbench, _: &MouseDownEvent, window, _cx| {
+                    workbench.focus_node(id, window);
+                }),
+            );
+        }
         if listens("down") {
             for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
                 // A button it does not take is left for the elements around it, which is also how

@@ -35,6 +35,9 @@ pub enum Settle {
     Event,
     /// A stream ended; the call is closed.
     Close,
+    /// An app element's view emitted an event (see `NativeHost::emit`). `call` is the element's node id and the
+    /// payload holds the event's `name` and `detail`. It is for the window, and never reaches the app as a call.
+    Element,
 }
 
 impl Settle {
@@ -44,6 +47,7 @@ impl Settle {
             Settle::Reject => "reject",
             Settle::Event => "event",
             Settle::Close => "close",
+            Settle::Element => "element",
         }
     }
 }
@@ -92,6 +96,11 @@ impl Sink {
 
     pub fn close(&self, call: u64, json: Value) {
         self.send(call, Settle::Close, json, None);
+    }
+
+    /// Reports an event from the view drawn in the element `node`.
+    pub fn element_event(&self, node: u32, name: &str, detail: Value) {
+        self.send(node as u64, Settle::Element, serde_json::json!({ "name": name, "detail": detail }), None);
     }
 }
 
