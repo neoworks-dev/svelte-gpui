@@ -209,7 +209,8 @@ template or an effect, it updates the way state does. It reads zeros until the h
 ## List
 
 A long list of rows, built only near the window. 100,000 items cost what a screenful does.
-Rows may all have one height (`rowHeight`), or differ.
+Rows may all have one height (`rowHeight`), or differ. A row of its own height is drawn once it
+has been measured, the frame after it is built, so rows never show over each other at a guessed place.
 
 | Prop | Type | |
 |---|---|---|
