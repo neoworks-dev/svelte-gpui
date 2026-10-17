@@ -107,9 +107,9 @@
   });
   const shown = $derived.by(() => {
     heightsAt(version);
-    const out: { item: T; index: number; top: number }[] = [];
+    const out: { item: T; index: number; top: number; placed: boolean }[] = [];
     for (let index = first; index < last; index++) {
-      out.push({ item: items[index], index, top: topOf(index) - origin });
+      out.push({ item: items[index], index, top: topOf(index) - origin, placed: !measured || heights.isMeasured(index) });
     }
     return out;
   });
@@ -313,8 +313,10 @@
   <View style={{ height: Math.min(total, STRETCH), shrink: 0 }}>
     {#each shown as entry (key ? key(entry.item, entry.index) : entry.index)}
       {#if measured}
+        <!-- A row not measured yet sits where the estimate puts it, over its neighbours: it is
+             laid out, to be measured, but not seen until it is in its place. -->
         <View
-          style={{ position: "absolute", top: entry.top, left: 0, right: 0 }}
+          style={{ position: "absolute", top: entry.top, left: 0, right: 0, opacity: entry.placed ? 1 : 0 }}
           onresize={(layout: Layout) => measure(entry.index, layout.height, entry.item)}
         >
           {@render row(entry.item, entry.index)}
