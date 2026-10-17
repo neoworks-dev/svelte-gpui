@@ -36,8 +36,8 @@ React Native works. There is no webview and no DOM.
    file access.
 8. [The window](window.md): its title, size and minimum size, what the app can read
    about it, and asking before it closes.
-9. [Calling Rust](rust.md): commands your own crate registers, `invoke`, and events
-   Rust pushes with `listen`.
+9. [Calling Rust](rust.md): commands your own crate registers, `invoke`, events
+   Rust pushes with `listen`, and views your crate draws with GPUI, shown by `element()`.
 10. [Packaging](packaging.md): one executable with the bundle and its files inside, a
     `.desktop` file and an icon.
 11. [Coming from Svelte on the web](web-differences.md): what works the same, what does

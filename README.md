@@ -58,8 +58,8 @@ size, position and focus. A build that fails, or an app that throws, shows the e
 the window, with its stack mapped to your source files, until the next good build
 (`docs/getting-started.md`).
 
-`examples/rust-commands` is an app with its own Rust crate: a UI that calls Rust commands
-and listens to events a Rust thread emits (`docs/rust.md`).
+`examples/rust-commands` is an app with its own Rust crate: a UI that calls Rust commands,
+listens to events a Rust thread emits, and shows a view that Rust draws with GPUI (`docs/rust.md`).
 
 ```
 bun examples/rust-commands/build.mjs
@@ -96,7 +96,9 @@ id, version and icon live in its `package.json`. See [docs/packaging.md](docs/pa
   [docs/io.md](docs/io.md).
 - **Your own Rust code** is called with `invoke(name, args)` and pushes events with
   `listen(name, callback)`, over the same channel: an app with its own crate registers
-  commands that run on threads. See [docs/rust.md](docs/rust.md).
+  commands that run on threads. It can also register GPUI views of its own, which the app
+  shows with `element(name)`: they take props, emit events, answer methods, take focus and keys,
+  and paint inside a box like any element. See [docs/rust.md](docs/rust.md).
 - **Input goes back the same way.** The host reports an event by node id, and
   `runtime/host/events.ts` calls that element's listener directly.
 

@@ -117,6 +117,24 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
   - Declare commands once for type checking: `declare module "@neoworks/svelte-gpui" {
     interface CommandMap { greet: { args: { name: string }; result: string } } }`.
   - Commands never touch the UI; they answer, or emit events.
+- **Views the app's Rust crate draws with GPUI** (an editor, a terminal) are registered with
+  `Elements::new().register("name", |host, cx| cx.new(|cx| View::new(host, cx)))` and given to
+  `svelte_gpui::run(options.elements(elements))`. The view is a GPUI `Render` that implements
+  `AppElement`: `set_prop(name, json, cx)`, `call(method, args, cx) -> Result<Value, CommandError>`
+  and `focus_handle(cx)`; `NativeHost::emit(name, json)` (from the factory's `host`, any thread) fires
+  the UI's `on<name>`. GPUI is re-exported as `svelte_gpui::gpui`. See `examples/rust-commands/src/counter.rs`.
+  - `const Editor = element<Props, Methods>("name")` from `@neoworks/svelte-gpui` is the component:
+    `<Editor style={{ flex: 1 }} {path} onsave={(detail) => ...} key="main" bind:this={editor} />`.
+    Props must be JSON; `onX` props are listeners for what Rust emits as `X`; `Methods` are called
+    as `await editor.insert("text")` (a promise; arguments reach Rust as a JSON array); `focus()` and
+    `blur()` exist too. `style` lays the node out like a `View`: give it a size (`flex: 1`, a height).
+  - Keys go to the view first (its own `on_key_down`; `cx.stop_propagation()` when it uses one);
+    the rest bubbles to `onkey` and `window`. Text goes through the view's `EntityInputHandler`,
+    registered while painting with `window.handle_input`. The view is cached: it redraws only when it
+    calls `cx.notify()` (the host does after `set_prop` and `call`).
+  - A `key` prop keeps the view through a hot reload; without one the view is built again.
+  - Test it with `key:@tag=g-element:enter` and `type:@tag=g-element:text`, which send real
+    keystrokes through GPUI, and `focus:@tag=g-element`.
 - **Packaging** (`docs/packaging.md`): `bun scripts/package.mjs --app examples/demo` makes
   one executable with the bundle (as bytecode) and its files embedded, plus a `.desktop`
   file and an icon, in `dist/package/<app>/`. The app's metadata (`name`, `id`, `bundle`,
