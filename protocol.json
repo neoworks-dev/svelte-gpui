@@ -16,6 +16,7 @@
     "scrollTo",
     "select",
     "writeClipboard",
-    "draw"
+    "draw",
+    "call"
   ]
 }

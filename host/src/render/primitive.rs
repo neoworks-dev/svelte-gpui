@@ -17,6 +17,8 @@ pub enum Primitive {
     Icon,
     Canvas,
     Overlay,
+    /// A view the app's own crate draws (`Elements`).
+    Element,
 }
 
 impl Primitive {
@@ -31,6 +33,7 @@ impl Primitive {
             "g-icon" => Primitive::Icon,
             "g-canvas" => Primitive::Canvas,
             "g-overlay" => Primitive::Overlay,
+            "g-element" => Primitive::Element,
             _ => return None,
         })
     }

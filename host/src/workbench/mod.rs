@@ -2,6 +2,7 @@
 
 mod clock;
 mod editing;
+mod elements;
 mod file_drop;
 mod ime;
 mod io;
@@ -20,6 +21,7 @@ use std::time::Instant;
 use gpui::{Context, IntoElement, Render, Window, div, point, prelude::*, px};
 
 use crate::diagnostics::Stats;
+use crate::elements::Elements;
 use crate::errors::AppError;
 use crate::images::Images;
 use crate::render::{self, Interaction, Painter};
@@ -31,6 +33,8 @@ pub use overlay::ErrorOutput;
 
 pub struct Workbench {
     pub(crate) svelte: Svelte,
+    /// The GPUI views the app's crate offers.
+    elements: Elements,
     pub(crate) interaction: Interaction,
     seen_version: u64,
     pub(crate) stats: Stats,
@@ -75,11 +79,19 @@ pub struct Workbench {
 }
 
 impl Workbench {
-    pub fn new(svelte: Svelte, images: Images, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        svelte: Svelte,
+        images: Images,
+        elements: Elements,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let interaction = Interaction::new(images, svelte.fields.clone(), cx);
         window.focus(&interaction.root_focus);
+        elements.attach(svelte.io.sink());
         let mut workbench = Workbench {
             svelte,
+            elements,
             interaction,
             seen_version: 0,
             stats: Stats::default(),
@@ -116,6 +128,7 @@ impl Workbench {
         self.write_requested_clipboard(cx);
         self.run_main_jobs(cx);
         self.run_scroll_commands(cx);
+        self.run_element_calls(cx);
         self.stats.events += 1;
         self.stats.event_seconds += started.elapsed().as_secs_f64();
         self.flush_dirty(cx);
@@ -215,6 +228,7 @@ impl Workbench {
 
     /// Has drawn again whatever the app's last changes to the tree touched.
     fn flush_dirty(&mut self, cx: &mut Context<Self>) {
+        self.sync_elements(cx);
         let (dirty, deep) = {
             let mut tree = self.svelte.tree.borrow_mut();
             (std::mem::take(&mut tree.dirty), std::mem::take(&mut tree.dirty_deep))
@@ -244,14 +258,20 @@ impl Workbench {
 
     /// Does what the app asked: focus an element, or scroll one.
     fn run_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_elements(cx);
         let fresh: Vec<Command> = std::mem::take(&mut self.svelte.tree.borrow_mut().commands);
         for command in fresh {
             self.queued.push((command, 20));
         }
         let queued = std::mem::take(&mut self.queued);
         for (command, tries) in queued {
-            if !self.carry_out(&command, window, cx) && tries > 0 {
+            if self.carry_out(&command, window, cx) {
+                continue;
+            }
+            if tries > 0 {
                 self.queued.push((command, tries - 1));
+            } else {
+                self.abandon_call(&command);
             }
         }
     }
@@ -279,6 +299,7 @@ impl Workbench {
                 window.focus(handle);
                 true
             }
+            Command::Call { .. } => self.carry_out_call(command, cx),
             Command::Blur(id) => {
                 self.blur_node(*id, window);
                 true

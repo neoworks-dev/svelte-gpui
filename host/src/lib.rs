@@ -9,6 +9,7 @@
 mod assets;
 mod canvas;
 mod diagnostics;
+mod elements;
 mod embedded;
 mod errors;
 mod field;
@@ -24,6 +25,7 @@ mod watch;
 mod window_control;
 mod workbench;
 
+pub use elements::{AppElement, Elements, NativeHost};
 pub use embedded::{Embedded, Metadata};
 pub use io::{CommandError, Commands, Emitter, Output};
 pub use launch::{Options, run};
