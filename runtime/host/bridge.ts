@@ -37,6 +37,7 @@ const SCROLL_TO = code("scrollTo");
 const SELECT = code("select");
 const WRITE_CLIPBOARD = code("writeClipboard");
 const DRAW = code("draw");
+const CALL = code("call");
 
 export const ROOT_ID = 1;
 
@@ -52,6 +53,14 @@ export function draw(node: SNode, command: unknown[]): void {
     return;
   }
   pending.push([DRAW, node.hostId, command]);
+}
+
+/**
+ * Calls a method of the Rust view drawn in an app element. The host answers through the io channel,
+ * settling the call that `expect()` handed out, so the answer and the operations around it stay in order.
+ */
+export function callMethod(node: SNode, call: number, method: string, args: unknown[]): void {
+  pending.push([CALL, node.hostId, call, method, JSON.stringify(args)]);
 }
 
 export function nodeFor(id: number): SNode | undefined {
