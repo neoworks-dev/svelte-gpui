@@ -314,3 +314,53 @@ fn text_at(parts: &[Value], index: usize) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `g-element` node, 2, under the root, with the attributes the runtime sends.
+    fn tree_with_element() -> Tree {
+        let mut tree = Tree::new();
+        tree.apply(&format!(
+            "[[{CREATE_ELEMENT},2,\"g-element\"],[{SET_ATTRIBUTE},2,\"name\",\"counter\"],[{INSERT},1,2,0]]"
+        ));
+        tree
+    }
+
+    #[test]
+    fn an_attribute_on_an_app_element_marks_it_changed() {
+        let mut tree = tree_with_element();
+        assert!(tree.changed_elements.contains(&2));
+        tree.changed_elements.clear();
+        tree.apply(&format!("[[{SET_ATTRIBUTE},2,\"prop:step\",\"5\"]]"));
+        assert!(tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn other_primitives_are_not_app_elements() {
+        let mut tree = Tree::new();
+        tree.apply(&format!("[[{CREATE_ELEMENT},2,\"g-view\"],[{SET_ATTRIBUTE},2,\"look\",\"{{}}\"]]"));
+        assert!(tree.changed_elements.is_empty());
+    }
+
+    #[test]
+    fn a_dropped_app_element_is_reported_once_and_no_longer_changed() {
+        let mut tree = tree_with_element();
+        tree.apply(&format!("[[{REMOVE},2],[{DROP},2]]"));
+        assert_eq!(tree.dropped_elements, vec![2]);
+        assert!(!tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn a_call_becomes_a_command_with_its_arguments() {
+        let mut tree = tree_with_element();
+        tree.apply(&format!("[[{CALL},2,9,\"add\",\"[10]\"]]"));
+        match tree.commands.as_slice() {
+            [Command::Call { node, call, method, args }] => {
+                assert_eq!((*node, *call, method.as_str(), args.as_str()), (2, 9, "add", "[10]"));
+            }
+            other => panic!("expected one call, got {other:?}"),
+        }
+    }
+}
