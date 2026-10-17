@@ -1,5 +1,6 @@
 //! A svelte-gpui app with its own Rust code. The UI calls the commands registered here
-//! with `invoke`, and hears the events this program emits with `listen`.
+//! with `invoke`, and hears the events this program emits with `listen`. It also registers a view
+//! drawn by GPUI (`counter.rs`), which the UI shows with `element("counter")`.
 //!
 //! Run it against a build of the UI:
 //!
@@ -10,12 +11,15 @@
 //!
 //! `bun scripts/package.mjs --app examples/rust-commands` builds it with the UI packed in.
 
+mod counter;
 mod system;
 
 use std::time::Duration;
 
+use counter::Counter;
 use serde_json::{Value, json};
-use svelte_gpui::{CommandError, Commands, Emitter, Options};
+use svelte_gpui::gpui::AppContext as _;
+use svelte_gpui::{CommandError, Commands, Elements, Emitter, Options};
 
 fn main() {
     let commands = Commands::new()
@@ -52,7 +56,9 @@ fn main() {
         .command("fail", |_| Err::<Value, _>(CommandError::with_code("Teapot", "I am a teapot")));
 
     spawn_ticker(commands.emitter());
-    svelte_gpui::run(options().commands(commands));
+    // A view drawn by GPUI; the UI shows it with `element("counter")`.
+    let elements = Elements::new().register("counter", |host, cx| cx.new(|cx| Counter::new(host, cx)));
+    svelte_gpui::run(options().commands(commands).elements(elements));
 }
 
 /// Emits `tick` once a second, with the system's load, for as long as the app runs.
