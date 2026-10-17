@@ -7,14 +7,14 @@
 #   scripts/host.sh          builds target/release/svelte-gpui
 #   scripts/host.sh --seed   only prepares target/, for other cargo builds (packaging)
 #
-# The first time, target/ is seeded with a copy of the GPUI artifacts in SHARED (the grove
-# `gpui-spike` worktree's target directory, by default), so GPUI is not compiled again. On
+# The first time, target/ is seeded with a copy of the GPUI artifacts in SHARED (the main
+# checkout's target directory, by default), so a worktree does not compile GPUI again. On
 # btrfs the copy is a reflink: instant, and it takes no space until a file changes.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 target=$root/target
-shared=${SHARED:-$HOME/Documents/neoworks/grove/.worktrees/gpui-spike/spike/plugin-views/target}
+shared=${SHARED:-$HOME/Documents/neoworks/svelte-gpui/target}
 
 if [ ! -d "$target/release/deps" ] && [ -d "$shared/release/deps" ]; then
   echo "seeding $target from $shared" >&2
