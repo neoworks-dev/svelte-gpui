@@ -112,7 +112,8 @@ impl Workbench {
         if self.emit(target, "key", detail, cx).prevented {
             return true;
         }
-        if let (Some(kind), true) = (clipboard_event, target != 0) {
+        // A view of the app's own has its clipboard keys to itself.
+        if let (Some(kind), true) = (clipboard_event, target != 0 && !self.is_element(target)) {
             self.clipboard_shortcut(kind, target, cx);
             return true;
         }

@@ -10,6 +10,7 @@ use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOption
 
 use crate::assets;
 use crate::diagnostics::{heap_megabytes, memory_megabytes};
+use crate::elements::Elements;
 use crate::embedded::Embedded;
 use crate::errors;
 use crate::images::Images;
@@ -57,6 +58,8 @@ pub struct Options {
     pub embedded: Option<Embedded>,
     /// What the app can call in Rust, and the events Rust can push to it (docs/rust.md).
     pub commands: Commands,
+    /// The app's own GPUI views, which its components draw with `element(name)` (docs/rust.md).
+    pub elements: Elements,
 }
 
 impl Options {
@@ -76,6 +79,7 @@ impl Options {
             dev: false,
             embedded: None,
             commands: Commands::default(),
+            elements: Elements::default(),
         }
     }
 
@@ -89,6 +93,12 @@ impl Options {
     /// These options with `commands` as what the app can call in Rust.
     pub fn commands(mut self, commands: Commands) -> Self {
         self.commands = commands;
+        self
+    }
+
+    /// These options with `elements` as the GPUI views the app can draw.
+    pub fn elements(mut self, elements: Elements) -> Self {
+        self.elements = elements;
         self
     }
 
@@ -161,7 +171,9 @@ pub fn run(options: Options) {
         println!("malloc after the fonts: {:.1} MB in use", heap_megabytes().0);
         let opening = open_options(&options, settings, cx);
         let title = opening.titlebar.as_ref().and_then(|titlebar| titlebar.title.clone());
-        let window = cx.open_window(opening, |window, cx| cx.new(|cx| Workbench::new(svelte, images, window, cx)));
+        let window = cx.open_window(opening, |window, cx| {
+            cx.new(|cx| Workbench::new(svelte, images, options.elements.clone(), window, cx))
+        });
         let window = window.unwrap();
         window.update(cx, |workbench, _, _| workbench.send_errors_to(error_output)).ok();
         // Wayland takes the title from the window, not from the options it opens with.

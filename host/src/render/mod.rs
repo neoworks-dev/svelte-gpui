@@ -1,11 +1,12 @@
 //! Draws the host's tree with GPUI. Every element is one of a fixed set of
 //! primitives (`g-view`, `g-text`, `g-button`, `g-input`, `g-scroll`, `g-image`,
-//! `g-icon`, `g-canvas`, `g-overlay`), styled by the object the app passed and drawn as a `div`.
+//! `g-icon`, `g-canvas`, `g-overlay`, `g-element`), styled by the object the app passed and drawn as a `div`.
 //! An overlay is drawn in a layer above the rest (`overlay.rs`).
 //!
 //! Input goes the other way. Which events an element listens for decides which
 //! GPUI handlers it gets, and each handler reports to the app by node id.
 
+mod element;
 mod events;
 mod field;
 mod file_drop;
@@ -27,6 +28,7 @@ use gpui::{
     relative,
 };
 
+use crate::elements::Instances;
 use crate::field::Field;
 use crate::images::Images;
 use crate::style::{self, Dimension, SANS, Style};
@@ -78,6 +80,8 @@ pub struct Interaction {
     pub views: RefCell<HashMap<NodeId, Entity<NodeView>>>,
     /// The elements that are the top of a view, as of the last time they were built.
     pub view_roots: RefCell<HashSet<NodeId>>,
+    /// The app's own GPUI views, by the node they are drawn in. They outlive a reload (see `elements.rs`).
+    pub instances: RefCell<Instances>,
     pub workbench: RefCell<Option<WeakEntity<Workbench>>>,
     pub images: Images,
 }
@@ -102,6 +106,7 @@ impl Interaction {
             bounds_changed: Rc::new(RefCell::new(HashSet::new())),
             views: RefCell::new(HashMap::new()),
             view_roots: RefCell::new(HashSet::new()),
+            instances: RefCell::new(Instances::default()),
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
         }
@@ -408,6 +413,7 @@ impl<'a> Painter<'a> {
             Primitive::Icon => icon_content(element, node, style, &inherited),
             Primitive::Input => self.field_content(element, id, node, style, &inherited, cx),
             Primitive::Canvas => self.canvas_content(element, id, style),
+            Primitive::Element => self.element_content(element, id, node),
             Primitive::View | Primitive::Button | Primitive::Scroll | Primitive::Overlay => {
                 let row = style.row == Some(true);
                 element.children(self.children(id, &inherited, row, cx))

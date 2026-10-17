@@ -13,6 +13,8 @@ import { askToClose, declareWindow, receive as receiveWindow, type WindowOptions
 export type { HostEvent } from "./host/events";
 export { window } from "./window.svelte";
 export type { CloseHandler, WindowOptions } from "./window.svelte";
+export { element } from "./ui/element";
+export type { ElementMethods, ElementProps } from "./ui/element";
 export { files, FileError } from "./io/files";
 export { invoke, invokeBytes, listen } from "./io/invoke";
 export type { CommandMap, EventMap, InvokeBytes, InvokeResult } from "./io/invoke";

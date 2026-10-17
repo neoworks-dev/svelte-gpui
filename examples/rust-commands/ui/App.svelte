@@ -3,11 +3,39 @@
   resolves with its answer, `listen` hears the events Rust emits.
 -->
 <script lang="ts">
-  import { invoke, invokeBytes, listen } from "@neoworks/svelte-gpui";
+  import { element, invoke, invokeBytes, listen, type ElementMethods } from "@neoworks/svelte-gpui";
   import { Button, Input, Scroll, Text, View } from "@neoworks/svelte-gpui/ui";
   import Card from "./Card.svelte";
   import type { Process, Tick } from "./commands";
   import { button, colors, field, mono } from "./theme";
+
+  /** The view `src/counter.rs` registers: its props, the events it emits, and its methods. */
+  interface CounterMethods {
+    get(): number;
+    add(amount: number): number;
+    reset(): number;
+  }
+  const Counter = element<
+    { label: string; step: number; onpressed: (event: { count: number }) => void; ontyped: (event: { text: string }) => void },
+    CounterMethods
+  >("counter");
+
+  let counter = $state<ElementMethods<CounterMethods>>();
+  let step = $state(1);
+  let presses = $state(0);
+  let lastCount = $state<number | null>(null);
+  let typed = $state("");
+  let methodResult = $state("");
+  let bubbled = $state("");
+
+  /** Calls a method of the Rust view and shows what it answered, or why it failed. */
+  async function callCounter(label: string, call: () => Promise<number> | undefined): Promise<void> {
+    try {
+      methodResult = `${label} returned ${await call()}`;
+    } catch (error) {
+      methodResult = `${label} failed: ${describe(error)}`;
+    }
+  }
 
   let name = $state("GPUI");
   let greeting = $state("");
@@ -103,6 +131,42 @@
 <Scroll style={{ flex: 1, background: colors.window }}>
   <View style={{ padding: 20, gap: 14, color: colors.text, fontSize: 13 }}>
     <Text style={{ fontSize: 22, fontWeight: "bold" }}>Rust commands</Text>
+
+    <Card
+      title="A view drawn by Rust"
+      note="element('counter') is a GPUI view the Rust program registers. Click it, or focus it and press Enter or an arrow key. Its count survives a hot reload, because the component has a key."
+    >
+      <Counter
+        key="main-counter"
+        bind:this={counter}
+        style={{ height: 110 }}
+        label="Presses"
+        {step}
+        onpressed={(event) => {
+          presses += 1;
+          lastCount = event.count;
+        }}
+        ontyped={(event) => (typed = event.text)}
+        onkey={(event) => (bubbled = event.key)}
+      />
+      <View style={{ direction: "row", gap: 8 }}>
+        <Button style={button} hover={{ background: colors.hover }} onpress={() => (step = 5)}><Text>Set step 5</Text></Button>
+        <Button style={button} hover={{ background: colors.hover }} onpress={() => callCounter("add(10)", () => counter?.add(10))}>
+          <Text>Add 10</Text>
+        </Button>
+        <Button style={button} hover={{ background: colors.hover }} onpress={() => callCounter("reset()", () => counter?.reset())}>
+          <Text>Reset</Text>
+        </Button>
+        <Button style={button} hover={{ background: colors.hover }} onpress={() => counter?.focus()}><Text>Focus it</Text></Button>
+      </View>
+      <Text style={mono}>
+        {presses} press events from Rust{lastCount === null ? "" : `, the last one at count ${lastCount}`}
+      </Text>
+      <Text style={mono}>{methodResult === "" ? "No method called yet." : methodResult}</Text>
+      <Text style={mono}>
+        {bubbled === "" ? "No unhandled key yet." : `Unhandled key that reached onkey: ${bubbled}`}{typed === "" ? "" : `; typed: ${typed}`}
+      </Text>
+    </Card>
 
     <Card title="A command" note="invoke('greet', { name }) runs a Rust closure on a thread.">
       <View style={{ direction: "row", gap: 8 }}>

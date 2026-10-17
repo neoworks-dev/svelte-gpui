@@ -42,6 +42,14 @@ pub enum Command {
     /// Select a range of a field, in UTF-16 offsets.
     Select(NodeId, usize, usize),
     WriteClipboard(String),
+    /// A method call on an app element (`Elements`). `call` is the number the app's promise waits on,
+    /// and `args` the JSON array of the arguments.
+    Call {
+        node: NodeId,
+        call: u64,
+        method: String,
+        args: String,
+    },
 }
 
 pub struct Tree {
@@ -60,7 +68,15 @@ pub struct Tree {
     pub dirty: HashSet<NodeId>,
     /// Nodes whose attributes or style changed, which can change how what is under them looks.
     pub dirty_deep: HashSet<NodeId>,
+    /// App elements (`g-element`) created or given new attributes, which the window must bring in step
+    /// with the Rust views behind them.
+    pub changed_elements: HashSet<NodeId>,
+    /// App elements removed for good, whose ids no longer name a node.
+    pub dropped_elements: Vec<NodeId>,
 }
+
+/// The tag of the node an app's own GPUI view is drawn in.
+pub const ELEMENT_TAG: &str = "g-element";
 
 // Operation codes, generated from protocol.json, which runtime/host/bridge.ts reads too.
 include!(concat!(env!("OUT_DIR"), "/protocol.rs"));
@@ -76,6 +92,8 @@ impl Tree {
             global_listeners: std::collections::HashSet::new(),
             dirty: HashSet::new(),
             dirty_deep: HashSet::new(),
+            changed_elements: HashSet::new(),
+            dropped_elements: Vec::new(),
         };
         tree.nodes.insert(
             ROOT,
@@ -171,6 +189,12 @@ impl Tree {
                 }
             }
             WRITE_CLIPBOARD => self.commands.push(Command::WriteClipboard(text_at(parts, 2))),
+            CALL => {
+                let call = parts.get(2).and_then(Value::as_u64).unwrap_or(0);
+                let method = text_at(parts, 3);
+                let args = text_at(parts, 4);
+                self.commands.push(Command::Call { node: id, call, method, args });
+            }
             _ => eprintln!("svelte-gpui: unknown operation {code}"),
         }
     }
@@ -195,6 +219,9 @@ impl Tree {
             return;
         };
         self.dirty_deep.insert(id);
+        if matches!(&node.kind, Kind::Element { tag } if tag == ELEMENT_TAG) {
+            self.changed_elements.insert(id);
+        }
         match parts.get(3) {
             Some(Value::Null) | None => {
                 node.attributes.remove(&name);
@@ -259,6 +286,10 @@ impl Tree {
                 self.dropped_canvases.push(surface);
             }
             if let Some(node) = self.nodes.remove(&next) {
+                if matches!(&node.kind, Kind::Element { tag } if tag == ELEMENT_TAG) {
+                    self.dropped_elements.push(next);
+                    self.changed_elements.remove(&next);
+                }
                 pending.extend(node.children);
             }
         }
@@ -281,5 +312,55 @@ fn text_at(parts: &[Value], index: usize) -> String {
         Some(Value::String(value)) => value.clone(),
         Some(other) => other.to_string(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `g-element` node, 2, under the root, with the attributes the runtime sends.
+    fn tree_with_element() -> Tree {
+        let mut tree = Tree::new();
+        tree.apply(&format!(
+            "[[{CREATE_ELEMENT},2,\"g-element\"],[{SET_ATTRIBUTE},2,\"name\",\"counter\"],[{INSERT},1,2,0]]"
+        ));
+        tree
+    }
+
+    #[test]
+    fn an_attribute_on_an_app_element_marks_it_changed() {
+        let mut tree = tree_with_element();
+        assert!(tree.changed_elements.contains(&2));
+        tree.changed_elements.clear();
+        tree.apply(&format!("[[{SET_ATTRIBUTE},2,\"prop:step\",\"5\"]]"));
+        assert!(tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn other_primitives_are_not_app_elements() {
+        let mut tree = Tree::new();
+        tree.apply(&format!("[[{CREATE_ELEMENT},2,\"g-view\"],[{SET_ATTRIBUTE},2,\"look\",\"{{}}\"]]"));
+        assert!(tree.changed_elements.is_empty());
+    }
+
+    #[test]
+    fn a_dropped_app_element_is_reported_once_and_no_longer_changed() {
+        let mut tree = tree_with_element();
+        tree.apply(&format!("[[{REMOVE},2],[{DROP},2]]"));
+        assert_eq!(tree.dropped_elements, vec![2]);
+        assert!(!tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn a_call_becomes_a_command_with_its_arguments() {
+        let mut tree = tree_with_element();
+        tree.apply(&format!("[[{CALL},2,9,\"add\",\"[10]\"]]"));
+        match tree.commands.as_slice() {
+            [Command::Call { node, call, method, args }] => {
+                assert_eq!((*node, *call, method.as_str(), args.as_str()), (2, 9, "add", "[10]"));
+            }
+            other => panic!("expected one call, got {other:?}"),
+        }
     }
 }

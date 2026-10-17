@@ -33,6 +33,18 @@ export function request(op: string, args?: unknown, bytes?: ArrayBuffer): Promis
 }
 
 /**
+ * A call number whose answer arrives later, for requests the host receives some other way than
+ * `host.io`, such as an operation in a batch. The promise settles like a `request`'s.
+ */
+export function expect(): { call: number; reply: Promise<Reply> } {
+  const call = nextCall++;
+  const reply = new Promise<Reply>((resolve, reject) => {
+    calls.set(call, { resolve, reject });
+  });
+  return { call, reply };
+}
+
+/**
  * Starts a stream, such as a socket, and returns its call number, which later requests
  * name to act on it. `event` hears what it produces until `close`; `reject` hears a
  * failure to start, after which nothing else comes.

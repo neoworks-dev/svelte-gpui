@@ -9,6 +9,7 @@
 mod assets;
 mod canvas;
 mod diagnostics;
+mod elements;
 mod embedded;
 mod errors;
 mod field;
@@ -24,7 +25,10 @@ mod watch;
 mod window_control;
 mod workbench;
 
+pub use elements::{AppElement, Elements, NativeHost};
 pub use embedded::{Embedded, Metadata};
+/// GPUI itself, the version the host draws with, for the views an app registers in [`Elements`].
+pub use gpui;
 pub use io::{CommandError, Commands, Emitter, Output};
 pub use launch::{Options, run};
 pub use runtime::compile;

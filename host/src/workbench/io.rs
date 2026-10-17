@@ -6,14 +6,20 @@ use gpui::{Context, PathPromptOptions};
 use serde_json::{Value, json};
 
 use super::Workbench;
-use crate::io::{Completion, Sink};
-
+use crate::io::{Completion, Settle, Sink};
+use crate::tree::NodeId;
 
 impl Workbench {
     /// Hands a finished background call to the app, and draws what that changed.
     pub fn deliver(&mut self, completion: Completion, cx: &mut Context<Self>) {
+        if completion.settle == Settle::Element {
+            let payload = serde_json::from_str(&completion.json).unwrap_or_default();
+            self.deliver_element_event(completion.call as NodeId, &payload, cx);
+            return;
+        }
         self.svelte.deliver(completion);
         self.run_main_jobs(cx);
+        self.run_element_calls(cx);
         self.flush_dirty(cx);
         cx.notify();
     }
