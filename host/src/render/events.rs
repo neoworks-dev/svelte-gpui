@@ -4,7 +4,7 @@
 use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ScrollDelta,
-    ScrollWheelEvent,
+    ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use super::{Computed, Painter, Primitive};
@@ -45,12 +45,16 @@ impl Painter<'_> {
         }
         if primitive == Primitive::Scroll {
             let handle = self.interaction.scroll_handle(id);
+            let horizontal = node.attributes.contains_key("horizontal");
             element = element.track_scroll(&handle);
-            element = if node.attributes.contains_key("horizontal") {
-                element.overflow_x_scroll()
-            } else {
-                element.overflow_y_scroll()
-            };
+            element = if horizontal { element.overflow_x_scroll() } else { element.overflow_y_scroll() };
+            // GPUI scrolls every container under the pointer. The innermost one that moved keeps
+            // the wheel, so an outer one only scrolls once the inner one is at its end.
+            element = element.on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
+                if scrolled_by(&handle, event, horizontal, window) {
+                    cx.stop_propagation();
+                }
+            });
         }
         if node.attributes.contains_key("keepfocus") {
             // Before the elements under it can take focus: a press here leaves focus where it is.
@@ -138,6 +142,25 @@ impl Painter<'_> {
         }
         element.into_any_element()
     }
+}
+
+/// Whether the wheel event moved this container. GPUI's own scroll listener has already
+/// added the event's delta to the offset, unclamped, so the offset before it is the
+/// difference, and that offset says whether there was room to move in the delta's direction.
+fn scrolled_by(handle: &ScrollHandle, event: &ScrollWheelEvent, horizontal: bool, window: &Window) -> bool {
+    let delta = event.delta.pixel_delta(window.line_height());
+    let (along, across) = if horizontal { (delta.x, delta.y) } else { (delta.y, delta.x) };
+    // A vertical wheel scrolls a horizontal container too, as GPUI does.
+    let applied = f32::from(if f32::from(along) != 0.0 { along } else { across });
+    let offset = handle.offset();
+    let max_offset = handle.max_offset();
+    let (now, furthest) = if horizontal {
+        (f32::from(offset.x), f32::from(max_offset.width))
+    } else {
+        (f32::from(offset.y), f32::from(max_offset.height))
+    };
+    let before = now - applied;
+    (applied < 0.0 && before > -furthest) || (applied > 0.0 && before < 0.0)
 }
 
 pub(super) fn listens_for_pointer(node: &Node) -> bool {
