@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImageState {
@@ -23,8 +24,10 @@ pub struct Images {
     states: Arc<Mutex<HashMap<String, ImageState>>>,
     /// Pixel sizes read from file headers, which cost a read each.
     sizes: Arc<Mutex<HashMap<PathBuf, Option<(u32, u32)>>>>,
-    /// Set when a background job finishes, so the window draws again.
-    pub updated: Arc<AtomicBool>,
+    /// A message for each background job that finishes, which wakes the window to draw again.
+    finished: UnboundedSender<()>,
+    /// The other end of `finished`, for the window to listen on. There is only one.
+    wakeups: Arc<Mutex<Option<UnboundedReceiver<()>>>>,
     base: PathBuf,
     cache: PathBuf,
 }
@@ -36,15 +39,26 @@ impl Images {
             Some(path) => PathBuf::from(path),
             None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"),
         };
-        let cache = cache_home.join("svelte-gpui").join("images");
+        Self::with_cache(base, cache_home.join("svelte-gpui").join("images"))
+    }
+
+    /// Like `new`, with the downloaded and scaled copies kept in `cache`.
+    fn with_cache(base: PathBuf, cache: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&cache);
+        let (finished, wakeups) = unbounded();
         Self {
             states: Arc::new(Mutex::new(HashMap::new())),
             sizes: Arc::new(Mutex::new(HashMap::new())),
-            updated: Arc::new(AtomicBool::new(false)),
+            finished,
+            wakeups: Arc::new(Mutex::new(Some(wakeups))),
             base,
             cache,
         }
+    }
+
+    /// The messages that say a background job finished, for the window to wait on. There is only one.
+    pub fn take_wakeups(&self) -> Option<UnboundedReceiver<()>> {
+        self.wakeups.lock().expect("image wakeups").take()
     }
 
     /// Forgets what is known about every source, for a reload, so each is looked up again.
@@ -110,7 +124,7 @@ impl Images {
             return ImageState::Ready(path);
         }
         let states = self.states.clone();
-        let updated = self.updated.clone();
+        let finished = self.finished.clone();
         let url = url.to_string();
         std::thread::spawn(move || {
             let outcome = download(&url, &path);
@@ -119,7 +133,7 @@ impl Images {
                 false => ImageState::Failed,
             };
             states.lock().expect("image states").insert(url, state);
-            updated.store(true, Ordering::Relaxed);
+            let _ = finished.unbounded_send(());
         });
         ImageState::Loading
     }
@@ -157,14 +171,14 @@ impl Images {
         let target = self.cache_path(&key);
         let source = path.clone();
         let states = self.states.clone();
-        let updated = self.updated.clone();
+        let finished = self.finished.clone();
         std::thread::spawn(move || {
             let state = match shrink(&source, &target, width) {
                 true => ImageState::Ready(target),
                 false => ImageState::Ready(source),
             };
             states.lock().expect("image states").insert(key, state);
-            updated.store(true, Ordering::Relaxed);
+            let _ = finished.unbounded_send(());
         });
         ImageState::Loading
     }
@@ -220,4 +234,59 @@ fn decode_base64(text: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    /// A fresh directory of this test's own, so runs never share cache files.
+    fn scratch(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("svelte-gpui-images-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("scratch directory");
+        directory
+    }
+
+    /// A job on a thread has to wake the window when it finishes: nothing else would tell it that
+    /// the picture is ready, and the window does not look for it on a timer.
+    #[test]
+    fn a_finished_scaling_job_wakes_the_window() {
+        let directory = scratch("scaled");
+        let wide = directory.join("wide.png");
+        image::RgbImage::new(400, 10).save(&wide).expect("write the picture");
+        let images = Images::with_cache(directory.clone(), directory.join("cache"));
+        let mut wakeups = images.take_wakeups().expect("the receiver is there once");
+        assert!(images.take_wakeups().is_none(), "there is only one receiver");
+
+        assert_eq!(images.scaled(&wide, 64), ImageState::Loading);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while wakeups.try_recv().is_err() {
+            assert!(Instant::now() < deadline, "the job finished without waking the window");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        match images.scaled(&wide, 64) {
+            ImageState::Ready(scaled) => assert_ne!(scaled, wide, "the scaled copy is a file of its own"),
+            other => panic!("expected the scaled copy, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    /// An image that needs no job is ready at once and wakes nobody.
+    #[test]
+    fn a_small_picture_needs_no_job_and_no_wake() {
+        let directory = scratch("small");
+        let small = directory.join("small.png");
+        image::RgbImage::new(32, 32).save(&small).expect("write the picture");
+        let images = Images::with_cache(directory.clone(), directory.join("cache"));
+        let mut wakeups = images.take_wakeups().expect("the receiver is there once");
+
+        assert_eq!(images.scaled(&small, 64), ImageState::Ready(small.clone()));
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(wakeups.try_recv().is_err());
+        let _ = std::fs::remove_dir_all(directory);
+    }
 }

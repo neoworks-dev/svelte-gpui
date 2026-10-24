@@ -118,6 +118,33 @@ impl Workbench {
         }
     }
 
+    /// Draws again, and tells the app, whenever an image job finishes on its thread, for as long as the
+    /// window lives. Images are drawn from what the jobs left behind, so nothing else would notice them.
+    pub(super) fn listen_for_images(&mut self, cx: &mut Context<Self>) {
+        let Some(mut wakeups) = self.interaction.images.take_wakeups() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            use futures::StreamExt;
+            while wakeups.next().await.is_some() {
+                // Jobs that finished together are one redraw.
+                while wakeups.try_recv().is_ok() {}
+                if this.update(cx, |workbench, cx| workbench.images_finished(cx)).is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// An image job finished: the views that may show the image are drawn again, and the app hears
+    /// of images that loaded or failed.
+    fn images_finished(&mut self, cx: &mut Context<Self>) {
+        self.report_images(cx);
+        self.dirty_all_views(cx);
+        cx.notify();
+    }
+
     /// Fires `load` or `error` on each image once its source has settled.
     pub(super) fn report_images(&mut self, cx: &mut Context<Self>) {
         let mut outcomes: Vec<(NodeId, String, bool)> = Vec::new();

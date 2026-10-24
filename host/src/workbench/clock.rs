@@ -60,10 +60,6 @@ impl Workbench {
                 self.frame_target = 0;
             }
         }
-        if self.interaction.images.updated.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            self.dirty_all_views(cx);
-            cx.notify();
-        }
         let moved: Vec<NodeId> = self.interaction.bounds_changed.borrow_mut().drain().collect();
         for id in moved {
             self.touch(id, cx);
