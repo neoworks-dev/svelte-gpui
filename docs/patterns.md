@@ -142,8 +142,8 @@ array with `$derived`; the list follows.
 ```
 
 **Rows of different heights**, such as chat messages or wrapped text: leave out `rowHeight`. Each row is
-measured as it is drawn, and rows not drawn yet count as the average. A row above the window that turns out
-taller than guessed scrolls the list by the difference, so what you are looking at does not move.
+measured as it is drawn, and rows not drawn yet count as the average. The host lays out the built rows
+itself, so a row above the window that turns out taller than guessed does not move what you are looking at.
 
 ```svelte
 <List items={messages} key={(message) => message.id} stickToEnd style={{ flex: 1 }}>
@@ -154,7 +154,7 @@ taller than guessed scrolls the list by the difference, so what you are looking 
 ```
 
 - Give `key` when items are inserted at the start or reordered, so measured heights follow their items.
-- `stickToEnd` keeps a chat at its end while it is there, and leaves it alone once the user has scrolled up.
+- `stickToEnd` opens a chat at its end and keeps it there, while the user has not scrolled up, as items are added and rows change height. The host does it in its own layout pass, so there is nothing to call. Scrolling back to the end takes it again.
 - `list.scrollToIndex(i, { align: "end" })` and `"center"` and `"nearest"` bring a row into view.
 - Content inside a row that changes its height later (an image loading, a row that expands) is measured again.
 

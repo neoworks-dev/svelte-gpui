@@ -47,5 +47,6 @@ React Native works. There is no webview and no DOM.
 [Getting started](getting-started.md#development-hot-reload-and-errors) also covers
 developing with hot reload and the error overlay.
 
+`examples/stick-to-end` is a long chat opened at its end, to see `List`'s `stickToEnd` and `Scroll`'s `anchor` work.
 The demo in `examples/demo` uses every feature described here. When the docs and the
 demo disagree, the types in `runtime/ui/` are the reference.

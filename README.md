@@ -58,6 +58,14 @@ size, position and focus. A build that fails, or an app that throws, shows the e
 the window, with its stack mapped to your source files, until the next good build
 (`docs/getting-started.md`).
 
+`examples/stick-to-end` is a chat of three thousand messages of unknown height in a `List` with `stickToEnd`,
+opened at its end, with buttons that grow the last row and a row above the window (`Scroll`'s `anchor`).
+
+```
+bun examples/stick-to-end/build.mjs
+target/release/svelte-gpui --bundle examples/stick-to-end/dist/stick-to-end.js --width 760 --height 640
+```
+
 `examples/rust-commands` is an app with its own Rust crate: a UI that calls Rust commands,
 listens to events a Rust thread emits, and shows a view that Rust draws with GPUI (`docs/rust.md`).
 
@@ -112,7 +120,7 @@ From `@neoworks/svelte-gpui/ui`:
 | `Text` | A paragraph. Nested `Text` elements are runs inside it, with their own colour, weight, font or background, and the paragraph wraps as one. `pre` keeps whitespace. |
 | `Button` | Pressed by the pointer, or by Enter and Space while it has focus. `disabled`. |
 | `Input` | A text field the host edits, with input methods, selection, the clipboard, `multiline`, `secure`, `numeric`, `maxLength`, `bind:value`, `oninput`, `onsubmit` and `oncommit`. |
-| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. |
+| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
 | `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`. |
 | `Image` | A file path relative to the bundle, a `data:` URL, or an `http(s)` URL fetched on a thread and cached. It loads when it nears the window and is decoded no larger than it is drawn. |
 | `Icon` | SVG markup or a file, tinted with `color` or the text colour around it. The build loads `.svg` imports as text, so `import gear from "@phosphor-icons/core/regular/gear.svg"` works. |

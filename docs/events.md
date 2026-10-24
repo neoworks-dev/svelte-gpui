@@ -142,7 +142,7 @@ elements yet.
 |---|---|---|
 | `onlayout` | `View`, `Text`, `Scroll`, `Canvas` | `{ x, y, width, height }` in window coordinates, whenever it changes. |
 | `onresize` | `View` | The same, only when the width or height changed, not when the element merely moved. Use it to measure rows or panels that scroll, where `onlayout` fires on every frame of the scroll. |
-| `onscroll` | `Scroll` | `{ x, y, maxX, maxY }`, when the offset changes and when `maxY` or `maxX` does. |
+| `onscroll` | `Scroll` | `{ x, y, maxX, maxY }`, when the offset changes and when `maxY` or `maxX` does. An offset asked for past the end is reported as the end. |
 | `onload`, `onerror` | `Image` | nothing |
 
 `onlayout` reports after the frame that laid the element out. Use it to size things
