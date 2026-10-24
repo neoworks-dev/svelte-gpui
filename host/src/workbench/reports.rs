@@ -46,10 +46,13 @@ impl Workbench {
                     continue;
                 }
                 let offset = handle.offset();
-                let current = (-f32::from(offset.x), -f32::from(offset.y));
-                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
                 let content = handle.max_offset();
                 let furthest = (f32::from(content.width), f32::from(content.height));
+                // An offset the app asked for can lie past the end, and is clamped only when the next frame is
+                // laid out. The app is told where the scroller will be, not the offset it was asked for.
+                let current =
+                    ((-f32::from(offset.x)).clamp(0.0, furthest.0), (-f32::from(offset.y)).clamp(0.0, furthest.1));
+                let previous = self.last_scroll.get(id).copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
                 if !scroll_changed(previous, (current.0, current.1, furthest.0, furthest.1)) {
                     continue;
                 }

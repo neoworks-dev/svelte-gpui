@@ -6,6 +6,7 @@
 //! Input goes the other way. Which events an element listens for decides which
 //! GPUI handlers it gets, and each handler reports to the app by node id.
 
+mod anchor;
 mod element;
 mod events;
 mod field;
@@ -35,6 +36,7 @@ use crate::style::{self, Dimension, SANS, Style};
 use crate::tree::{Kind, Node, NodeId, ROOT, Tree};
 use crate::workbench::Workbench;
 
+use anchor::{AnchorState, Anchoring, LayoutSpy, ScrollAnchor, Slots};
 use events::listens_for_pointer;
 pub use events::{listens_for_drag, pointer_detail, takes_button};
 pub use field::{caret_visible, next_blink};
@@ -53,6 +55,8 @@ pub struct Interaction {
     pub root_focus: FocusHandle,
     pub focus: RefCell<HashMap<NodeId, FocusHandle>>,
     pub scroll: RefCell<HashMap<NodeId, ScrollHandle>>,
+    /// What each scroller anchored to its end remembers between frames.
+    pub anchors: RefCell<HashMap<NodeId, Rc<RefCell<AnchorState>>>>,
     /// Where each measured element came out in the window.
     pub bounds: Rc<RefCell<HashMap<NodeId, Bounds<gpui::Pixels>>>>,
     pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
@@ -92,6 +96,7 @@ impl Interaction {
             root_focus: cx.focus_handle(),
             focus: RefCell::new(HashMap::new()),
             scroll: RefCell::new(HashMap::new()),
+            anchors: RefCell::new(HashMap::new()),
             fields,
             bounds: Rc::new(RefCell::new(HashMap::new())),
             hovered: RefCell::new(HashSet::new()),
@@ -117,6 +122,7 @@ impl Interaction {
     pub fn reset(&self) {
         self.focus.borrow_mut().clear();
         self.scroll.borrow_mut().clear();
+        self.anchors.borrow_mut().clear();
         self.bounds.borrow_mut().clear();
         self.fields.borrow_mut().clear();
         self.hovered.borrow_mut().clear();
@@ -346,6 +352,16 @@ impl<'a> Painter<'a> {
         _row: bool,
         cx: &mut Context<Workbench>,
     ) -> Vec<AnyElement> {
+        self.children_with_nodes(parent, inherited, cx).into_iter().map(|(_, element)| element).collect()
+    }
+
+    /// The children of a container, each with the element it came from; text has none.
+    fn children_with_nodes(
+        &self,
+        parent: NodeId,
+        inherited: &Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> Vec<(Option<NodeId>, AnyElement)> {
         let Some(node) = self.tree.nodes.get(&parent) else {
             return Vec::new();
         };
@@ -359,12 +375,12 @@ impl<'a> Painter<'a> {
                     let text = collapse(data);
                     let text = text.trim();
                     if !text.is_empty() {
-                        elements.push(text_box(transform(text, inherited), inherited.font_size));
+                        elements.push((None, text_box(transform(text, inherited), inherited.font_size)));
                     }
                 }
                 Kind::Element { .. } => {
                     if let Some(element) = self.element(*child, inherited, cx) {
-                        elements.push(element);
+                        elements.push((Some(*child), element));
                     }
                 }
             }
@@ -407,6 +423,7 @@ impl<'a> Painter<'a> {
             // The outer layout sized this box; it fills it, and the margins are the outer layout's.
             element = element.w_full().h_full().m_0();
         }
+        let mut anchored_slots: Option<Slots> = None;
         element = match primitive {
             Primitive::Text => self.text_content(element, id, node, style, &inherited),
             Primitive::Image => self.image_content(element, id, node, style),
@@ -414,6 +431,17 @@ impl<'a> Painter<'a> {
             Primitive::Input => self.field_content(element, id, node, style, &inherited, cx),
             Primitive::Canvas => self.canvas_content(element, id, style),
             Primitive::Element => self.element_content(element, id, node),
+            Primitive::Scroll if anchoring_of(node).is_some() => {
+                // Each child is wrapped, so the scroller's end anchoring can find where layout put it.
+                let mut slots = Slots::new();
+                for (child, content) in self.children_with_nodes(id, &inherited, cx) {
+                    let slot = Rc::new(Cell::new(None));
+                    slots.push((child, slot.clone()));
+                    element = element.child(LayoutSpy { child: content, slot });
+                }
+                anchored_slots = Some(slots);
+                element
+            }
             Primitive::View | Primitive::Button | Primitive::Scroll | Primitive::Overlay => {
                 let row = style.row == Some(true);
                 element.children(self.children(id, &inherited, row, cx))
@@ -422,7 +450,18 @@ impl<'a> Painter<'a> {
         if node.observed() || listens_for_pointer(node) || listens_for_drag(node) {
             element = element.child(self.measure(id));
         }
-        Some(self.interactive(element, id, node, primitive, &computed, eased, cx))
+        let drawn = self.interactive(element, id, node, primitive, &computed, eased, cx);
+        match (anchored_slots, anchoring_of(node)) {
+            (Some(slots), Some(anchoring)) => Some(self.anchored(drawn, id, anchoring, slots)),
+            _ => Some(drawn),
+        }
+    }
+
+    /// A scroller with an anchor, wrapped so it can keep its place or its end while it is laid out.
+    fn anchored(&self, scroller: AnyElement, id: NodeId, anchoring: Anchoring, slots: Slots) -> AnyElement {
+        let handle = self.interaction.scroll_handle(id);
+        let state = self.interaction.anchors.borrow_mut().entry(id).or_default().clone();
+        ScrollAnchor { anchoring, scroller, handle, state, slots }.into_any_element()
     }
 
     /// An invisible layer that records where its parent came out.
@@ -446,6 +485,18 @@ impl<'a> Painter<'a> {
         .left_0()
         .size_full()
         .into_any_element()
+    }
+}
+
+/// What a scroller was asked to keep in view: its `anchor`, which only a vertical scroller has.
+fn anchoring_of(node: &Node) -> Option<Anchoring> {
+    if node.attributes.contains_key("horizontal") {
+        return None;
+    }
+    match node.attributes.get("anchor").map(String::as_str) {
+        Some("content") => Some(Anchoring::Content),
+        Some("end") => Some(Anchoring::End),
+        _ => None,
     }
 }
 
