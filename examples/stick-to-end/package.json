@@ -1,0 +1,14 @@
+{
+  "name": "svelte-gpui-stick-to-end",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "Stick to end",
+    "id": "dev.neoworks.svelte-gpui.stick-to-end",
+    "icon": "../demo/icon.svg",
+    "description": "A long chat whose rows have unknown heights, opened at its end.",
+    "bundle": "dist/stick-to-end.js",
+    "build": "build.mjs"
+  }
+}

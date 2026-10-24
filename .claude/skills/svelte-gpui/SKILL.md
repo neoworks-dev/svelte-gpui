@@ -43,7 +43,7 @@ are the reference. The app in `examples/demo` uses every feature.
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onselect onkey` | `focus()`, `blur()`, `select(start?, end?)`, `getSelection()` gives `{ start, end, firstRow, lastRow }` |
-| `Scroll` | `style horizontal onscroll onlayout` (needs a bounded height) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
+| `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
 | `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
@@ -84,6 +84,15 @@ The values that trip people up:
 
 A theme is plain data: exported `Style` objects spread together, or combined with
 `merge(a, cond && b)`.
+
+## Scroll anchoring
+
+`<Scroll anchor="end">` opens scrolled to its end on the first frame and, while it is at the end, keeps it
+there as its content grows or shrinks (rows changing height, rows added, text wrapping after a resize). Once
+the user scrolls up, the child at the top of the window stays where it is on screen when what is above it changes
+size. Scrolling back to the end, or `scrollTo` at or past `maxY`, pins it again. `anchor="content"` does the
+second part only. Only the scroller's own children are kept in place, and it is vertical only. Use it instead of
+`scrollTo` in an effect to follow a chat or a log: it needs no round trip. `examples/stick-to-end` shows it.
 
 ## Network and files
 
@@ -149,7 +158,9 @@ A theme is plain data: exported `Style` objects spread together, or combined wit
   The pointer is captured, so moves keep arriving outside the element. Clamp `e.x`.
 - **Many marks** (drawings, plots): use one `Canvas`, never a `View` per mark.
 - **Long lists:** `List`. Give `rowHeight` for one height; leave it out for rows that differ (chat,
-  wrapped text): they are measured as drawn, the window keeps its place, `stickToEnd` follows a chat.
+  wrapped text): they are measured as drawn, the window keeps its place, `stickToEnd` opens a chat at its end and
+  follows it. Never scroll a `List` to its end yourself to start it there, and never correct its position as rows
+  measure: the host anchors it (`Scroll` `anchor`) in its own layout pass.
   Give `key` when items insert at the start or reorder. A tree is `Tree`, built on it.
 - **Modal dialogs:** the last child of the root, with `position: "absolute", inset: 0`.
 - **Anything that floats next to an element:** `Popover` (trigger snippet + content, `bind:open`),
