@@ -180,6 +180,7 @@ column or a fixed `height`.
 |---|---|---|
 | `style` | `Style` | |
 | `horizontal` | `boolean` | Scroll sideways instead of down. |
+| `anchor` | `"content" \| "end"` | What the host keeps in view while it lays out. A vertical scroller only; see below. |
 | `onscroll` | `(p: ScrollPosition) => void` | The offset and how far it can go: `{ x, y, maxX, maxY }`. It fires when the offset changes, and also when the content grows or shrinks and `maxY` changes with it. |
 | `onlayout` | `(l: Layout) => void` | |
 
@@ -206,11 +207,36 @@ template or an effect, it updates the way state does. It reads zeros until the h
 </View>
 ```
 
+### Anchoring
+
+With `anchor`, the host keeps what you are looking at in place while the content changes, during its own layout
+pass, so the app does not measure, scroll and correct in rounds. Only the scroller's own children are kept in
+place, so put what should hold still directly in it (`List` does).
+
+- `anchor="content"`: when what is above the window changes size (a row taller than guessed, rows added above), the
+  child at the top of the window stays where it is on screen, as `overflow-anchor` does in a browser.
+- `anchor="end"`: the same, and the scroller opens scrolled to its end, on its first frame. While it is at the end,
+  content that grows or shrinks (a row changing height, rows added, text wrapping again after a resize) keeps the
+  end in view. Scrolling up lets go of it. Scrolling back to the end, or to an offset at or past `maxY` with
+  `scrollTo`, takes it again.
+
+```svelte
+<Scroll anchor="end" style={{ flex: 1 }}>
+  {#each messages as message (message.id)}
+    <Message {message} />
+  {/each}
+</Scroll>
+```
+
+`examples/stick-to-end` is a long chat of rows of unknown height, opened at its end, with buttons that grow the last
+row and a row above the window.
+
 ## List
 
 A long list of rows, built only near the window. 100,000 items cost what a screenful does.
 Rows may all have one height (`rowHeight`), or differ. A row of its own height is drawn once it
-has been measured, the frame after it is built, so rows never show over each other at a guessed place.
+has been measured, and the built rows sit one under the other between two empty spacers that stand for the rows
+above and below, so the host lays out their real heights at once.
 
 | Prop | Type | |
 |---|---|---|
@@ -220,7 +246,7 @@ has been measured, the frame after it is built, so rows never show over each oth
 | `row` | `Snippet<[T, number]>` | Draws one row, from the item and its index. |
 | `key` | `(item: T, index: number) => unknown` | Keeps a row's state, and its measured height, with its item when the list changes. |
 | `overscan` | `number` | How many rows past each edge are built anyway. The default is 8. |
-| `stickToEnd` | `boolean` | While scrolled to the end, stays there as items are added, as a chat does. |
+| `stickToEnd` | `boolean` | Opens at the end, and stays there as items are added and rows change height, as a chat does. Scrolling up lets go of it; scrolling back to the end takes it again. Needs no `scrollToIndex` to start at the end. |
 | `style` | `Style` | Give it a bounded height, as for `Scroll`. |
 | `onscroll` | `(p: ScrollPosition) => void` | `y` counts from the top of the whole list. |
 
@@ -250,9 +276,12 @@ measured. This is what lets it hold a hundred thousand chat messages:
 </List>
 ```
 
-- **The window does not move when rows above it change.** When a row above the window turns out
-  taller or shorter than guessed, the list scrolls by the difference in the same step, so what you
-  are looking at stays put. That includes inserting items above it, when `key` is given.
+- **The window does not move when rows above it change.** The built rows sit in an anchored `Scroll`, so when a row
+  above the window turns out taller or shorter than guessed, the host keeps the row at the top of the window where
+  it is on screen, in the same frame. That includes inserting items above it, when `key` is given.
+- **`stickToEnd` opens at the end** on the first frame, the built rows being the last ones, and the host keeps the
+  end in view while rows are measured, items are added and the width changes. The app sends no scroll request for
+  any of it.
 - **`key` matters here.** Without it a row's height stays with its position; with it, with its item. A list that
   inserts at the start or reorders wants `key`. Adding at the end is cheap either way.
 - **`scrollToIndex`** lands on the row exactly, even though rows around it are measured only after it

@@ -5,8 +5,11 @@
   With `rowHeight`, every row has that height, so where each sits is known without looking at it.
   Without it, rows may differ in height. Each row is measured as it is drawn (a row's height is
   what its content comes to), and rows not measured yet count as the average of those that are.
-  When a row above the window turns out taller or shorter than that, the list scrolls by the
-  difference in the same step, so what you are looking at does not move.
+  The rows that are built sit in the scroller one under the other, between two empty spacers that
+  stand for the rows above and below them, so the host lays out their real heights at once. The
+  scroller keeps the end in view (`stickToEnd`) or the row at the top of the window (otherwise) while
+  it does, so a row above the window that turns out taller or shorter than guessed does not move
+  what you are looking at, and the list never waits for the app to measure before it is right.
 
     <List items={messages} key={(message) => message.id} stickToEnd style={{ flex: 1 }}>
       {#snippet row(message)}<Text>{message.text}</Text>{/snippet}
@@ -35,7 +38,10 @@
     key?: (item: T, index: number) => unknown;
     /** How many rows past each edge of the window are built anyway. The default is 8. */
     overscan?: number;
-    /** While the list is scrolled to its end, stays there as items are added, as a chat does. */
+    /**
+     * Opens at the end, and stays there as items are added and rows change height, as a chat does, for as long
+     * as the list is scrolled to its end. Scrolling up lets go of it; scrolling back to the end takes it again.
+     */
     stickToEnd?: boolean;
     style?: Style;
     onscroll?: (position: ScrollPosition) => void;
@@ -78,8 +84,12 @@
   let anchorKey: unknown = undefined;
   /** Where the list last scrolled itself to, to tell its own scroll events from the user's. */
   let expected: number | null = null;
-  let pinnedToEnd = false;
+  /** Whether the list is at its end, where `stickToEnd` keeps it. The host decides; this is what it last said. */
+  let pinned = $state(untrack(() => stickToEnd));
   let seen: { length: number; first: unknown; last: unknown } = { length: 0, first: undefined, last: undefined };
+
+  /** What the scroller keeps in view: the end, or, where heights are measured, the row at the top of the window. */
+  const anchoring = $derived(stickToEnd ? "end" : measured ? "content" : undefined);
 
   const keyOf = (item: T, index: number): unknown => (key ? key(item, index) : index);
 
@@ -92,26 +102,37 @@
 
   /** The height of every row together, as known right now. */
   const totalHeight = (): number => (measured ? heights.total : items.length * (rowHeight ?? 0));
-  const total = $derived.by(() => {
-    heightsAt(version);
-    return totalHeight();
-  });
+  /** How far past the top of the window the rows are built, at least. */
+  const reach = (): number => Math.max(viewport, (measured ? heights.estimate : (rowHeight ?? 1)) * 20);
+  /** Where the window starts, counted from the top of the whole list: at the end, when it is there. */
+  const windowTop = (): number => (pinned ? Math.max(totalHeight() - reach(), 0) : top);
   const first = $derived.by(() => {
     heightsAt(version);
-    return Math.max(0, indexAt(top) - overscan);
+    return Math.max(0, indexAt(windowTop()) - overscan);
   });
   const last = $derived.by(() => {
     heightsAt(version);
-    const reach = top + Math.max(viewport, (measured ? heights.estimate : (rowHeight ?? 1)) * 20);
-    return Math.min(items.length, indexAt(reach) + 1 + overscan);
+    if (pinned) {
+      return items.length;
+    }
+    return Math.min(items.length, indexAt(top + reach()) + 1 + overscan);
   });
   const shown = $derived.by(() => {
     heightsAt(version);
-    const out: { item: T; index: number; top: number; placed: boolean }[] = [];
+    const out: { item: T; index: number }[] = [];
     for (let index = first; index < last; index++) {
-      out.push({ item: items[index], index, top: topOf(index) - origin, placed: !measured || heights.isMeasured(index) });
+      out.push({ item: items[index], index });
     }
     return out;
+  });
+  /** The height of the rows above the first one built, and of those below the last, as the list counts them. */
+  const spaceAbove = $derived.by(() => {
+    heightsAt(version);
+    return Math.max(topOf(first) - origin, 0);
+  });
+  const spaceBelow = $derived.by(() => {
+    heightsAt(version);
+    return Math.max(Math.min(totalHeight() - origin, STRETCH) - spaceAbove - (topOf(last) - topOf(first)), 0);
   });
 
   // The items changed: the rows keep what is known about them, and the window keeps its place.
@@ -127,7 +148,6 @@
       rebase();
       return;
     }
-    const wasAtEnd = top + viewport >= heights.total - 2;
     const appended =
       length >= seen.length &&
       seen.length > 0 &&
@@ -145,10 +165,7 @@
     }
     seen = { length, first: length > 0 ? keyOf(list[0], 0) : undefined, last: length > 0 ? keyOf(list[length - 1], length - 1) : undefined };
     version++;
-    if (stickToEnd && (wasAtEnd || pinnedToEnd) && length > 0) {
-      pinnedToEnd = true;
-    }
-    settle();
+    keepPlace();
     rebase();
   }
 
@@ -169,13 +186,17 @@
     anchorKey = anchorIndex < items.length ? keyOf(items[anchorIndex], anchorIndex) : undefined;
   }
 
-  /** Scrolls so the window is where the anchor row says it should be. */
-  function settle(): void {
-    const furthest = Math.max(0, totalHeight() - viewport);
-    const wanted = pinnedToEnd ? furthest : Math.min(Math.max(heights.top(anchorIndex) + anchorDelta, 0), furthest);
-    if (Math.abs(wanted - top) >= 0.5) {
-      moveTo(wanted);
+  /**
+   * After the items changed or a row was measured, moves the window to where the anchor row now is, so the rows
+   * built stay around the one being looked at. The host keeps that row where it is on screen when the rows around
+   * it change size, so this only tells the list where the row will be; the host's next scroll report confirms it.
+   */
+  function keepPlace(): void {
+    if (pinned) {
+      return;
     }
+    const furthest = Math.max(totalHeight() - viewport, 0);
+    top = Math.min(Math.max(heights.top(anchorIndex) + anchorDelta, 0), furthest);
   }
 
   /** The origin that keeps `offset` well inside the stretch that is laid out. */
@@ -196,8 +217,15 @@
     return Math.min(Math.max(Math.round(offset - STRETCH / 2), 0), furthest);
   }
 
-  /** Moves the stretch when the window has come near its end. The window does not move. */
+  /**
+   * Moves the stretch when the window has come near its end. The window does not move. At the end of the list
+   * the host is pinned there already, so the stretch is only moved under it.
+   */
   function rebase(): void {
+    if (pinned) {
+      origin = originFor(Math.max(totalHeight() - viewport, 0));
+      return;
+    }
     if (originFor(top) !== origin) {
       moveTo(top);
     }
@@ -216,7 +244,7 @@
     }
     if (heights.set(index, height)) {
       version++;
-      settle();
+      keepPlace();
       rebase();
     }
   }
@@ -230,8 +258,8 @@
       return;
     }
     expected = null;
+    pinned = stickToEnd && position.y >= position.maxY - 1;
     if (measured) {
-      pinnedToEnd = stickToEnd && top + viewport >= heights.total - 2;
       record();
     }
     rebase();
@@ -260,9 +288,6 @@
         version++;
       }
       width = layout.width;
-    }
-    if (pinnedToEnd) {
-      settle();
     }
   }
 
@@ -294,8 +319,12 @@
       return;
     }
     offset = Math.min(Math.max(offset, 0), Math.max(totalHeight() - viewport, 0));
+    if (stickToEnd && align === "end" && target === count - 1) {
+      scrollToEnd();
+      return;
+    }
+    pinned = false;
     if (measured) {
-      pinnedToEnd = stickToEnd && align === "end" && target === count - 1;
       top = offset;
       record();
       // `align: "start"` should leave the row exactly at the top, whatever is learned about its neighbours.
@@ -307,25 +336,29 @@
     }
     moveTo(offset);
   }
+
+  /** Scrolls to the very end, which the host pins, however tall the rows turn out to be. */
+  function scrollToEnd(): void {
+    pinned = true;
+    top = Math.max(totalHeight() - viewport, 0);
+    origin = originFor(top);
+    expected = null;
+    scroller?.scrollTo(Number.MAX_SAFE_INTEGER);
+  }
 </script>
 
-<Scroll bind:this={scroller} {style} onscroll={scrolled} onlayout={laidOut}>
-  <View style={{ height: Math.min(total, STRETCH), shrink: 0 }}>
-    {#each shown as entry (key ? key(entry.item, entry.index) : entry.index)}
-      {#if measured}
-        <!-- A row not measured yet sits where the estimate puts it, over its neighbours: it is
-             laid out, to be measured, but not seen until it is in its place. -->
-        <View
-          style={{ position: "absolute", top: entry.top, left: 0, right: 0, opacity: entry.placed ? 1 : 0 }}
-          onresize={(layout: Layout) => measure(entry.index, layout.height, entry.item)}
-        >
-          {@render row(entry.item, entry.index)}
-        </View>
-      {:else}
-        <View style={{ position: "absolute", top: entry.top, left: 0, right: 0, height: rowHeight }}>
-          {@render row(entry.item, entry.index)}
-        </View>
-      {/if}
-    {/each}
-  </View>
+<Scroll bind:this={scroller} {style} anchor={anchoring} onscroll={scrolled} onlayout={laidOut}>
+  <View style={{ height: spaceAbove, shrink: 0 }} />
+  {#each shown as entry (key ? key(entry.item, entry.index) : entry.index)}
+    {#if measured}
+      <View style={{ shrink: 0 }} onresize={(layout: Layout) => measure(entry.index, layout.height, entry.item)}>
+        {@render row(entry.item, entry.index)}
+      </View>
+    {:else}
+      <View style={{ height: rowHeight, shrink: 0 }}>
+        {@render row(entry.item, entry.index)}
+      </View>
+    {/if}
+  {/each}
+  <View style={{ height: spaceBelow, shrink: 0 }} />
 </Scroll>
