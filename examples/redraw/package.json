@@ -1,0 +1,14 @@
+{
+  "name": "svelte-gpui-redraw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "Redraw",
+    "id": "dev.neoworks.svelte-gpui.redraw",
+    "icon": "../demo/icon.svg",
+    "description": "Rows with image icons and a multiline field, inside regions big enough to be cached views.",
+    "bundle": "dist/redraw.js",
+    "build": "build.mjs"
+  }
+}

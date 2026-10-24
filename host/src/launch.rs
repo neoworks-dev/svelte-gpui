@@ -185,19 +185,8 @@ pub fn run(options: Options) {
             watch::reload_on_change(window, options.bundle.clone(), options.allow_files.clone(), cx);
         }
 
-        // The app's clock runs on display frames and timers (see `Workbench::schedule`).
-        // This slow beat only picks up what finishes off the main thread, like images.
-        cx.spawn(async move |cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_millis(100)).await;
-                let outcome =
-                    cx.update(|cx| window.update(cx, |workbench, window, cx| workbench.tick(false, window, cx)).ok());
-                if outcome.is_err() {
-                    return;
-                }
-            }
-        })
-        .detach();
+        // The app's clock runs on display frames and timers (see `Workbench::schedule`), and what finishes
+        // off the main thread wakes the window itself.
 
         // Scripted clicks, one after another, for when nobody can click.
         if !steps.is_empty() {

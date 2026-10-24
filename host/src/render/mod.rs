@@ -16,6 +16,7 @@ mod motion;
 mod overlay;
 mod press;
 mod primitive;
+mod roots;
 mod text;
 
 use std::cell::{Cell, RefCell};
@@ -46,6 +47,7 @@ use motion::Animation;
 use press::press_ends_focus;
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
+pub use roots::ViewRoots;
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform};
 
@@ -82,8 +84,8 @@ pub struct Interaction {
     pub bounds_changed: Rc<RefCell<HashSet<NodeId>>>,
     /// The parts of the document drawn as views of their own, by their topmost element.
     pub views: RefCell<HashMap<NodeId, Entity<NodeView>>>,
-    /// The elements that are the top of a view, as of the last time they were built.
-    pub view_roots: RefCell<HashSet<NodeId>>,
+    /// The elements that are the top of a view, as of the last time the whole document was built.
+    pub view_roots: RefCell<ViewRoots>,
     /// The app's own GPUI views, by the node they are drawn in. They outlive a reload (see `elements.rs`).
     pub instances: RefCell<Instances>,
     pub workbench: RefCell<Option<WeakEntity<Workbench>>>,
@@ -110,7 +112,7 @@ impl Interaction {
             scale: Cell::new(1.0),
             bounds_changed: Rc::new(RefCell::new(HashSet::new())),
             views: RefCell::new(HashMap::new()),
-            view_roots: RefCell::new(HashSet::new()),
+            view_roots: RefCell::new(ViewRoots::default()),
             instances: RefCell::new(Instances::default()),
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
@@ -229,6 +231,7 @@ impl<'a> Painter<'a> {
 
     /// The whole document: the root's children, filling the window.
     pub fn document(&self, cx: &mut Context<Workbench>) -> AnyElement {
+        self.interaction.view_roots.borrow_mut().begin();
         let mut element = div()
             .size_full()
             .flex()
@@ -266,6 +269,10 @@ impl<'a> Painter<'a> {
         let inherited = Inherited::root();
         for child in self.children(ROOT, &inherited, false, cx) {
             element = element.child(child);
+        }
+        // A part of the document that stopped being a view must not be told to draw again.
+        for stopped in self.interaction.view_roots.borrow_mut().finish() {
+            self.interaction.views.borrow_mut().remove(&stopped);
         }
         element.into_any_element()
     }
@@ -337,7 +344,7 @@ impl<'a> Painter<'a> {
                 cx.notify();
             }
         });
-        self.interaction.view_roots.borrow_mut().insert(id);
+        self.interaction.view_roots.borrow_mut().reach(id);
         let mut outline = style::apply(div().flex(), style);
         let refinement = outline.style().clone();
         Some(AnyView::from(entity).cached(refinement).into_any_element())
