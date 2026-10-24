@@ -116,6 +116,7 @@ impl Workbench {
             steps: Default::default(),
         };
         workbench.listen_for_io(cx);
+        workbench.listen_for_images(cx);
         workbench.watch_window(window, cx);
         workbench
     }
