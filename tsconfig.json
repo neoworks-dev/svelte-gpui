@@ -12,8 +12,9 @@
     "resolveJsonModule": true,
     "paths": {
       "@neoworks/svelte-gpui": ["./runtime/index.ts"],
-      "@neoworks/svelte-gpui/ui": ["./runtime/ui/index.ts"]
+      "@neoworks/svelte-gpui/ui": ["./runtime/ui/index.ts"],
+      "@neoworks/svelte-gpui-ui": ["./packages/svelte-gpui-ui/src/index.ts"]
     }
   },
-  "include": ["runtime", "examples/*/src", "examples/*/ui"]
+  "include": ["runtime", "packages/*/src", "packages/*/scripts/*.ts", "examples/*/src", "examples/*/ui"]
 }
