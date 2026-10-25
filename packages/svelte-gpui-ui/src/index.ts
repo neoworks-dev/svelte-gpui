@@ -44,3 +44,16 @@ export { default as Slider } from "./components/Slider.svelte";
 export { default as Switch } from "./components/Switch.svelte";
 export { default as TextField } from "./components/TextField.svelte";
 export type { SearchSuggestion, SegmentedOption } from "./components/types";
+
+export { default as Menu } from "./components/Menu.svelte";
+export { default as Select } from "./components/Select.svelte";
+export { default as Tooltip } from "./components/Tooltip.svelte";
+export { default as Dialog } from "./components/Dialog.svelte";
+export { default as BottomSheet } from "./components/BottomSheet.svelte";
+export { default as SideSheet } from "./components/SideSheet.svelte";
+export { default as Snackbar } from "./components/Snackbar.svelte";
+export type { MenuDivider, MenuEntry, MenuHeading, MenuItem, MenuTriggerProps } from "./components/menuModel";
+export type { SelectFilter, SelectOption, SelectValue } from "./components/selectModel";
+export type { SelectSize, SelectVariant } from "./components/select-look";
+export type { FloatingPlacement } from "./components/placement";
+export { glassPanelLook, scrimColor, surfacePanelLook } from "./components/overlay-look";

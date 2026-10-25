@@ -1,0 +1,1 @@
+{"name":"svelte-gpui-ui-overlays","version":"0.1.0","private":true,"type":"module","svelte-gpui":{"name":"NeoWorks overlays","id":"dev.neoworks.svelte-gpui.ui-overlays","icon":"../demo/icon.svg","description":"The NeoWorks menus, selects, tooltips, dialogs, sheets and snackbars, in light and dark.","bundle":"dist/ui-overlays.js","build":"build.mjs"}}

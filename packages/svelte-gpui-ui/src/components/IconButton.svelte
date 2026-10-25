@@ -2,9 +2,10 @@
   A round button with only an icon. With `selected` set it is a toggle. `label` is what the tooltip says.
 -->
 <script lang="ts">
-  import { Button as ButtonPrimitive, Icon, Tooltip, type PointerEvent, type Style } from "@neoworks/svelte-gpui/ui";
+  import { Button as ButtonPrimitive, Icon, type PointerEvent, type Style } from "@neoworks/svelte-gpui/ui";
   import { currentTheme } from "../theme.svelte";
   import { wrapperAlignment } from "./look";
+  import Tooltip from "./Tooltip.svelte";
   import { iconButtonIconSizes, iconButtonLook, type IconButtonSize, type IconButtonVariant } from "./icon-button-look";
 
   interface Props {
@@ -36,7 +37,7 @@
   });
 </script>
 
-<Tooltip text={label} {disabled} anchorStyle={wrapperAlignment(style)}>
+<Tooltip text={label} placement="bottom" {disabled} anchorStyle={wrapperAlignment(style)}>
   <ButtonPrimitive
     style={{ ...look.style, ...style }}
     hover={look.hover}
