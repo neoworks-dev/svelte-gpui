@@ -70,3 +70,18 @@ export type { SelectFilter, SelectOption, SelectValue } from "./components/selec
 export type { SelectSize, SelectVariant } from "./components/select-look";
 export type { FloatingPlacement } from "./components/placement";
 export { glassPanelLook, scrimColor, surfacePanelLook } from "./components/overlay-look";
+
+export { default as List } from "./components/List.svelte";
+export { default as ListItem } from "./components/ListItem.svelte";
+export { default as Table } from "./components/Table.svelte";
+export { default as SectionHeader } from "./components/SectionHeader.svelte";
+export { default as Disclosure } from "./components/Disclosure.svelte";
+export { default as DisclosureGroup } from "./components/DisclosureGroup.svelte";
+export { default as StatusBadge } from "./components/StatusBadge.svelte";
+export { default as IconCircle } from "./components/IconCircle.svelte";
+export type { ListLines, ListVariant } from "./components/list-look";
+export type { TableDensity } from "./components/table-look";
+export type { TableColumn, TableRow } from "./components/tableModel";
+export type { DisclosureGroupVariant } from "./components/disclosure-look";
+export type { IconCircleSize } from "./components/status-look";
+export type { SemanticTone, StatusTone } from "./components/status-tone";
