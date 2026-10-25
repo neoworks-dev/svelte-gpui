@@ -18,3 +18,15 @@ export interface SegmentedOption {
   selectedIcon?: string;
   disabled?: boolean;
 }
+
+export interface TabItem {
+  id: string;
+  label: string;
+  /** SVG markup drawn above the label of a primary tab. */
+  icon?: string;
+  /** SVG markup drawn while the tab is active, such as the filled weight of `icon`. */
+  selectedIcon?: string;
+  /** A count shown after the label, such as unread items. */
+  count?: number;
+  disabled?: boolean;
+}

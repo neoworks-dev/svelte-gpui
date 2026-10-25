@@ -1,0 +1,1 @@
+{"name":"svelte-gpui-ui-navigation","version":"0.1.0","private":true,"type":"module","svelte-gpui":{"name":"NeoWorks navigation","id":"dev.neoworks.svelte-gpui.ui-navigation","icon":"../demo/icon.svg","description":"The NeoWorks navigation components in every state, in light and dark.","bundle":"dist/ui-navigation.js","build":"build.mjs"}}
