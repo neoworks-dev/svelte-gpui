@@ -221,6 +221,7 @@ export async function build(options) {
     mainFields: ["browser", "module", "main"],
     alias: {
       "@neoworks/svelte-gpui": here("./runtime"),
+      "@neoworks/svelte-gpui-ui": here("./packages/svelte-gpui-ui/src"),
       "esm-env": here("./runtime/esm-env.ts"),
       ...options.alias,
     },
