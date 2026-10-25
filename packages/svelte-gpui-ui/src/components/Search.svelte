@@ -55,6 +55,7 @@
   let listOpen = $state(false);
   let activeIndex = $state(-1);
 
+  const reservesIconSlot = $derived(suggestions.some((suggestion) => suggestion.icon !== undefined));
   const showList = $derived(listOpen && focused && suggestions.length > 0);
 
   function iconSize(): number {
@@ -108,7 +109,7 @@
 
   function glassPanel(): Style {
     return {
-      background: withAlpha(theme.colors.canvas, 0.8),
+      background: withAlpha(theme.colors.canvas, 0.96),
       radius: theme.radii.card,
       shadow: theme.shadows.overlay,
       overflow: "hidden",
@@ -263,6 +264,8 @@
           >
             {#if suggestion.icon}
               <Icon svg={suggestion.icon} size={18} color={theme.colors.muted} style={{ shrink: 0 }} />
+            {:else if reservesIconSlot}
+              <View style={{ size: 18, shrink: 0 }} />
             {/if}
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ ...typeStyle("body"), truncate: true, color: theme.colors.text }}>{textOf(suggestion)}</Text>
