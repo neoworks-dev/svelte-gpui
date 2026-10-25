@@ -43,6 +43,8 @@ React Native works. There is no webview and no DOM.
 11. [Coming from Svelte on the web](web-differences.md): what works the same, what does
     not, and why.
 12. [Testing](testing.md): running an app headless and scripting input.
+13. [The NeoWorks UI kit](ui-kit.md): ready-made buttons, fields, menus, dialogs, tabs, lists and
+    pickers with the NeoWorks theme in light and dark, from `@neoworks/svelte-gpui-ui`.
 
 [Getting started](getting-started.md#development-hot-reload-and-errors) also covers
 developing with hot reload and the error overlay.

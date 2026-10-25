@@ -1,6 +1,6 @@
 ---
 name: svelte-gpui
-description: Write, change or debug apps built with svelte-gpui (Svelte 5 components drawn natively by GPUI, no DOM or CSS). Use when editing .svelte files that import @neoworks/svelte-gpui, building UI from View/Text/Button/Input/Scroll/List/Image/Icon/Canvas/Presence, styling with style objects, or testing such an app headless.
+description: Write, change or debug apps built with svelte-gpui (Svelte 5 components drawn natively by GPUI, no DOM or CSS). Use when editing .svelte files that import @neoworks/svelte-gpui or @neoworks/svelte-gpui-ui, building UI from View/Text/Button/Input/Scroll/List/Image/Icon/Canvas/Presence or from the NeoWorks components (buttons, fields, menus, dialogs, tabs, lists, pickers), styling with style objects, or testing such an app headless.
 ---
 
 svelte-gpui runs Svelte 5 in QuickJS inside a Rust host that draws with GPUI. Runes,
@@ -9,7 +9,7 @@ browser underneath.** HTML elements, CSS, `class`, the DOM API and `localStorage
 do not exist. Code written from web habits compiles and then draws nothing. `fetch`,
 `WebSocket` and a `files` API do exist, run by the host (`docs/io.md`).
 
-Full docs: `docs/` in the svelte-gpui repo. Start at `docs/README.md`. The types in
+Full docs: `docs/` in the svelte-gpui repo. Start at `docs/README.md`; the NeoWorks components are in `docs/ui-kit.md`. The types in
 `runtime/ui/style.ts`, `runtime/ui/events.ts` and each `runtime/ui/*.svelte` `Props`
 are the reference. The app in `examples/demo` uses every feature.
 
@@ -34,6 +34,60 @@ are the reference. The app in `examples/demo` uses every feature.
 7. **No DOM or browser storage.** Measure with `onlayout`. Reach a primitive's methods
    with `bind:this`. There is no `document` and no `getBoundingClientRect`. For
    storage, write files with `files`.
+
+## The NeoWorks UI kit
+
+Before hand-building a button, field, menu, dialog, tab bar, list or picker from `View`, check
+`@neoworks/svelte-gpui-ui`. It has them with the NeoWorks theme, states and keyboard behaviour.
+Full props and snippets are in `docs/ui-kit.md`; the apps `examples/ui-*` show each group.
+
+```svelte
+<script lang="ts">
+  import { View } from "@neoworks/svelte-gpui/ui";
+  import { Button, currentTheme, TextField } from "@neoworks/svelte-gpui-ui";
+  const theme = $derived(currentTheme());
+  let name = $state("");
+  const save = () => console.log(name);
+</script>
+<View style={{ size: "full", background: theme.colors.canvas, padding: 24, gap: 12 }}>
+  <TextField bind:value={name} label="Name" />
+  <Button variant="primary" onpress={save}>Save</Button>
+</View>
+```
+
+- **Foundation:** `Button IconButton Chip Badge Divider Card ListRow`.
+- **Forms:** `TextField Checkbox Radio RadioGroup Switch Slider Search SegmentedButton`.
+- **Overlays:** `Menu Select Tooltip Dialog BottomSheet SideSheet Snackbar`, each opened by a bound `open`.
+- **Navigation:** `TopAppBar NavBar NavigationRail NavigationDrawer Tabs Fab`.
+- **Lists and data:** `List ListItem Table SectionHeader Disclosure DisclosureGroup StatusBadge IconCircle`.
+- **Pickers and feedback:** `DatePicker TimePicker WheelColumn ProgressIndicator LoadingSpinner`.
+
+Conventions every component shares:
+
+- **Theme:** `currentTheme()` gives `colors`, `radii`, `shadows` and `typeScale` for the current mode,
+  and reading it in a component or `$derived` redraws on a change. `toggleThemeMode()` and
+  `setThemeMode("dark")` switch the mode; `typeStyle("body")` is a `Style` to spread into a `Text`;
+  `inverseTheme(theme)` is the dark-on-light scope for your own views. Paint the page with
+  `theme.colors.canvas` and text with `theme.colors.text`.
+- **Icons are SVG strings,** imported from `@phosphor-icons/core`: `import plus from
+  "@phosphor-icons/core/regular/plus.svg"`, then `icon={plus}`. A second string such as `selectedIcon`
+  takes the filled weight.
+- **`onpress`, never `onclick`.** Most changes are `onchange`; `Select`, `DatePicker`, `TimePicker` and
+  `WheelColumn` use `onChange`. `value`, `checked` and `open` are bindable.
+- **`style` is layout only** (width, margins, `alignSelf`). The look comes from the theme.
+- **Names clash with the primitives:** `Button`, `Tooltip`, `Menu`, `Select` and `List` exist in both
+  packages. Import the one you mean and rename the other (`List as VirtualList`). The kit's `List` is a
+  plain column of `ListItem` rows; use the runtime `List` for long data.
+- **No `href`.** Navigation items take a `value` and call `onselect`; `current` is the active value.
+- **No `Intl`.** `DatePicker` month and weekday names are English.
+- **Host gaps:** glass panels are 96% opaque because there is no backdrop blur (#58), pressed states
+  fade instead of scaling, focus is a ring made of a shadow, and transitions cover only colour and
+  opacity. A `focus` style that sets `color` makes the host drop the element's font size and weight
+  (#60), so leave `color` out of focus styles on text with its own size.
+- **Text in a row that is only as wide as its content can wrap.** Give such `Text` `nowrap: true`.
+- **Tokens** come from the web `tokens.css`; regenerate with
+  `bun packages/svelte-gpui-ui/scripts/generate.mjs PATH/TO/tokens.css` and never edit
+  `tokens.generated.ts`.
 
 ## Primitives at a glance
 
