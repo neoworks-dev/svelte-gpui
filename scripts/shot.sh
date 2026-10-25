@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Runs a bundle on a headless Hyprland output and saves a screenshot of it. The window opens
-# there directly and never takes focus, so nothing on the real monitors changes.
+# Runs a bundle on an output of its own on the offscreen display and saves a screenshot of it.
+# The offscreen display is a headless sway that draws to no screen, so nothing on the real
+# monitors changes and nothing takes focus. It comes from ~/.local/bin/offscreen-display (a
+# user service) and its helper offscreen-output; `offscreen-view` shows it in a VNC viewer.
 #
 #   scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]   e.g. --do press:Count
 #
 # It runs this checkout's host, built by scripts/host.sh. HOST names another executable to
 # run instead, such as an app's own binary or a packaged one.
-# A BUNDLE of `-` passes no --bundle, and then no size either, for an app that has its own.
-# The output (OUTPUT, by default `svelte-gpui`) is created when it does not exist:
-#   hyprctl output create headless svelte-gpui
-# A window rule sends windows with the app id `<output>-shot` to it, silently, so runs on
-# different outputs can go side by side. The host's log goes to /tmp/<output>-host.log.
+# A BUNDLE of `-` passes no --bundle, for an app that has its own size.
+# The window fills its output, which is WIDTH x HEIGHT (default 1100x760), and the output is
+# removed afterwards, so runs can go side by side. The host's log goes to
+# /tmp/svelte-gpui-shot-<output>.log.
 #
 # A step that matched nothing or could not be read is listed after the screenshot's path, and
 # the script then exits with 1. A host that quit by itself (`--exit-after-ms`) before the
@@ -28,37 +29,26 @@ if [ ! -x "$host" ]; then
   echo "no host at $host; build this checkout's with scripts/host.sh" >&2
   exit 1
 fi
-output=${OUTPUT:-svelte-gpui}
-app_id=$output-shot
-log=/tmp/$output-host.log
-
-if ! hyprctl monitors -j | python3 -c "import json,sys; sys.exit(0 if any(m['name']=='$output' for m in json.load(sys.stdin)) else 1)"; then
-  hyprctl output create headless "$output" >/dev/null
-  sleep 0.5
-fi
-workspace=$(hyprctl monitors -j | python3 -c "import json,sys; print(next(m['activeWorkspace']['id'] for m in json.load(sys.stdin) if m['name']=='$output'))")
-# Registered before the window exists, so it opens on the output instead of moving there.
-hyprctl eval "hl.window_rule({ name = \"$app_id\", match = { class = \"^$app_id\$\" }, workspace = \"$workspace silent\", no_initial_focus = true, focus_on_activate = false })" >/dev/null
+export WAYLAND_DISPLAY=wayland-offscreen DISPLAY=:99
+unset HYPRLAND_INSTANCE_SIGNATURE
+width=${WIDTH:-1100}
+height=${HEIGHT:-760}
+output=$(offscreen-output create "${width}x${height}")
+log=/tmp/svelte-gpui-shot-$output.log
 
 host_pid=""
 cleanup() {
   kill $host_pid 2>/dev/null || true
+  offscreen-output remove "$output"
 }
 trap cleanup EXIT
 
-flags=(--bundle "$bundle" --width "${WIDTH:-1100}" --height "${HEIGHT:-760}")
+flags=(--bundle "$bundle" --width "$width" --height "$height")
 if [ "$bundle" = "-" ]; then flags=(); fi
-"$host" "${flags[@]}" --app-id "$app_id" "$@" \
-  >"$log" 2>&1 &
+"$host" "${flags[@]}" "$@" >"$log" 2>&1 &
 host_pid=$!
 
-address=""
-for _ in $(seq 100); do
-  address=$(hyprctl clients -j | python3 -c "import json,sys; print(next((c['address'] for c in json.load(sys.stdin) if c['pid']==$host_pid),''))")
-  if [ -n "$address" ]; then break; fi
-  sleep 0.1
-done
-if [ -z "$address" ]; then
+if ! offscreen-output adopt "$output" "$host_pid"; then
   echo "no window appeared; see $log" >&2
   exit 1
 fi
