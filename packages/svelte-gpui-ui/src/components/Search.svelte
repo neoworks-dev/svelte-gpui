@@ -13,6 +13,7 @@
   import type { SearchSuggestion } from "./types";
   import { withAlpha } from "./colorMix";
   import { nextFocusIndex } from "./rovingFocus";
+  import IconButton from "./IconButton.svelte";
 
   interface Props {
     value?: string;
@@ -225,14 +226,7 @@
       onblur={() => (focused = false)}
     />
     {#if value !== ""}
-      <View
-        keepFocus
-        style={{ size: 32, radius: 16, align: "center", justify: "center", cursor: "pointer", shrink: 0 }}
-        hover={{ background: theme.colors.pressed }}
-        onpress={clear}
-      >
-        <Icon svg={closeIcon} size={16} color={theme.colors.text} />
-      </View>
+      <IconButton icon={closeIcon} label="Clear" size="sm" onpress={clear} style={{ shrink: 0 }} />
     {/if}
     {#if trailing}
       {@render trailing()}
