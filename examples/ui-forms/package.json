@@ -1,0 +1,1 @@
+{"name":"svelte-gpui-ui-forms","version":"0.1.0","private":true,"type":"module","svelte-gpui":{"name":"NeoWorks forms","id":"dev.neoworks.svelte-gpui.ui-forms","icon":"../demo/icon.svg","description":"The NeoWorks form components in every state, in light and dark.","bundle":"dist/ui-forms.js","build":"build.mjs"}}
