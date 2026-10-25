@@ -25,7 +25,7 @@
 <View style={{ gap: 22 }}>
   <Section title="Docked drawer">
     <Frame height={520} style={{ direction: "row" }}>
-      <NavigationDrawer {sections} current={dockedCurrent} title="Neoworks" onselect={(value) => (dockedCurrent = value)} />
+      <NavigationDrawer {sections} current={dockedCurrent} title="NeoWorks" onselect={(value) => (dockedCurrent = value)} />
     </Frame>
     <Text style={{ ...typeStyle("caption"), color: theme.colors.muted }}>current: {dockedCurrent}</Text>
   </Section>
