@@ -44,3 +44,16 @@ export { default as Slider } from "./components/Slider.svelte";
 export { default as Switch } from "./components/Switch.svelte";
 export { default as TextField } from "./components/TextField.svelte";
 export type { SearchSuggestion, SegmentedOption } from "./components/types";
+
+export { default as TopAppBar } from "./components/TopAppBar.svelte";
+export { default as NavBar } from "./components/NavBar.svelte";
+export { default as NavigationRail } from "./components/NavigationRail.svelte";
+export { default as NavigationDrawer } from "./components/NavigationDrawer.svelte";
+export { default as Tabs } from "./components/Tabs.svelte";
+export { default as Fab } from "./components/Fab.svelte";
+export type { TopAppBarVariant } from "./components/top-app-bar-look";
+export type { FabSize, FabVariant } from "./components/fab-look";
+export type { TabsVariant } from "./components/tabs-look";
+export type { DrawerItem, NavItem, NavSection } from "./components/navigation";
+export type { TabItem } from "./components/types";
+export { isCurrentItem } from "./components/navigation";
