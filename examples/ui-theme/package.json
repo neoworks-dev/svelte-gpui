@@ -1,0 +1,14 @@
+{
+  "name": "svelte-gpui-ui-theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "NeoWorks theme",
+    "id": "dev.neoworks.svelte-gpui.ui-theme",
+    "icon": "../demo/icon.svg",
+    "description": "The NeoWorks colours, type scale, radii and shadows, in light and dark.",
+    "bundle": "dist/ui-theme.js",
+    "build": "build.mjs"
+  }
+}
