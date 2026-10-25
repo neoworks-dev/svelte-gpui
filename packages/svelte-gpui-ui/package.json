@@ -1,0 +1,16 @@
+{
+  "name": "@neoworks/svelte-gpui-ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "The NeoWorks design system for svelte-gpui, built from its primitives.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "bun scripts/generate.mjs"
+  },
+  "peerDependencies": {
+    "@neoworks/svelte-gpui": "*"
+  }
+}
