@@ -87,24 +87,26 @@ Add `--report` to print an outline of the element tree as well.
 
 ## Screenshots
 
-`scripts/shot.sh` runs a bundle on a headless Hyprland output and saves a screenshot:
+`scripts/shot.sh` runs a bundle on the offscreen display and saves a screenshot:
 
 ```
 scripts/shot.sh BUNDLE OUT.png [SECONDS] [host flags…]
 scripts/shot.sh examples/demo/dist/demo.js /tmp/demo.png 4 --do press:Lists
 ```
 
-It runs the checkout's own host, `target/release/svelte-gpui`, which `scripts/host.sh` builds,
-and creates the output (`svelte-gpui`, or `$OUTPUT`) if it is missing. The host runs with
-`--app-id svelte-gpui-shot` (`<output>-shot` in general), and a window rule opens that
-window on the output without focus, so nothing on the real monitors moves or loses the
-keyboard. Runs with different outputs can go at the same time. `WIDTH` and `HEIGHT`
-set the size the host asks for, and the host's log goes to `/tmp/svelte-gpui-host.log` (`/tmp/<output>-host.log`). Make
-`SECONDS` long enough for every step to run: about one second per step, plus one.
+It runs the checkout's own host, `target/release/svelte-gpui`, which `scripts/host.sh` builds.
+The offscreen display is a headless sway that runs on the GPU but draws to no screen, set up
+outside the repo by `~/.local/bin/offscreen-display` and its user service
+`offscreen-display.service`. Each run gets an output of its own there, sized `WIDTH` by
+`HEIGHT` (1100 by 760 by default), and the window fills it; the output is removed when the
+run ends, so runs can go side by side and nothing on the real monitors moves or loses the
+keyboard. The host's log goes to `/tmp/svelte-gpui-shot-<output>.log`. Make `SECONDS` long
+enough for every step to run: about one second per step, plus one. `offscreen-view` shows
+the newest output in a VNC viewer, read-only unless given `--interactive`.
 
 `HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
-packaged one. A `BUNDLE` of `-` passes no `--bundle` (and no size), for an app that
-brings its own:
+packaged one. A `BUNDLE` of `-` passes no `--bundle`, for an app that
+brings its own size:
 
 ```
 HOST=dist/package/demo/svelte-gpui-demo scripts/shot.sh - /tmp/packaged.png 3
@@ -134,9 +136,10 @@ Without `--dev` the same run draws no overlay and appends the error to
 its mapped stack, to its log.
 
 To test hot reload, the host has to stay up while a build runs, which `shot.sh` does not
-do. Start the host with `--watch` and `--app-id svelte-gpui-shot` in the background after one
-`scripts/shot.sh` run has set up the output and the rule, run `bun build.mjs --watch`, edit
-a source file, and take screenshots with `grim -o svelte-gpui out.png`. The host prints `reloaded in N ms` after each reload, so a
+do. Create an output with `offscreen-output create 1100x760`, start the host with `--watch` in
+the background and move its window there with `offscreen-output adopt OUTPUT PID`, run
+`bun build.mjs --watch`, edit a source file, and take screenshots with
+`grim -o OUTPUT out.png`. Remove the output with `offscreen-output remove OUTPUT` afterwards. The host prints `reloaded in N ms` after each reload, so a
 script can time an edit to the window updating by polling its log. On the demo that takes
 about a quarter of a second, most of it the build.
 
