@@ -1,0 +1,14 @@
+{
+  "name": "svelte-gpui-ui-foundation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "svelte-gpui": {
+    "name": "NeoWorks foundation components",
+    "id": "dev.neoworks.svelte-gpui.ui-foundation",
+    "icon": "../demo/icon.svg",
+    "description": "Button, IconButton, Chip, Badge, Divider, Card and ListRow in every state, light and dark.",
+    "bundle": "dist/ui-foundation.js",
+    "build": "build.mjs"
+  }
+}
