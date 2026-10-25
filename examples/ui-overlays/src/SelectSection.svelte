@@ -56,6 +56,7 @@
       <Select bind:value={several} options={fruits} multiple variant="outlined" label="Several fruits" style={{ width: 260 }} />
       <Select bind:value={place} options={places} filter={containsQuery} searchPlaceholder="Find a place" style={{ width: 260 }} />
       <Select bind:value={iconOnly} options={places} iconOnly variant="ghost" size="sm" style={{ width: 64 }} />
+      <Select bind:value={iconOnly} options={places} iconOnly variant="surface" size="sm" style={{ width: 64 }} />
       <Select bind:value={long} options={manyOptions} placeholder="Long list" style={{ width: 200 }} />
     </View>
     <Text style={{ ...typeStyle("bodySmall"), color: theme.colors.muted }}>Chosen: {String(compact)}, {String(several)}</Text>

@@ -1,0 +1,1 @@
+{"name":"svelte-gpui-ui-lists","version":"0.1.0","private":true,"type":"module","svelte-gpui":{"name":"NeoWorks lists","id":"dev.neoworks.svelte-gpui.ui-lists","icon":"../demo/icon.svg","description":"The NeoWorks lists, tables, disclosures, status badges and icon circles in every state, in light and dark.","bundle":"dist/ui-lists.js","build":"build.mjs"}}
