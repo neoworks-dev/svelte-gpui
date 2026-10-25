@@ -45,6 +45,9 @@
     style?: Style;
     oninput?: (value: string) => void;
     onsubmit?: (value: string) => void;
+    onfocus?: () => void;
+    /** Focus left the field, such as to check or tidy what was typed. */
+    onblur?: () => void;
   }
 
   let {
@@ -68,6 +71,8 @@
     style,
     oninput,
     onsubmit,
+    onfocus,
+    onblur,
   }: Props = $props();
 
   const theme = $derived(currentTheme());
@@ -186,6 +191,16 @@
     return theme.colors.muted;
   }
 
+  function handleFocus(): void {
+    focused = true;
+    onfocus?.();
+  }
+
+  function handleBlur(): void {
+    focused = false;
+    onblur?.();
+  }
+
   function handleInput(text: string): void {
     oninput?.(text);
   }
@@ -242,8 +257,8 @@
         }}
         oninput={handleInput}
         {onsubmit}
-        onfocus={() => (focused = true)}
-        onblur={() => (focused = false)}
+        onfocus={handleFocus}
+        onblur={handleBlur}
       />
       {#if showsSuffix}
         <Text style={{ ...typeStyle("body"), paddingBottom: 6, paddingRight: 20, color: theme.colors.muted }}>{suffix}</Text>
