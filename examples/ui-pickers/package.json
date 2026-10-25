@@ -1,0 +1,1 @@
+{"name":"svelte-gpui-ui-pickers","version":"0.1.0","private":true,"type":"module","svelte-gpui":{"name":"NeoWorks pickers","id":"dev.neoworks.svelte-gpui.ui-pickers","icon":"../demo/icon.svg","description":"The NeoWorks date and time pickers, wheel and progress indicators in every state, in light and dark.","bundle":"dist/ui-pickers.js","build":"build.mjs"}}

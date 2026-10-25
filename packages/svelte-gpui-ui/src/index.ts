@@ -70,3 +70,11 @@ export type { SelectFilter, SelectOption, SelectValue } from "./components/selec
 export type { SelectSize, SelectVariant } from "./components/select-look";
 export type { FloatingPlacement } from "./components/placement";
 export { glassPanelLook, scrimColor, surfacePanelLook } from "./components/overlay-look";
+
+export { default as DatePicker } from "./components/DatePicker.svelte";
+export { default as TimePicker } from "./components/TimePicker.svelte";
+export { default as WheelColumn } from "./components/WheelColumn.svelte";
+export { default as ProgressIndicator } from "./components/ProgressIndicator.svelte";
+export { default as LoadingSpinner } from "./components/LoadingSpinner.svelte";
+export type { WeekStart } from "./components/calendar";
+export type { ProgressTone } from "./components/progress-look";
