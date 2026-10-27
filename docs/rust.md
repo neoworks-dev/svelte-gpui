@@ -45,10 +45,12 @@ serde_json = "1"
 
 [patch.crates-io]
 xattr = { path = "path/to/svelte-gpui/host/vendor/xattr" }
+gpui = { path = "path/to/svelte-gpui/host/vendor/gpui" }
 ```
 
-The `[patch]` is the same one `host/Cargo.toml` has: a `libc` incompatibility in GPUI's
-dependencies. The library's crate name is `svelte_gpui`. Inside this repository, run
+The `[patch]` is the same one `host/Cargo.toml` has. `xattr` works around a `libc`
+incompatibility in GPUI's dependencies, and `gpui` is GPUI 0.2.2 with a fix to its text
+cache, without which resizing a window full of text shapes all of it again at every width. The library's crate name is `svelte_gpui`. Inside this repository, run
 `scripts/host.sh --seed` once and build with `CARGO_TARGET_DIR` set to the checkout's
 `target/`, so GPUI is not compiled again.
 

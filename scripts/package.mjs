@@ -165,7 +165,8 @@ function generateCrate(directory, metadata) {
     join(directory, "Cargo.toml"),
     `[package]\nname = ${JSON.stringify(metadata.executable)}\nversion = ${JSON.stringify(version)}\nedition = "2024"\n\n` +
       `[dependencies]\nsvelte_gpui_host = { path = ${JSON.stringify(host)} }\n\n` +
-      `[patch.crates-io]\nxattr = { path = ${JSON.stringify(join(host, "vendor", "xattr"))} }\n`,
+      `[patch.crates-io]\nxattr = { path = ${JSON.stringify(join(host, "vendor", "xattr"))} }\n` +
+      `gpui = { path = ${JSON.stringify(join(host, "vendor", "gpui"))} }\n`,
   );
   writeFileSync(
     join(directory, "src", "main.rs"),
