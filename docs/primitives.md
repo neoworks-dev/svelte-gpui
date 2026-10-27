@@ -245,7 +245,7 @@ above and below, so the host lays out their real heights at once.
 | `estimatedRowHeight` | `number` | Without `rowHeight`: what a row not measured yet counts as, before any has been. The default is 40. |
 | `row` | `Snippet<[T, number]>` | Draws one row, from the item and its index. |
 | `key` | `(item: T, index: number) => unknown` | Keeps a row's state, and its measured height, with its item when the list changes. |
-| `overscan` | `number` | How many rows past each edge are built anyway. The default is 8. |
+| `overscan` | `number` | How many rows past each edge are built anyway, as long as they start within a window's height of it. The default is 8. |
 | `stickToEnd` | `boolean` | Opens at the end, and stays there as items are added and rows change height, as a chat does. Scrolling up lets go of it; scrolling back to the end takes it again. Needs no `scrollToIndex` to start at the end. |
 | `style` | `Style` | Give it a bounded height, as for `Scroll`. |
 | `onscroll` | `(p: ScrollPosition) => void` | `y` counts from the top of the whole list. |

@@ -108,7 +108,7 @@ function layOut(scroller: Node, heightOf: (text: string) => number): void {
 }
 
 const log: Record<string, unknown> = {};
-const [chat, plain, fixed] = scrollers();
+const [chat, plain, fixed, tall] = scrollers();
 globals.__event(chat.id, "layout", JSON.stringify({ x: 0, y: 0, width: 400, height: 600 }));
 
 log.opened = { chat: built(chat), plain: built(plain), fixed: built(fixed), scrollRequests };
@@ -144,5 +144,12 @@ globals.__page.toEnd();
 globals.__settle();
 layOut(chat, heightOf);
 log.toEnd = { chat: built(chat), scrollRequests: scrollRequests - requestsBefore, offset: lastScrollOffset };
+
+// Rows taller than the window, each measured as it is built, until the list builds no new ones.
+globals.__event(tall.id, "layout", JSON.stringify({ x: 0, y: 0, width: 400, height: 600 }));
+for (let pass = 0; pass < 4; pass++) {
+  layOut(tall, () => 700);
+}
+log.tall = built(tall);
 
 process.stdout.write(`\n@@${JSON.stringify(log)}\n`);
