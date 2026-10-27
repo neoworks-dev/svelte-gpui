@@ -7,10 +7,12 @@
   - "Add message" appends one; "Grow last" makes the last message taller, as streaming text does.
   - "Grow above" makes a row that is built above the window taller, as an image loading would.
 
-  The line under the buttons says where the list is and how many times its rows changed size since
-  it was opened, and the host's log gets one line when it has been quiet for a while.
+  The line under the buttons says where the list is, how many times its rows changed size since
+  it was opened and how many rows are built, and the host's log gets one line when it has been
+  quiet for a while.
 -->
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import { Button, List, Text, View } from "@neoworks/svelte-gpui/ui";
   import Mark from "./Mark.svelte";
 
@@ -84,7 +86,7 @@
   /** Messages made taller by a button, with how many lines they were given. */
   let extra = $state.raw<Record<number, number>>({});
   /** The messages whose rows exist now, so a button can pick one above the window. */
-  const built = new Set<number>();
+  const built = new SvelteSet<number>();
   let generation = $state(0);
   let position = $state({ y: 0, maxY: 0 });
 
@@ -168,7 +170,7 @@
     <Button style={button} onpress={growAbove}><Text>Grow above</Text></Button>
   </View>
   <Text style={{ fontFamily: "mono", fontSize: 12, color: "#a1a1aa" }}>
-    y {Math.round(position.y)} of {Math.round(position.maxY)}, {atEnd ? "at the end" : "not at the end"}, {resizes} row size changes, {scrolls} scroll events, {messages.length} messages{grown === null ? "" : `, grew #${grown}`}
+    y {Math.round(position.y)} of {Math.round(position.maxY)}, {atEnd ? "at the end" : "not at the end"}, {resizes} row size changes, {scrolls} scroll events, {messages.length} messages, {built.size} rows built{grown === null ? "" : `, grew #${grown}`}
   </Text>
   {#key generation}
     <List
