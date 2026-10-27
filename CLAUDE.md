@@ -21,7 +21,8 @@ See README.md. svelte-gpui is its own project; Grove is one app that may use it.
   seeds with the GPUI artifacts of the grove `gpui-spike` worktree. Never point
   `CARGO_TARGET_DIR` at a directory another checkout builds into: cargo names the
   host's artifacts the same from any checkout, so one's build stands in for another's.
-  `host/vendor/xattr` patches a `libc` incompatibility.
+  `host/vendor/xattr` patches a `libc` incompatibility, and `host/vendor/gpui` is GPUI
+  0.2.2 with a text cache fix (#65).
 - Test with `scripts/shot.sh`, which opens the window on its own output on the offscreen
   display, a headless sway that draws to no screen (`~/.local/bin/offscreen-display`). Never
   open a test window on the real desktop: it takes the user's focus.

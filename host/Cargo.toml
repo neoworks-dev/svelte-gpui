@@ -31,3 +31,5 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [patch.crates-io]
 xattr = { path = "vendor/xattr" }
+# GPUI 0.2.2 with its line cache keeping shaped text across wrap widths (#65).
+gpui = { path = "vendor/gpui" }

@@ -16,3 +16,4 @@ package = []
 
 [patch.crates-io]
 xattr = { path = "../../host/vendor/xattr" }
+gpui = { path = "../../host/vendor/gpui" }
