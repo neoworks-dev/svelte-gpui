@@ -146,7 +146,7 @@ impl Painter<'_> {
 
 /// Whether the wheel event moved this container. GPUI's own scroll listener has already
 /// added the event's delta to the offset, unclamped, so the offset before it is the
-/// difference, and that offset says whether there was room to move in the delta's direction.
+/// difference.
 fn scrolled_by(handle: &ScrollHandle, event: &ScrollWheelEvent, horizontal: bool, window: &Window) -> bool {
     let delta = event.delta.pixel_delta(window.line_height());
     let (along, across) = if horizontal { (delta.x, delta.y) } else { (delta.y, delta.x) };
@@ -159,8 +159,17 @@ fn scrolled_by(handle: &ScrollHandle, event: &ScrollWheelEvent, horizontal: bool
     } else {
         (f32::from(offset.y), f32::from(max_offset.height))
     };
-    let before = now - applied;
-    (applied < 0.0 && before > -furthest) || (applied > 0.0 && before < 0.0)
+    moved(now, applied, furthest)
+}
+
+/// Whether an offset of `now` after a wheel delta of `applied` moved a container that can scroll
+/// `furthest`. Offsets count down from 0, and both are clamped into range before they are
+/// compared: GPUI only clamps an offset when it lays the container out again, so one it has not
+/// drawn since can be out of range, and would otherwise seem to move with every notch while the
+/// container cannot move at all (#67).
+fn moved(now: f32, applied: f32, furthest: f32) -> bool {
+    let clamp = |offset: f32| offset.clamp(-furthest.max(0.0), 0.0);
+    (clamp(now) - clamp(now - applied)).abs() > 0.01
 }
 
 pub(super) fn listens_for_pointer(node: &Node) -> bool {
@@ -229,4 +238,31 @@ pub fn pointer_detail(
         y - origin.1,
         modifier_fields(modifiers)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::moved;
+
+    #[test]
+    fn a_wheel_with_room_to_move_moves_the_container() {
+        // At the top of a container that can scroll 300 px, a notch down moves it 78 px.
+        assert!(moved(-78.0, -78.0, 300.0));
+        // Near its end, the part of the notch that fits still moves it.
+        assert!(moved(-338.0, -78.0, 300.0));
+    }
+
+    #[test]
+    fn a_wheel_past_an_end_does_not_move_the_container() {
+        assert!(!moved(78.0, 78.0, 300.0));
+        assert!(!moved(-378.0, -78.0, 300.0));
+    }
+
+    #[test]
+    fn a_container_that_cannot_scroll_never_keeps_the_wheel_whatever_its_offset() {
+        // The stale offset of a code block that had not been laid out again (#67).
+        assert!(!moved(54.0, 78.0, 0.0));
+        assert!(!moved(0.0, 78.0, 0.0));
+        assert!(!moved(-24.0, -78.0, 0.0));
+    }
 }
