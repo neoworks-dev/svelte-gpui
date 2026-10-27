@@ -441,6 +441,7 @@ impl LineLayoutCache {
             [range.start.wrapped_lines_index..range.end.wrapped_lines_index]
         {
             if let Some((key, line)) = previous_frame.wrapped_lines.remove_entry(key) {
+                carry_unwrapped(&mut previous_frame.lines, current_frame, &key);
                 current_frame.wrapped_lines.insert(key, line);
             }
             current_frame.used_wrapped_lines.push(key.clone());
@@ -490,15 +491,18 @@ impl LineLayoutCache {
             return layout.clone();
         }
 
-        let previous_frame_entry = self.previous_frame.lock().wrapped_lines.remove_entry(key);
+        let mut previous_frame = self.previous_frame.lock();
+        let previous_frame_entry = previous_frame.wrapped_lines.remove_entry(key);
         if let Some((key, layout)) = previous_frame_entry {
             let mut current_frame = RwLockUpgradableReadGuard::upgrade(current_frame);
+            carry_unwrapped(&mut previous_frame.lines, &mut current_frame, &key);
             current_frame
                 .wrapped_lines
                 .insert(key.clone(), layout.clone());
             current_frame.used_wrapped_lines.push(key);
             layout
         } else {
+            drop(previous_frame);
             drop(current_frame);
             let text = SharedString::from(text);
             let unwrapped_layout = self.layout_line::<&SharedString>(&text, font_size, runs, None);
@@ -589,6 +593,30 @@ impl LineLayoutCache {
             current_frame.used_lines.push(key);
             layout
         }
+    }
+}
+
+/// Keeps the unwrapped layout a wrapped line was made from for another frame, together with the
+/// wrapped line. Without it the unwrapped layout falls out of the cache after a frame in which only
+/// the wrapped line was looked up, and the next wrap width shapes the text again from scratch.
+fn carry_unwrapped(
+    previous_lines: &mut FxHashMap<Arc<CacheKey>, Arc<LineLayout>>,
+    current_frame: &mut FrameCache,
+    wrapped_key: &CacheKey,
+) {
+    let key = &CacheKeyRef {
+        text: &wrapped_key.text,
+        font_size: wrapped_key.font_size,
+        runs: wrapped_key.runs.as_slice(),
+        wrap_width: None,
+        force_width: None,
+    } as &dyn AsCacheKeyRef;
+    if current_frame.lines.contains_key(key) {
+        return;
+    }
+    if let Some((key, layout)) = previous_lines.remove_entry(key) {
+        current_frame.lines.insert(key.clone(), layout);
+        current_frame.used_lines.push(key);
     }
 }
 
