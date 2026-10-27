@@ -15,6 +15,7 @@ interface Run {
   appendedWhileUp: { chat: Built; scrollRequests: number };
   backAtEnd: { chat: Built; scrollRequests: number };
   toEnd: { chat: Built; scrollRequests: number; offset: number };
+  tall: Built;
 }
 
 let run: Run;
@@ -87,6 +88,16 @@ describe("List with stickToEnd", () => {
     expect(run.toEnd.offset).toBeGreaterThan(1e12);
     const { rows, below } = run.toEnd.chat;
     expect(rows[rows.length - 1]).toBe("chat 5001");
+    expect(below).toBe(0);
+  });
+});
+
+describe("List with rows taller than its window", () => {
+  test("builds the rows in the window and a window's height above it, not twenty rows and more", () => {
+    const { rows, below } = run.tall;
+    // A window of 600 px at the end shows part of the last row of 700 px; a window's height above it
+    // reaches into the one before.
+    expect(rows).toEqual(["tall 58", "tall 59"]);
     expect(below).toBe(0);
   });
 });

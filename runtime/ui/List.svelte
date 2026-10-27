@@ -36,7 +36,7 @@
     row: Snippet<[T, number]>;
     /** Keeps a row's state, and its measured height, with its item as the list changes. */
     key?: (item: T, index: number) => unknown;
-    /** How many rows past each edge of the window are built anyway. The default is 8. */
+    /** How many rows past each edge of the window are built anyway, within a window's height of it. The default is 8. */
     overscan?: number;
     /**
      * Opens at the end, and stays there as items are added and rows change height, as a chat does, for as long
@@ -102,20 +102,35 @@
 
   /** The height of every row together, as known right now. */
   const totalHeight = (): number => (measured ? heights.total : items.length * (rowHeight ?? 0));
-  /** How far past the top of the window the rows are built, at least. */
-  const reach = (): number => Math.max(viewport, (measured ? heights.estimate : (rowHeight ?? 1)) * 20);
+  /**
+   * How far past the top of the window the rows are built: the window's height, or twenty rows before the
+   * list knows it.
+   */
+  const reach = (): number => (viewport > 0 ? viewport : (measured ? heights.estimate : (rowHeight ?? 1)) * 20);
   /** Where the window starts, counted from the top of the whole list: at the end, when it is there. */
   const windowTop = (): number => (pinned ? Math.max(totalHeight() - reach(), 0) : top);
+  // `overscan` rows are built past each edge, but no further than a window's height, so tall rows do not
+  // build the list out to its ends.
   const first = $derived.by(() => {
     heightsAt(version);
-    return Math.max(0, indexAt(windowTop()) - overscan);
+    const start = windowTop();
+    const byCount = indexAt(start) - overscan;
+    if (viewport <= 0) {
+      return Math.max(0, byCount);
+    }
+    return Math.max(0, byCount, indexAt(start - viewport));
   });
   const last = $derived.by(() => {
     heightsAt(version);
     if (pinned) {
       return items.length;
     }
-    return Math.min(items.length, indexAt(top + reach()) + 1 + overscan);
+    const end = top + reach();
+    const byCount = indexAt(end) + 1 + overscan;
+    if (viewport <= 0) {
+      return Math.min(items.length, byCount);
+    }
+    return Math.min(items.length, byCount, indexAt(end + viewport) + 1);
   });
   const shown = $derived.by(() => {
     heightsAt(version);
