@@ -158,7 +158,7 @@ fn typescript_gets_javascript_and_type_highlights() {
 #[test]
 fn json_markdown_css_go_lua_and_bash_are_highlighted() {
     assert!(has(&state_named("a.json", "{\"key\": 12}\n"), 0, "12", "number"));
-    assert!(has(&state_named("a.md", "# Title\n"), 0, "Title", "title"));
+    assert!(has(&state_named("a.md", "# Title\n"), 0, "Title", "title.1"));
     assert!(has(&state_named("a.css", "a { color: red; }\n"), 0, "color", "property"));
     assert!(has(&state_named("a.go", "package main\nfunc main() {}\n"), 1, "func", "keyword"));
     assert!(has(&state_named("a.lua", "local x = 1\n"), 0, "local", "keyword"));
@@ -540,6 +540,24 @@ fn markdown_fences_are_highlighted_in_their_language() {
     type_text(&mut state, "pub ");
     assert!(has(&state, 5, "pub", "keyword"));
     assert_same_as_fresh_parse(&state, "a.md");
+}
+
+#[test]
+fn markdown_headings_are_highlighted_by_level() {
+    let source = "# One\n\n### Three\n\nTwo\n---\n\nPlain text.\n";
+    let state = state_named("a.md", source);
+    assert!(has(&state, 0, "One", "title.1"));
+    assert!(has(&state, 0, "#", "punctuation.special"));
+    assert!(has(&state, 2, "Three", "title.3"));
+    assert!(has(&state, 4, "Two", "title.2"));
+    assert!(!has(&state, 7, "Plain", "title"));
+}
+
+#[test]
+fn markdown_code_block_text_its_language_leaves_alone_is_embedded() {
+    let state = state_named("a.md", "```rust\nlet words = 1;\n```\n");
+    assert!(has(&state, 1, "let", "keyword"));
+    assert!(pieces(&state, 1).iter().any(|(piece, name)| piece.contains("words") && *name == "embedded"));
 }
 
 /// Run with `cargo test -p editor-core --release -- --ignored --nocapture` to see the timings.

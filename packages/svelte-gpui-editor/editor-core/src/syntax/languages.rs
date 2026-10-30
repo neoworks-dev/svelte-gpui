@@ -161,6 +161,24 @@ const MARKDOWN_INJECTIONS: &str = r#"
  (#set! injection.language "html"))
 "#;
 
+/// Markdown's headings by level, so a theme can size each. They come after the grammar's own
+/// query, whose `title` for every heading they override.
+const MARKDOWN_HEADING_LEVELS: &str = r#"
+(atx_heading (atx_h1_marker) (inline) @title.1)
+(atx_heading (atx_h2_marker) (inline) @title.2)
+(atx_heading (atx_h3_marker) (inline) @title.3)
+(atx_heading (atx_h4_marker) (inline) @title.4)
+(atx_heading (atx_h5_marker) (inline) @title.5)
+(atx_heading (atx_h6_marker) (inline) @title.6)
+(setext_heading (paragraph) @title.1 (setext_h1_underline))
+(setext_heading (paragraph) @title.2 (setext_h2_underline))
+"#;
+
+/// Markdown's block highlights, with its headings told apart by level.
+fn markdown_highlights() -> String {
+    format!("{}\n{}", tree_sitter_md::HIGHLIGHT_QUERY_BLOCK, MARKDOWN_HEADING_LEVELS)
+}
+
 /// The TypeScript queries build on JavaScript's, as the grammar is JavaScript's with types added.
 fn typescript_highlights() -> String {
     format!("{}\n{}", tree_sitter_javascript::HIGHLIGHT_QUERY, tree_sitter_typescript::HIGHLIGHTS_QUERY)
@@ -283,12 +301,8 @@ fn build_languages() -> Vec<LanguageDefinition> {
         || tree_sitter_json::HIGHLIGHTS_QUERY.to_string(),
     );
 
-    let mut markdown = definition(
-        "markdown",
-        &["md", "markdown"],
-        || tree_sitter_md::LANGUAGE.into(),
-        || tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.to_string(),
-    );
+    let mut markdown =
+        definition("markdown", &["md", "markdown"], || tree_sitter_md::LANGUAGE.into(), markdown_highlights);
     markdown.aliases = &["md"];
     markdown.injections = Some(MARKDOWN_INJECTIONS);
 

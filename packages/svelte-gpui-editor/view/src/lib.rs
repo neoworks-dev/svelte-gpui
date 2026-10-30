@@ -166,6 +166,9 @@ pub struct Editor {
     minimap_width: Pixels,
     /// Whether lines too wide for the view are broken, set by the `wrap` prop (see `wrap.rs`).
     wrap: bool,
+    /// Whether the gutter shows line numbers, set by the `lineNumbers` prop; without them the
+    /// view has no gutter.
+    line_numbers: bool,
     /// How tall each line is drawn, kept between frames while lines wrap or the theme has fonts
     /// of its own.
     line_heights: RefCell<wrap::LineHeights>,
@@ -235,6 +238,7 @@ impl Editor {
             sources: SourceFilter::default(),
             minimap_width: px(0.0),
             wrap: false,
+            line_numbers: true,
             line_heights: RefCell::default(),
             wrap_goals: Vec::new(),
             reported_places: Value::Null,
@@ -791,6 +795,11 @@ impl AppElement for Editor {
         }
         if name == "wrap" {
             self.wrap = value.as_bool().unwrap_or(false);
+            cx.notify();
+            return;
+        }
+        if name == "lineNumbers" {
+            self.line_numbers = value.as_bool().unwrap_or(true);
             cx.notify();
             return;
         }
