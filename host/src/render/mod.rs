@@ -11,6 +11,7 @@ mod element;
 mod events;
 mod field;
 mod file_drop;
+mod inline;
 mod media;
 mod motion;
 mod overlay;
@@ -432,7 +433,7 @@ impl<'a> Painter<'a> {
         }
         let mut anchored_slots: Option<Slots> = None;
         element = match primitive {
-            Primitive::Text => self.text_content(element, id, node, style, &inherited),
+            Primitive::Text => self.text_content(element, id, node, style, &inherited, cx),
             Primitive::Image => self.image_content(element, id, node, style),
             Primitive::Icon => icon_content(element, node, style, &inherited),
             Primitive::Input => self.field_content(element, id, node, style, &inherited, cx),
