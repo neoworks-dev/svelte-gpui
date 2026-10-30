@@ -64,7 +64,8 @@ export interface EditorSelection {
 export interface EditorProps {
   /** The id of the document to show; none shows an empty view. */
   document?: number | null;
-  theme?: EditorTheme;
+  /** The colours to paint with; a colour left out keeps the view's default. */
+  theme?: Partial<EditorTheme>;
   /** Refuses commands that change the text. */
   readonly?: boolean;
   /** The view's own decoration source, which only this view draws. */
