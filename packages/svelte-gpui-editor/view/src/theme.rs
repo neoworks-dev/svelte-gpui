@@ -22,20 +22,38 @@
 //! diagnostics, git changes, inlay hints and text after a line end are drawn in.
 //!
 //! Each key of `syntax` is one of `editor_core::syntax::HIGHLIGHT_NAMES`. A name the theme leaves
-//! out takes the colour of its dotted prefix (`function.method` of `function`), and text with
-//! no colour at all is painted in the foreground.
+//! out takes the style of its dotted prefix (`function.method` of `function`), and text with
+//! no style at all is painted in the foreground.
+//!
+//! The text is drawn in `fontFamily` at `fontSize` pixels, the editor's monospace font at 14
+//! when they are left out. A style may name a `family` and a `size` of its own, as a prose theme
+//! does for headings: `{ "title": { "color": "#fafafa", "bold": true, "size": 24 } }`. GPUI
+//! shapes a line at one size, so a line is drawn at the largest size any text on it asks for,
+//! and its rows are as tall as that size needs. The line numbers stay in the monospace font.
 
 use editor_core::Tone;
 use editor_core::syntax::{HIGHLIGHT_NAMES, HighlightId};
 use serde_json::Value;
-use svelte_gpui::gpui::{Hsla, Rgba, rgba};
+use svelte_gpui::gpui::{Hsla, Pixels, Rgba, SharedString, px, rgba};
+
+use super::element::{FONT_FAMILY, FONT_SIZE};
 
 /// How one kind of highlighted text is painted.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct HighlightStyle {
     pub color: Hsla,
     pub bold: bool,
     pub italic: bool,
+    pub family: SharedString,
+    /// The size the line it is on is drawn at, at least; none leaves the line at the text's size.
+    pub size: Option<Pixels>,
+}
+
+impl HighlightStyle {
+    /// Text in a colour, in the editor's monospace font.
+    pub fn plain(color: Hsla) -> Self {
+        HighlightStyle { color, bold: false, italic: false, family: FONT_FAMILY.into(), size: None }
+    }
 }
 
 /// Every colour of the editor.
@@ -68,6 +86,9 @@ pub struct EditorTheme {
     pub jump_label: Hsla,
     pub jump_label_text: Hsla,
     pub jump_match: Hsla,
+    /// The font the text is drawn in, and its size.
+    pub font_family: SharedString,
+    pub font_size: Pixels,
     /// The style of each highlight, by `HighlightId`.
     syntax: Vec<Option<HighlightStyle>>,
 }
@@ -98,6 +119,8 @@ impl Default for EditorTheme {
             jump_label: hex(0xec4899ff),
             jump_label_text: hex(0x0b0b0dff),
             jump_match: hex(0x60a5fa59),
+            font_family: FONT_FAMILY.into(),
+            font_size: FONT_SIZE,
             syntax: vec![None; HIGHLIGHT_NAMES.len()],
         }
     }
@@ -112,6 +135,14 @@ impl EditorTheme {
             Some(parsed) => parsed,
             None => fallback,
         };
+        let mut font_family = defaults.font_family;
+        if let Some(family) = value.get("fontFamily").and_then(Value::as_str) {
+            font_family = SharedString::from(family.to_string());
+        }
+        let mut font_size = defaults.font_size;
+        if let Some(size) = value.get("fontSize").and_then(Value::as_f64) {
+            font_size = px(size as f32);
+        }
         EditorTheme {
             background: color("background", defaults.background),
             foreground: color("foreground", defaults.foreground),
@@ -135,8 +166,25 @@ impl EditorTheme {
             jump_label: color("jumpLabel", defaults.jump_label),
             jump_label_text: color("jumpLabelText", defaults.jump_label_text),
             jump_match: color("jumpMatch", defaults.jump_match),
-            syntax: syntax_styles(value.get("syntax")),
+            syntax: syntax_styles(value.get("syntax"), &font_family),
+            font_family,
+            font_size,
         }
+    }
+
+    /// How text no highlight styles is painted.
+    pub fn text_style(&self) -> HighlightStyle {
+        HighlightStyle { family: self.font_family.clone(), ..HighlightStyle::plain(self.foreground) }
+    }
+
+    /// Whether the theme draws any text in another font or size than the editor's own, which
+    /// makes rows as tall as their text needs rather than all one height.
+    pub fn has_own_fonts(&self) -> bool {
+        if self.font_family.as_ref() != FONT_FAMILY || self.font_size != FONT_SIZE {
+            return true;
+        }
+        let mut styles = self.syntax.iter().flatten();
+        styles.any(|style| style.size.is_some() || style.family.as_ref() != FONT_FAMILY)
     }
 
     /// The colour a decoration of a tone is drawn in.
@@ -166,8 +214,8 @@ impl EditorTheme {
     }
 
     /// How a highlight is painted, or none for text in the foreground colour.
-    pub fn style_of(&self, id: HighlightId) -> Option<HighlightStyle> {
-        self.syntax.get(id.0 as usize).copied().flatten()
+    pub fn style_of(&self, id: HighlightId) -> Option<&HighlightStyle> {
+        self.syntax.get(id.0 as usize)?.as_ref()
     }
 }
 
@@ -178,35 +226,43 @@ pub fn mix(from: Hsla, to: Hsla, amount: f32) -> Hsla {
     Rgba { r: blend(from.r, to.r), g: blend(from.g, to.g), b: blend(from.b, to.b), a: blend(from.a, to.a) }.into()
 }
 
-/// The style of every highlight name from the theme's `syntax` object.
-fn syntax_styles(syntax: Option<&Value>) -> Vec<Option<HighlightStyle>> {
+/// The style of every highlight name from the theme's `syntax` object, in `text_family` unless
+/// a style names its own.
+fn syntax_styles(syntax: Option<&Value>, text_family: &SharedString) -> Vec<Option<HighlightStyle>> {
     let Some(syntax) = syntax else {
         return vec![None; HIGHLIGHT_NAMES.len()];
     };
-    HIGHLIGHT_NAMES.iter().map(|name| style_for_name(syntax, name)).collect()
+    HIGHLIGHT_NAMES.iter().map(|name| style_for_name(syntax, name, text_family)).collect()
 }
 
 /// The style the theme gives a highlight name, or else its dotted prefix.
-fn style_for_name(syntax: &Value, name: &str) -> Option<HighlightStyle> {
+fn style_for_name(syntax: &Value, name: &str, text_family: &SharedString) -> Option<HighlightStyle> {
     let mut candidate = name;
     loop {
         if let Some(entry) = syntax.get(candidate) {
-            return parse_style(entry);
+            return parse_style(entry, text_family);
         }
         let (shorter, _) = candidate.rsplit_once('.')?;
         candidate = shorter;
     }
 }
 
-/// A style written as a colour, or as an object with a colour and whether it is bold or italic.
-fn parse_style(entry: &Value) -> Option<HighlightStyle> {
+/// A style written as a colour, or as an object with a colour, whether it is bold or italic,
+/// and the font family and size it asks for.
+fn parse_style(entry: &Value, text_family: &SharedString) -> Option<HighlightStyle> {
+    let plain = HighlightStyle { family: text_family.clone(), ..HighlightStyle::plain(Hsla::default()) };
     if let Some(text) = entry.as_str() {
-        return Some(HighlightStyle { color: parse_color(text)?, bold: false, italic: false });
+        return Some(HighlightStyle { color: parse_color(text)?, ..plain });
     }
     let color = parse_color(entry.get("color")?.as_str()?)?;
     let bold = entry.get("bold").and_then(Value::as_bool).unwrap_or(false);
     let italic = entry.get("italic").and_then(Value::as_bool).unwrap_or(false);
-    Some(HighlightStyle { color, bold, italic })
+    let mut family = plain.family;
+    if let Some(named) = entry.get("family").and_then(Value::as_str) {
+        family = SharedString::from(named.to_string());
+    }
+    let size = entry.get("size").and_then(Value::as_f64).map(|size| px(size as f32));
+    Some(HighlightStyle { color, bold, italic, family, size })
 }
 
 /// A colour from `#rrggbb` or `#rrggbbaa`.
@@ -251,6 +307,27 @@ mod tests {
         let title = theme.style_of(id("title")).unwrap();
         assert!(title.bold && !title.italic);
         assert!(theme.style_of(id("keyword")).is_none());
+    }
+
+    #[test]
+    fn styles_take_the_texts_font_unless_they_name_their_own() {
+        let theme = EditorTheme::from_json(&json!({
+            "fontFamily": "Inter",
+            "fontSize": 15,
+            "syntax": { "keyword": "#112233", "title": { "color": "#445566", "size": 24, "family": "Lora" } }
+        }));
+        assert_eq!(theme.font_size, px(15.0));
+        assert_eq!(theme.style_of(id("keyword")).unwrap().family.as_ref(), "Inter");
+        let title = theme.style_of(id("title")).unwrap();
+        assert_eq!((title.family.as_ref(), title.size), ("Lora", Some(px(24.0))));
+        assert!(theme.has_own_fonts());
+    }
+
+    #[test]
+    fn a_code_theme_has_no_fonts_of_its_own() {
+        let theme = EditorTheme::from_json(&json!({ "syntax": { "keyword": { "color": "#112233", "bold": true } } }));
+        assert!(!theme.has_own_fonts());
+        assert!(!EditorTheme::default().has_own_fonts());
     }
 
     #[test]

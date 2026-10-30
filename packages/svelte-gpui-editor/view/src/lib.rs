@@ -166,8 +166,9 @@ pub struct Editor {
     minimap_width: Pixels,
     /// Whether lines too wide for the view are broken, set by the `wrap` prop (see `wrap.rs`).
     wrap: bool,
-    /// How many pieces each line wraps into, kept between frames.
-    wrap_cache: RefCell<wrap::WrapCache>,
+    /// How tall each line is drawn, kept between frames while lines wrap or the theme has fonts
+    /// of its own.
+    line_heights: RefCell<wrap::LineHeights>,
     /// How far right each selection's head aims while up and down move it through wrapped
     /// lines, so a short piece on the way does not pull it left; empty after any other command.
     wrap_goals: Vec<Pixels>,
@@ -234,7 +235,7 @@ impl Editor {
             sources: SourceFilter::default(),
             minimap_width: px(0.0),
             wrap: false,
-            wrap_cache: RefCell::default(),
+            line_heights: RefCell::default(),
             wrap_goals: Vec::new(),
             reported_places: Value::Null,
         }
@@ -755,6 +756,7 @@ impl AppElement for Editor {
     fn set_prop(&mut self, name: &str, value: Value, cx: &mut Context<Self>) {
         if name == "theme" {
             self.theme = EditorTheme::from_json(&value);
+            self.line_heights.borrow_mut().clear();
             return;
         }
         if name == "readonly" {
