@@ -10,7 +10,7 @@ use svelte_gpui::gpui::{
 use svelte_gpui::gpui::{Entity, HighlightStyle as TextHighlight};
 
 use super::Editor;
-use super::element::{FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, Layout, cursor_bounds, measure_text_width};
+use super::element::{FONT_FAMILY, FONT_SIZE, Layout, cursor_bounds, measure_text_width};
 use super::menu::{MENU_ROWS, Menu, MenuKind, MenuRow, Preview};
 use super::popup::{
     GAP, Popover, ROW_HEIGHT, TEXT_SIZE, fit_to_content, markdown_element, place_vertically, popover_background,
@@ -113,7 +113,7 @@ fn signature_popover(
         .into_any_element();
     let measured = fit_to_content(&mut element, window, cx);
     let above = anchor.top() - GAP - measured.height;
-    let top = if above >= bounds.top() { above } else { anchor.top() + LINE_HEIGHT + GAP };
+    let top = if above >= bounds.top() { above } else { anchor.bottom() + GAP };
     let left = anchor.left().min(bounds.right() - measured.width).max(bounds.left());
     Some(Popover { element, origin: point(left, top) })
 }
@@ -173,8 +173,11 @@ fn menu_popovers(
         MenuKind::CodeActions => {
             let head = editor.read(|state| state.selections().newest().head);
             let anchor = head.and_then(|head| cursor_bounds(layout, head));
-            let anchor = anchor.map(|anchor| point(anchor.left(), anchor.top())).unwrap_or(bounds.origin);
-            let placed = place_vertically(anchor, width, measured.height, bounds);
+            let (line, line_height) = match anchor {
+                Some(anchor) => (anchor.origin, anchor.size.height),
+                None => (bounds.origin, super::rows::ROW_HEIGHT),
+            };
+            let placed = place_vertically(line, line_height, measured.height, bounds);
             point(placed.x.min(bounds.right() - width).max(bounds.left()), placed.y)
         }
     };

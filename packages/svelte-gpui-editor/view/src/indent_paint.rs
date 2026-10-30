@@ -4,7 +4,7 @@
 
 use svelte_gpui::gpui::{Bounds, Pixels, Window, fill, point, px, size};
 
-use super::element::{LINE_HEIGHT, Layout, VisibleRow};
+use super::element::{Layout, VisibleRow};
 use super::theme::EditorTheme;
 use editor_core::{EditorState, guides::Guides};
 
@@ -34,9 +34,10 @@ pub fn guide_lines(state: &EditorState, layout: &Layout, character_width: Pixels
             continue;
         };
         let top = layout.top_of_index(index);
+        let height = layout.height_of_index(index);
         for level in 0..guides.levels_of(line.row) {
             let left = (layout.text_left + level_width * level as f32).round();
-            let bounds = Bounds::new(point(left, top), size(GUIDE_WIDTH, LINE_HEIGHT));
+            let bounds = Bounds::new(point(left, top), size(GUIDE_WIDTH, height));
             lines.push(GuideLine { bounds, active: guides.is_active(line.row, level) });
         }
     }
