@@ -17,7 +17,7 @@ use svelte_gpui::CommandError;
 use svelte_gpui::gpui::{Bounds, Context, Pixels, Window, fill, point, px, size};
 
 use super::Editor;
-use super::element::LINE_HEIGHT;
+use super::rows;
 use super::theme::EditorTheme;
 use editor_core::EditorState;
 use editor_core::syntax::{HighlightId, HighlightSpan};
@@ -220,7 +220,8 @@ pub fn build(
             blocks.push((Bounds::new(point(left, top), size(width, px(BLOCK_HEIGHT))), block_color(block.id, theme)));
         }
     }
-    let line_height = f32::from(LINE_HEIGHT);
+    // The minimap counts the view's scroll in rows of the default height.
+    let line_height = f32::from(rows::ROW_HEIGHT);
     let band_top = geometry.y_of_row(f32::from(scroll_top) / line_height);
     let band_height = f32::from(view_height) / line_height * ROW_HEIGHT;
     let band = band_in_strip(strip, band_top, band_height);
@@ -289,7 +290,7 @@ impl Editor {
         let Some(line_count) = self.read(|state| state.buffer().line_count()) else {
             return Ok(Value::Null);
         };
-        let line_height = f32::from(LINE_HEIGHT);
+        let line_height = f32::from(rows::ROW_HEIGHT);
         let click = ClickLayout {
             line_count,
             strip_height: f32::from(strip.size.height),

@@ -4,7 +4,8 @@
 
 use svelte_gpui::gpui::{Bounds, Pixels, ShapedLine, Window, fill, point, px, size};
 
-use super::element::{LINE_HEIGHT, Layout, shape_plain, span_bounds};
+use super::element::{Layout, shape_plain, span_bounds};
+use super::rows::ROW_HEIGHT;
 use super::theme::EditorTheme;
 use editor_core::Position;
 use editor_core::jump::JumpSession;
@@ -55,12 +56,12 @@ pub fn build(
         let Some(label) = found.label.as_deref().and_then(|label| label.strip_prefix(typed)) else {
             continue;
         };
-        let Some((line, top)) = layout.line_of(found.start.row) else {
+        let Some((line, top, height)) = layout.line_of(found.start.row) else {
             continue;
         };
         let left = layout.text_left + line.shaped.x_for_index(line.display.range_end_offset(end.column));
         let width = character_width * label.chars().count() as f32 + LABEL_PADDING * 2.0;
-        let bounds = Bounds::new(point(left - LABEL_PADDING, top), size(width, LINE_HEIGHT));
+        let bounds = Bounds::new(point(left - LABEL_PADDING, top), size(width, height));
         paint.labels.push(LabelPaint { bounds, text: shape_plain(window, label, theme.jump_label_text) });
     }
     paint.note = note(session, layout, theme, window);
@@ -72,7 +73,7 @@ fn note(session: &JumpSession, layout: &Layout, theme: &EditorTheme, window: &mu
     let text = shape_plain(window, &format!("jump {}", session.pattern()), theme.foreground);
     let width = text.width + NOTE_PADDING * 2.0;
     let left = layout.bounds.right() - NOTE_MARGIN - width;
-    let bounds = Bounds::new(point(left, layout.bounds.top() + NOTE_MARGIN), size(width, LINE_HEIGHT));
+    let bounds = Bounds::new(point(left, layout.bounds.top() + NOTE_MARGIN), size(width, ROW_HEIGHT));
     Some(NotePaint { bounds, text })
 }
 
@@ -88,12 +89,12 @@ pub fn paint_over_text(paint: &JumpPaint, theme: &EditorTheme, window: &mut Wind
     for label in &paint.labels {
         window.paint_quad(fill(label.bounds, theme.jump_label).corner_radii(LABEL_RADIUS));
         let origin = point(label.bounds.left() + LABEL_PADDING, label.bounds.top());
-        let _ = label.text.paint(origin, LINE_HEIGHT, window, cx);
+        let _ = label.text.paint(origin, label.bounds.size.height, window, cx);
     }
     let Some(note) = &paint.note else {
         return;
     };
     window.paint_quad(fill(note.bounds, theme.current_line).corner_radii(LABEL_RADIUS));
     let origin = point(note.bounds.left() + NOTE_PADDING, note.bounds.top());
-    let _ = note.text.paint(origin, LINE_HEIGHT, window, cx);
+    let _ = note.text.paint(origin, ROW_HEIGHT, window, cx);
 }

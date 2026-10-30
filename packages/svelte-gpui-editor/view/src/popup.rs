@@ -12,7 +12,7 @@ use svelte_gpui::gpui::{
 
 use super::Editor;
 use super::completion::{Session, VISIBLE_ROWS};
-use super::element::{FONT_FAMILY, LINE_HEIGHT, Layout, cursor_bounds, measure_text_width};
+use super::element::{FONT_FAMILY, Layout, cursor_bounds, measure_text_width};
 use super::hover::Hover;
 use super::language::severity_of;
 use super::theme::{EditorTheme, mix};
@@ -84,7 +84,7 @@ fn completion_popovers(
     let width = panel_width(session, &shown, window);
     let height = ROW_HEIGHT * shown.len() as f32 + px(8.0);
     let left = (anchor.left() - px(8.0) - BADGE_SIZE - px(8.0)).max(layout.bounds.left() + px(4.0));
-    let origin = place_vertically(point(left, anchor.top()), width, height, bounds);
+    let origin = place_vertically(point(left, anchor.top()), anchor.size.height, height, bounds);
     let rows = shown.iter().map(|position| panel_row(entity, session, *position, theme, window));
     let panel = div()
         .w(width)
@@ -343,7 +343,7 @@ fn hover_popover(
         .children(sections)
         .into_any_element();
     let measured = fit_to_content(&mut element, window, cx);
-    let origin = place_vertically(point(anchor.left(), anchor.top()), measured.width, measured.height, bounds);
+    let origin = place_vertically(anchor.origin, anchor.size.height, measured.height, bounds);
     let left = origin.x.min(bounds.right() - measured.width).max(bounds.left());
     Some(Popover { element, origin: point(left, origin.y) })
 }
@@ -367,15 +367,15 @@ fn severity_rank(severity: Severity) -> u8 {
     }
 }
 
-/// Places a popover below the line it belongs to, or above it when there is not room below and
-/// there is above.
+/// Places a popover below the line it belongs to, which starts at `line` and is `line_height`
+/// tall, or above it when there is not room below and there is above.
 pub(super) fn place_vertically(
     line: Point<Pixels>,
-    _width: Pixels,
+    line_height: Pixels,
     height: Pixels,
     bounds: Bounds<Pixels>,
 ) -> Point<Pixels> {
-    let below = line.y + LINE_HEIGHT + GAP;
+    let below = line.y + line_height + GAP;
     let fits_below = below + height <= bounds.bottom();
     let above = line.y - GAP - height;
     if fits_below || above < bounds.top() {

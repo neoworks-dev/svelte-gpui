@@ -32,6 +32,7 @@ mod occurrence_view;
 mod options;
 mod popup;
 mod rename;
+mod rows;
 mod signals;
 mod search_marks;
 mod signature;
@@ -65,7 +66,8 @@ pub use signals::{Signal, SignalSender, Signals};
 
 use editor_core::display::DisplayRow;
 use editor_core::jump::JumpSession;
-use element::{EditorElement, LINE_HEIGHT, Layout};
+use element::{EditorElement, Layout};
+use rows::ROW_HEIGHT;
 use glide::MIN_GLIDE;
 use smooth_scroll::ScrollAnimation;
 use theme::EditorTheme;
@@ -443,7 +445,7 @@ impl Editor {
         let Some(layout) = &self.layout else {
             return 0;
         };
-        let mut display_row = (self.scroll_target() / LINE_HEIGHT).ceil() as usize;
+        let mut display_row = layout.row_layout.first_row_from(self.scroll_target());
         loop {
             match layout.blocks.row_at(display_row) {
                 DisplayRow::Text(row) => return row,
@@ -488,12 +490,14 @@ impl Editor {
         let Some(head_row) = self.read(|state| state.selections().newest().head.row) else {
             return;
         };
-        let head_top = LINE_HEIGHT * layout.blocks.display_row_of(head_row) as f32;
+        let head_display_row = layout.blocks.display_row_of(head_row);
+        let head_top = layout.row_layout.top_of(head_display_row);
+        let head_height = layout.row_layout.height_of(head_display_row);
         let view_height = layout.bounds.size.height;
         let target = match align {
             ScrollAlign::Top => head_top,
-            ScrollAlign::Center => head_top - (view_height - LINE_HEIGHT) / 2.0,
-            ScrollAlign::Bottom => head_top + LINE_HEIGHT - view_height,
+            ScrollAlign::Center => head_top - (view_height - head_height) / 2.0,
+            ScrollAlign::Bottom => head_top + head_height - view_height,
         };
         self.scroll_to(target.max(px(0.0)), MIN_GLIDE);
     }
@@ -573,16 +577,17 @@ impl Editor {
         }
         let mut blocks = Vec::new();
         for keyed in &layout.keyed_blocks {
-            let rows_down = keyed.rows.start as f32 - layout.first_display_row as f32;
-            let top = layout.first_row_top - origin + element::LINE_HEIGHT * rows_down;
-            let height = element::LINE_HEIGHT * keyed.rows.len() as f32;
+            let row_layout = &layout.row_layout;
+            let below_first = row_layout.top_of(keyed.rows.start) - row_layout.top_of(layout.first_display_row);
+            let top = layout.first_row_top - origin + below_first;
+            let height = row_layout.top_of(keyed.rows.end) - row_layout.top_of(keyed.rows.start);
             if top + height > px(0.0) && top < layout.bounds.size.height {
                 blocks.push(json!({ "key": keyed.key, "top": f32::from(top), "height": f32::from(height) }));
             }
         }
         let places = json!({
             "textLeft": f32::from(layout.text_left - layout.bounds.left()),
-            "lineHeight": f32::from(element::LINE_HEIGHT),
+            "lineHeight": f32::from(ROW_HEIGHT),
             "rows": rows,
             "blocks": blocks,
         });
@@ -619,8 +624,9 @@ impl Editor {
         let Some(head_row) = self.read(|state| state.selections().newest().head.row) else {
             return;
         };
-        let head_top = LINE_HEIGHT * layout.blocks.display_row_of(head_row) as f32;
-        let head_bottom = head_top + LINE_HEIGHT;
+        let head_display_row = layout.blocks.display_row_of(head_row);
+        let head_top = layout.row_layout.top_of(head_display_row);
+        let head_bottom = layout.row_layout.bottom_of(head_display_row);
         let view_height = layout.bounds.size.height;
         let scroll_top = self.scroll_target();
         if head_top < scroll_top {

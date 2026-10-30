@@ -23,6 +23,7 @@ use super::jump_paint::{self, JumpPaint};
 use super::minimap::{self, MinimapPaint};
 use super::options::EditorOptions;
 use super::popup;
+use super::rows::RowLayout;
 use super::theme::{EditorTheme, HighlightStyle};
 use super::vim_paint::{self, VimPaint};
 use editor_core::decorations::{DecorationKind, GutterMark, Placed, PlacedBlock, Placement, Tone, UnderlineKind};
@@ -33,7 +34,6 @@ use editor_core::{EditorState, InputStatus, Position, SourceFilter};
 
 pub const FONT_FAMILY: &str = "DejaVu Sans Mono";
 pub const FONT_SIZE: Pixels = px(14.0);
-pub const LINE_HEIGHT: Pixels = px(21.0);
 /// Space on each side of the line numbers.
 const GUTTER_PADDING: Pixels = px(16.0);
 const CURSOR_WIDTH: Pixels = px(2.0);
@@ -80,6 +80,8 @@ pub struct Layout {
     pub first_row_top: Pixels,
     /// Where the blocks are, which turns buffer rows into display rows.
     pub blocks: BlockMap,
+    /// Where the display rows sit vertically.
+    pub row_layout: RowLayout,
     /// The display rows drawn, from `first_display_row` on.
     pub rows: Vec<VisibleRow>,
     /// Where the minimap is, while there is one, so a press on it is not taken for one on the text.
@@ -117,13 +119,20 @@ pub struct VisibleLine {
 impl Layout {
     /// How many whole rows fit in the viewport.
     pub fn rows_in_view(&self) -> usize {
-        (self.bounds.size.height / LINE_HEIGHT).floor().max(1.0) as usize
+        self.row_layout.rows_fitting(self.first_display_row, self.bounds.size.height)
+    }
+
+    /// Which drawn row (counted from the first drawn) a y in the window falls in; a y above the
+    /// first is in the first.
+    fn index_at(&self, y: Pixels) -> usize {
+        let y_in_rows = self.row_layout.top_of(self.first_display_row) + (y - self.first_row_top);
+        self.row_layout.row_at(y_in_rows).saturating_sub(self.first_display_row)
     }
 
     /// The buffer position nearest a point in the window. A row of a block stands for the line it
     /// is pinned to.
     pub fn position_for_point(&self, point: svelte_gpui::gpui::Point<Pixels>) -> Position {
-        let rows_down = ((point.y - self.first_row_top) / LINE_HEIGHT).floor().max(0.0) as usize;
+        let rows_down = self.index_at(point.y);
         match self.rows.get(rows_down) {
             Some(VisibleRow::Text(line)) => {
                 let offset = line.shaped.closest_index_for_x(point.x - self.text_left);
@@ -148,8 +157,7 @@ impl Layout {
 
     /// Whether a point is on the text of a line, rather than the gutter or past the line's end.
     pub fn over_text(&self, point: svelte_gpui::gpui::Point<Pixels>) -> bool {
-        let rows_down = ((point.y - self.first_row_top) / LINE_HEIGHT).floor().max(0.0) as usize;
-        let Some(VisibleRow::Text(line)) = self.rows.get(rows_down) else {
+        let Some(VisibleRow::Text(line)) = self.rows.get(self.index_at(point.y)) else {
             return false;
         };
         point.x >= self.text_left && point.x <= self.text_left + line.shaped.width
@@ -157,14 +165,23 @@ impl Layout {
 
     /// The y of the top of the drawn display row at `index` (counted from the first drawn).
     pub(super) fn top_of_index(&self, index: usize) -> Pixels {
-        self.first_row_top + LINE_HEIGHT * index as f32
+        let first = self.first_display_row;
+        self.first_row_top + (self.row_layout.top_of(first + index) - self.row_layout.top_of(first))
     }
 
-    /// The drawn line of a buffer row and the y of its top, or none while it is out of view.
-    pub(super) fn line_of(&self, row: usize) -> Option<(&VisibleLine, Pixels)> {
+    /// The height of the drawn display row at `index` (counted from the first drawn).
+    pub(super) fn height_of_index(&self, index: usize) -> Pixels {
+        self.row_layout.height_of(self.first_display_row + index)
+    }
+
+    /// The drawn line of a buffer row, the y of its top and its height, or none while it is out
+    /// of view.
+    pub(super) fn line_of(&self, row: usize) -> Option<(&VisibleLine, Pixels, Pixels)> {
         let index = self.blocks.display_row_of(row).checked_sub(self.first_display_row)?;
         match self.rows.get(index)? {
-            VisibleRow::Text(line) if line.row == row => Some((line, self.top_of_index(index))),
+            VisibleRow::Text(line) if line.row == row => {
+                Some((line, self.top_of_index(index), self.height_of_index(index)))
+            }
             _ => None,
         }
     }
@@ -177,6 +194,7 @@ pub struct EditorElement {
 /// One row as this frame paints it.
 struct PaintedRow {
     top: Pixels,
+    height: Pixels,
     /// The line number and where it starts; a row of a block has none.
     number: Option<(ShapedLine, Pixels)>,
     text: ShapedLine,
@@ -198,7 +216,7 @@ struct DecorationUnderline {
 /// A mark in the gutter.
 enum GutterPaint {
     Shape { bounds: Bounds<Pixels>, color: Hsla, radius: Pixels },
-    Glyph { shaped: ShapedLine, origin: svelte_gpui::gpui::Point<Pixels> },
+    Glyph { shaped: ShapedLine, origin: svelte_gpui::gpui::Point<Pixels>, height: Pixels },
 }
 
 /// The name of one side of a side-by-side diff, and the band over that side it is drawn in.
@@ -211,6 +229,8 @@ struct SideLabel {
 struct LineEndPaint {
     shaped: ShapedLine,
     origin: svelte_gpui::gpui::Point<Pixels>,
+    /// The height of the row it is after.
+    height: Pixels,
 }
 
 pub struct Frame {
@@ -425,7 +445,7 @@ fn paint_frame(frame: &Frame, focused: bool, window: &mut Window, cx: &mut App) 
     window.with_content_mask(Some(ContentMask { bounds }), |window| {
         let theme = &frame.theme;
         for row in &frame.rows {
-            let line = Bounds::new(point(bounds.left(), row.top), size(bounds.size.width, LINE_HEIGHT));
+            let line = Bounds::new(point(bounds.left(), row.top), size(bounds.size.width, row.height));
             if let Some(tint) = row.tint {
                 window.paint_quad(fill(line, tint));
             }
@@ -451,12 +471,12 @@ fn paint_frame(frame: &Frame, focused: bool, window: &mut Window, cx: &mut App) 
         let text_left = bounds.left() + frame.gutter_width;
         for row in &frame.rows {
             if let Some((number, number_left)) = &row.number {
-                let _ = number.paint(point(*number_left, row.top), LINE_HEIGHT, window, cx);
+                let _ = number.paint(point(*number_left, row.top), row.height, window, cx);
             }
-            let _ = row.text.paint(point(text_left, row.top), LINE_HEIGHT, window, cx);
+            let _ = row.text.paint(point(text_left, row.top), row.height, window, cx);
         }
         for line_end in &frame.line_ends {
-            let _ = line_end.shaped.paint(line_end.origin, LINE_HEIGHT, window, cx);
+            let _ = line_end.shaped.paint(line_end.origin, line_end.height, window, cx);
         }
         for underline in &frame.decoration_underlines {
             let style = UnderlineStyle {
@@ -549,8 +569,8 @@ fn paint_gutter_mark(mark: &GutterPaint, window: &mut Window, cx: &mut App) {
         GutterPaint::Shape { bounds, color, radius } => {
             window.paint_quad(fill(*bounds, *color).corner_radii(*radius));
         }
-        GutterPaint::Glyph { shaped, origin } => {
-            let _ = shaped.paint(*origin, LINE_HEIGHT, window, cx);
+        GutterPaint::Glyph { shaped, origin, height } => {
+            let _ = shaped.paint(*origin, *height, window, cx);
         }
     }
 }
@@ -633,10 +653,11 @@ fn build_frame(
 
     let blocks = state.decoration_blocks_for(sources);
     let blocks_map = block_map(&blocks);
-    let first_display_row = (scroll_top / LINE_HEIGHT).floor() as usize;
-    let first_row_top = bounds.top() - (scroll_top - LINE_HEIGHT * first_display_row as f32);
-    let rows_drawn = (bounds.size.height / LINE_HEIGHT).ceil() as usize + 1;
-    let end_display_row = (first_display_row + rows_drawn).min(blocks_map.total_rows(line_count));
+    let row_layout = RowLayout::new(blocks_map.total_rows(line_count));
+    let first_display_row = row_layout.row_at(scroll_top);
+    let first_row_top = bounds.top() - (scroll_top - row_layout.top_of(first_display_row));
+    let rows_drawn = row_layout.rows_covering(first_display_row, bounds.size.height);
+    let end_display_row = (first_display_row + rows_drawn).min(row_layout.rows());
     let display_rows: Vec<DisplayRow> =
         (first_display_row..end_display_row).map(|row| blocks_map.row_at(row)).collect();
     let text_rows = text_row_range(&display_rows);
@@ -659,7 +680,9 @@ fn build_frame(
     let mut painted_rows = Vec::with_capacity(display_rows.len());
     let mut line_ends = Vec::new();
     for (index, display_row) in display_rows.iter().enumerate() {
-        let top = first_row_top + LINE_HEIGHT * index as f32;
+        let display_index = first_display_row + index;
+        let top = first_row_top + (row_layout.top_of(display_index) - row_layout.top_of(first_display_row));
+        let height = row_layout.height_of(display_index);
         match *display_row {
             DisplayRow::Text(row) => {
                 let is_cursor_row = cursor_rows.contains(&row);
@@ -674,10 +697,11 @@ fn build_frame(
                 if let Some((line_end_text, tone)) = row_decorations.line_ends.get(&row) {
                     let shaped = shape_italic(window, line_end_text, theme.tone(*tone));
                     let origin = point(text_left + text.width + LINE_END_GAP, top);
-                    line_ends.push(LineEndPaint { shaped, origin });
+                    line_ends.push(LineEndPaint { shaped, origin, height });
                 }
                 painted_rows.push(PaintedRow {
                     top,
+                    height,
                     number: Some((number, number_left)),
                     text: text.clone(),
                     is_cursor_row,
@@ -692,9 +716,11 @@ fn build_frame(
                 let color = theme.tone(tone);
                 let display = DisplayLine::new(&placed.lines[line]);
                 let text = shape_plain(window, &display.text, color);
-                let emphasis = block_emphasis(placed, line, &display, &text, text_left, top, theme);
+                let row_box = (top, height);
+                let emphasis = block_emphasis(placed, line, &display, &text, text_left, row_box, theme);
                 painted_rows.push(PaintedRow {
                     top,
+                    height,
                     number: None,
                     text,
                     is_cursor_row: false,
@@ -713,6 +739,7 @@ fn build_frame(
         first_display_row,
         first_row_top,
         blocks: blocks_map,
+        row_layout,
         rows: visible_rows,
         minimap: None,
         keyed_blocks: keyed,
@@ -836,7 +863,7 @@ fn block_emphasis(
     display: &DisplayLine,
     shaped: &ShapedLine,
     text_left: Pixels,
-    top: Pixels,
+    (top, height): (Pixels, Pixels),
     theme: &EditorTheme,
 ) -> Vec<(Bounds<Pixels>, Hsla)> {
     let tone = match block.tone {
@@ -850,7 +877,7 @@ fn block_emphasis(
         .map(|emphasis| {
             let left = text_left + shaped.x_for_index(display.range_start_offset(emphasis.start));
             let right = text_left + shaped.x_for_index(display.range_end_offset(emphasis.end));
-            (Bounds::new(point(left, top), size(right - left, LINE_HEIGHT)), color)
+            (Bounds::new(point(left, top), size(right - left, height)), color)
         })
         .collect()
 }
@@ -887,7 +914,7 @@ fn range_decorations(
         let wavy = underline.style == UnderlineKind::Squiggle;
         let height = if wavy { DECORATION_UNDERLINE_THICKNESS * 3.0 } else { DECORATION_UNDERLINE_THICKNESS };
         for span in &spans {
-            let origin = point(span.left(), span.top() + LINE_HEIGHT - height - px(1.0));
+            let origin = point(span.left(), span.bottom() - height - px(1.0));
             underlines.push(DecorationUnderline {
                 origin,
                 width: span.size.width,
@@ -922,16 +949,16 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
             _ => placed.start.row..placed.start.row + 1,
         };
         for row in rows {
-            let Some((_, top)) = layout.line_of(row) else {
+            let Some((_, top, height)) = layout.line_of(row) else {
                 continue;
             };
             match mark {
                 GutterMark::Bar => {
-                    let bar = Bounds::new(point(left + GUTTER_BAR_INSET, top), size(GUTTER_BAR_WIDTH, LINE_HEIGHT));
+                    let bar = Bounds::new(point(left + GUTTER_BAR_INSET, top), size(GUTTER_BAR_WIDTH, height));
                     marks.push(GutterPaint::Shape { bounds: bar, color, radius: px(0.0) });
                 }
                 GutterMark::Dot => {
-                    let origin = point(left + GUTTER_BAR_INSET, top + (LINE_HEIGHT - GUTTER_DOT_SIZE) / 2.0);
+                    let origin = point(left + GUTTER_BAR_INSET, top + (height - GUTTER_DOT_SIZE) / 2.0);
                     let dot = Bounds::new(origin, size(GUTTER_DOT_SIZE, GUTTER_DOT_SIZE));
                     marks.push(GutterPaint::Shape { bounds: dot, color, radius: GUTTER_DOT_SIZE / 2.0 });
                 }
@@ -945,7 +972,7 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
                 GutterMark::Glyph(character) => {
                     let shaped = shape_plain(window, &character.to_string(), color);
                     let origin = point(left + (GUTTER_PADDING - shaped.width) / 2.0, top);
-                    marks.push(GutterPaint::Glyph { shaped, origin });
+                    marks.push(GutterPaint::Glyph { shaped, origin, height });
                 }
             }
         }
@@ -955,18 +982,20 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
 
 /// Where a cursor is drawn, or none while its row is scrolled out of view.
 pub(super) fn cursor_bounds(layout: &Layout, head: Position) -> Option<Bounds<Pixels>> {
-    let (line, top) = layout.line_of(head.row)?;
+    let (line, top, height) = layout.line_of(head.row)?;
     let x = layout.text_left + line.shaped.x_for_index(line.display.offset_of(head.column));
-    Some(Bounds::new(point(x, top), size(CURSOR_WIDTH, LINE_HEIGHT)))
+    Some(Bounds::new(point(x, top), size(CURSOR_WIDTH, height)))
 }
 
 /// A thin line along the bottom of each visible row a range covers.
 fn underline_bounds(layout: &Layout, start: Position, end: Position) -> Vec<Bounds<Pixels>> {
     let spans = span_bounds(layout, start, end, px(0.0));
-    let line_bottom = LINE_HEIGHT - UNDERLINE_HEIGHT;
     spans
         .iter()
-        .map(|span| Bounds::new(point(span.left(), span.top() + line_bottom), size(span.size.width, UNDERLINE_HEIGHT)))
+        .map(|span| {
+            let origin = point(span.left(), span.bottom() - UNDERLINE_HEIGHT);
+            Bounds::new(origin, size(span.size.width, UNDERLINE_HEIGHT))
+        })
         .collect()
 }
 
@@ -996,7 +1025,8 @@ pub(super) fn span_bounds(
         if runs_past_end {
             right += line_ending_width;
         }
-        spans.push(Bounds::new(point(left, layout.top_of_index(index)), size(right - left, LINE_HEIGHT)));
+        let row_size = size(right - left, layout.height_of_index(index));
+        spans.push(Bounds::new(point(left, layout.top_of_index(index)), row_size));
     }
     spans
 }
