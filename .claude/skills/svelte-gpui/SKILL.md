@@ -40,7 +40,7 @@ are the reference. The app in `examples/demo` uses every feature.
 | Component | Key props | Methods |
 |---|---|---|
 | `View` | `style hover active focus focusable keepFocus onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()`, `blur()` |
-| `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph | |
+| `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph; any other element inside is an inline box sized by its `width`/`height` (or the font size), moved by `verticalAlign` | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onselect onkey` | `focus()`, `blur()`, `select(start?, end?)`, `getSelection()` gives `{ start, end, firstRow, lastRow }` |
 | `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
@@ -66,7 +66,7 @@ These are the only keys; anything else is ignored. See `docs/styles.md` for valu
 - **Paint:** `background opacity borderWidth border{Top,Right,Bottom,Left}Width
   borderColor radius shadow cursor transition`
 - **Text:** `color fontSize fontWeight fontFamily lineHeight italic underline
-  strikethrough textAlign nowrap truncate maxLines uppercase`
+  strikethrough textAlign nowrap truncate maxLines uppercase verticalAlign`
 
 The values that trip people up:
 

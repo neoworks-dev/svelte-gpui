@@ -116,6 +116,11 @@ export interface Style {
   truncate?: boolean;
   maxLines?: number;
   uppercase?: boolean;
+  /**
+   * For an element inside a `Text`, which sits on the line's baseline: how far up it moves, in
+   * pixels, as in CSS. A negative value lowers it, so a formula's depth hangs below the line.
+   */
+  verticalAlign?: number;
 }
 
 /** A style as the host reads it, or nothing. */

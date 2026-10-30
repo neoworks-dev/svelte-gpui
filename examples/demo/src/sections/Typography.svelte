@@ -1,11 +1,13 @@
 <!-- Text: one paragraph per `Text`, with nested `Text` for runs that look different. -->
 <script lang="ts">
-  import { Text, View } from "@neoworks/svelte-gpui/ui";
+  import { Icon, Text, View } from "@neoworks/svelte-gpui/ui";
   import Card from "../components/Card.svelte";
   import Slider from "../components/Slider.svelte";
   import { caption, colors, mono } from "../theme";
 
   let width = $state(420);
+  const inlineWidth = 360;
+  const star = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l3 6.9 7.5.7-5.7 5 1.7 7.4L12 18l-6.5 4 1.7-7.4-5.7-5 7.5-.7z"/></svg>`;
 
   const sizes = [11, 13, 15, 18, 24, 32];
   const weights = [300, 400, 500, 600, 700, 800] as const;
@@ -47,6 +49,19 @@
       <Text style={{ fontFamily: "mono", background: colors.raised, color: colors.pink }}> monospaced </Text>, or
       <Text style={{ uppercase: true, fontSize: 12, color: colors.green }}>shouting</Text>, all in the same line.
     </Text>
+  </Card>
+
+  <Card title="Inline boxes" note="Other elements in a Text sit in its lines and wrap with the words.">
+    <View style={{ width: inlineWidth, padding: 12, radius: 8, background: colors.window }}>
+      <Text style={{ fontSize: 15, lineHeight: 24 }}>
+        An icon <Icon svg={star} color={colors.amber} /> sits on the baseline like a word, and a badge
+        <View style={{ width: 44, height: 18, radius: 9, background: colors.accent, align: "center", justify: "center" }}
+          ><Text style={{ fontSize: 11 }}>new</Text></View
+        > wraps with the text. A taller box makes its line taller
+        <Icon svg={star} size={40} color={colors.green} style={{ verticalAlign: -10 }} /> and
+        <Text style={{ italic: true }}>verticalAlign</Text> lowers it, as a formula's depth hangs below the line.
+      </Text>
+    </View>
   </Card>
 
   <Card title="Wrapping" note="Drag to change the column's width.">

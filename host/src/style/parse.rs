@@ -122,6 +122,7 @@ impl Style {
                 })
             }
             "lineHeight" => self.line_height = number(value),
+            "verticalAlign" => self.vertical_align = number(value),
             "italic" => self.italic = value.as_bool(),
             "underline" => self.underline = value.as_bool(),
             "strikethrough" => self.strikethrough = value.as_bool(),

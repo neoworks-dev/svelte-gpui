@@ -146,6 +146,8 @@ pub struct Style {
     pub truncate: Option<bool>,
     pub max_lines: Option<usize>,
     pub uppercase: Option<bool>,
+    /// How far an element in a paragraph's lines sits above the baseline, in pixels.
+    pub vertical_align: Option<f32>,
     pub cursor: Option<CursorStyle>,
 }
 
@@ -236,6 +238,7 @@ impl Style {
             truncate,
             max_lines,
             uppercase,
+            vertical_align,
             cursor
         );
         for side in 0..4 {
