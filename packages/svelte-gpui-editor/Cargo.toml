@@ -1,5 +1,11 @@
 # The editor's crates, which an app takes as git dependencies of this repository.
-# `editor-core` is the editor without a window, and `lsp-client` talks to language servers.
+# `editor-core` is the editor without a window, `lsp-client` talks to language servers, and
+# `view` draws an editor with GPUI.
 [workspace]
-members = ["editor-core", "lsp-client"]
+members = ["editor-core", "lsp-client", "view"]
 resolver = "3"
+
+# The same patches as the host's own workspace, which only apply at a workspace's root.
+[patch.crates-io]
+xattr = { path = "../../host/vendor/xattr" }
+gpui = { path = "../../host/vendor/gpui" }

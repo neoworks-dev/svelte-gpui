@@ -1,0 +1,15 @@
+[package]
+name = "svelte-gpui-editor"
+version = "0.1.0"
+edition = "2024"
+description = "The editor's view: draws an editor_core document with GPUI, placed in an app as element(\"editor\")."
+
+[lib]
+name = "svelte_gpui_editor"
+
+[dependencies]
+editor-core = { path = "../editor-core" }
+lsp-client = { path = "../lsp-client" }
+svelte_gpui_host = { path = "../../../host" }
+futures = "0.3"
+serde_json = "1"
