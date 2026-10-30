@@ -85,6 +85,21 @@ To limit a paragraph, use `truncate: true` for one line with an ellipsis, or
 `maxLines: n`. Text properties set on any element (`color`, `fontSize`, …) are
 inherited by the text inside it, so a `Button` can set the colour of its label.
 
+Any other element inside a `Text`, such as an `Icon` or a `View`, is an inline box: it
+sits on the baseline like a word and wraps with the words, and a line grows to hold a
+box taller than its text. Lines are broken before the box is laid out, so its size
+comes from its style's `width` and `height` in pixels, or is the font size. A
+`verticalAlign` style moves it up, or down when negative, as CSS's does.
+
+```svelte
+<Text>
+  Press <Icon svg={star} /> to keep it, or the formula
+  <Icon svg={formula} style={{ width: 52, height: 20, verticalAlign: -5 }} /> holds.
+</Text>
+```
+
+A paragraph with boxes is left-aligned, and `truncate` and `maxLines` don't apply to it.
+
 ## Button
 
 Something to press. It is focusable, and while focused, Enter and Space press it. The
