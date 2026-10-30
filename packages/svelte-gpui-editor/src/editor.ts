@@ -88,6 +88,8 @@ export interface EditorProps {
   minimap?: number;
   /** Breaks lines too wide for the view instead of scrolling sideways. A side-by-side diff never wraps. */
   wrap?: boolean;
+  /** Shows line numbers in a gutter, which is the default; without them the text starts at the left edge. */
+  lineNumbers?: boolean;
   /** Views in the same group scroll together. */
   scrollGroup?: string;
   /** Whether the app's keymap waits for the next key of a sequence, which the view then leaves alone. */
