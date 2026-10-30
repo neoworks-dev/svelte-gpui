@@ -453,6 +453,7 @@ impl Element for EditorElement {
         let options = editor.documents.options();
         let jump = editor.jump.as_ref();
         let sources = editor.sources.clone();
+        let line_numbers = editor.line_numbers;
         let minimap_width = editor.minimap_width;
         let furthest_scroll = editor.furthest_scroll();
         let mut own_bounds = bounds;
@@ -472,8 +473,20 @@ impl Element for EditorElement {
                 own_label = Some(SideLabel { band: right_band, shaped: shape_label(window, new_label, theme.hint) });
             }
             companion = editor.read_document(companion_id, |state| {
-                let (_, mut frame) =
-                    build_frame(state, scroll_top, left, window, &theme, &status, options, None, &sources, false, None);
+                let (_, mut frame) = build_frame(
+                    state,
+                    scroll_top,
+                    left,
+                    window,
+                    &theme,
+                    &status,
+                    options,
+                    None,
+                    &sources,
+                    false,
+                    None,
+                    line_numbers,
+                );
                 frame.label = companion_label;
                 Box::new(frame)
             });
@@ -492,7 +505,18 @@ impl Element for EditorElement {
         }
         let built = editor.read(|state| {
             let (mut layout, mut frame) = build_frame(
-                state, scroll_top, own_bounds, window, &theme, &status, options, jump, &sources, true, measuring,
+                state,
+                scroll_top,
+                own_bounds,
+                window,
+                &theme,
+                &status,
+                options,
+                jump,
+                &sources,
+                true,
+                measuring,
+                line_numbers,
             );
             if wants_minimap {
                 attach_minimap(&mut layout, &mut frame, state, minimap_width, scroll_top, furthest_scroll);
@@ -762,11 +786,16 @@ fn build_frame(
     sources: &SourceFilter,
     active: bool,
     measuring: Option<Measuring>,
+    line_numbers: bool,
 ) -> (Layout, Frame) {
     let line_count = state.buffer().line_count();
     let digits = line_count.max(1).to_string().len();
     let digit_width = shape_plain(window, &"0".repeat(digits), theme.line_number).width;
-    let gutter_width = digit_width + GUTTER_PADDING * 2.0;
+    // Without line numbers there is no gutter, and the text starts at the left edge.
+    let mut gutter_width = px(0.0);
+    if line_numbers {
+        gutter_width = digit_width + GUTTER_PADDING * 2.0;
+    }
     let text_left = bounds.left() + gutter_width;
 
     let blocks = state.decoration_blocks_for(sources);
@@ -814,9 +843,13 @@ fn build_frame(
         match *display_row {
             DisplayRow::Text(row) => {
                 let is_cursor_row = cursor_rows.contains(&row);
-                let number_color = if is_cursor_row { theme.current_line_number } else { theme.line_number };
-                let number = shape_plain(window, &(row + 1).to_string(), number_color);
-                let number_left = bounds.left() + GUTTER_PADDING + digit_width - number.width;
+                let mut number = None;
+                if line_numbers {
+                    let number_color = if is_cursor_row { theme.current_line_number } else { theme.line_number };
+                    let shaped = shape_plain(window, &(row + 1).to_string(), number_color);
+                    let number_left = bounds.left() + GUTTER_PADDING + digit_width - shaped.width;
+                    number = Some((shaped, number_left));
+                }
                 let inlays = row_decorations.inlays.get(&row).map(Vec::as_slice).unwrap_or_default();
                 let display = line_with_inlays(&state.buffer().line(row), inlays);
                 let inlay_tones: Vec<Tone> = inlays.iter().map(|(_, _, tone)| *tone).collect();
@@ -833,7 +866,7 @@ fn build_frame(
                     top,
                     height,
                     piece_height: line.piece_height,
-                    number: Some((number, number_left)),
+                    number,
                     text: line.shaped.clone(),
                     is_cursor_row,
                     tint: line_tints.get(&row).copied(),

@@ -4,7 +4,13 @@
 -->
 <script lang="ts">
   import { Text, View } from "@neoworks/svelte-gpui/ui";
-  import { Editor, gpuiDocumentHost, type DocumentSummary, type EditorTheme } from "@neoworks/svelte-gpui-editor";
+  import {
+    Editor,
+    gpuiDocumentHost,
+    proseTheme,
+    type DocumentSummary,
+    type EditorTheme,
+  } from "@neoworks/svelte-gpui-editor";
 
   /** Syntax colours by highlight name; the window colours stay the view's defaults. */
   const theme: Partial<EditorTheme> = {
@@ -29,22 +35,28 @@ fn main() {
 }
 `;
 
-  /** The note in the host's sans-serif, with larger headings and code in monospace. */
-  const proseTheme: Partial<EditorTheme> = {
-    fontFamily: "Geist",
-    fontSize: 15,
-    syntax: {
-      title: { color: "#fafafa", bold: true, size: 24 },
-      "punctuation.special": "#71717a",
-      "text.literal": { color: "#fbbf24", family: "DejaVu Sans Mono", size: 14 },
-    },
-  };
+  /** The note drawn the way a notes app shows Markdown. */
+  const noteTheme = proseTheme({
+    text: "#e4e4e7",
+    heading: "#fafafa",
+    muted: "#71717a",
+    link: "#60a5fa",
+    code: "#fbbf24",
+  });
 
   const PROSE = `# Notes
 
 Soft wrapping breaks a line that is too wide for the view where the text no longer fits, so prose reads like a page instead of one long row that scrolls sideways. The line keeps its one number in the gutter.
 
-A short line stays as it is, and \`code\` stays in monospace.
+## Styles
+
+Text can be *emphasised* or **strong**, hold \`inline code\`, or link to [the docs](https://neoworks.dev).
+
+### Code
+
+\`\`\`rust
+let words = line.split_whitespace().count();
+\`\`\`
 `;
 
   let summary = $state<DocumentSummary | null>(null);
@@ -73,5 +85,5 @@ A short line stays as it is, and \`code\` stays in monospace.
   <View style={{ height: 36, paddingX: 14, justify: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#26262c" }}>
     <Text style={{ fontSize: 13, color: "#a1a1aa" }}>{prose?.title ?? "Opening…"}</Text>
   </View>
-  <Editor key="prose" document={prose?.id ?? null} theme={proseTheme} wrap style={{ flex: 1 }} />
+  <Editor key="prose" document={prose?.id ?? null} theme={noteTheme} wrap style={{ flex: 1 }} />
 </View>
