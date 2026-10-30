@@ -56,12 +56,13 @@ pub fn build(
         let Some(label) = found.label.as_deref().and_then(|label| label.strip_prefix(typed)) else {
             continue;
         };
-        let Some((line, top, height)) = layout.line_of(found.start.row) else {
+        let Some((line, row_top, _)) = layout.line_of(found.start.row) else {
             continue;
         };
-        let left = layout.text_left + line.shaped.x_for_index(line.display.range_end_offset(end.column));
+        let at = line.point_of(line.display.range_end_offset(end.column));
+        let left = layout.text_left + at.x;
         let width = character_width * label.chars().count() as f32 + LABEL_PADDING * 2.0;
-        let bounds = Bounds::new(point(left - LABEL_PADDING, top), size(width, height));
+        let bounds = Bounds::new(point(left - LABEL_PADDING, row_top + at.y), size(width, ROW_HEIGHT));
         paint.labels.push(LabelPaint { bounds, text: shape_plain(window, label, theme.jump_label_text) });
     }
     paint.note = note(session, layout, theme, window);

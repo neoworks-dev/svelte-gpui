@@ -8,13 +8,14 @@
 //! Other decorations are painted around it: ranges behind and under the text, marks in the gutter,
 //! and text after the end of a line.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use svelte_gpui::gpui::{
     App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextRun, UnderlineStyle,
-    Window, fill, font, point, px, relative, size,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign, TextRun,
+    UnderlineStyle, Window, WrappedLine, fill, font, point, px, relative, size,
 };
 
 use super::Editor;
@@ -23,9 +24,10 @@ use super::jump_paint::{self, JumpPaint};
 use super::minimap::{self, MinimapPaint};
 use super::options::EditorOptions;
 use super::popup;
-use super::rows::RowLayout;
+use super::rows::{ROW_HEIGHT, RowLayout};
 use super::theme::{EditorTheme, HighlightStyle};
 use super::vim_paint::{self, VimPaint};
+use super::wrap::{self, WrapCache};
 use editor_core::decorations::{DecorationKind, GutterMark, Placed, PlacedBlock, Placement, Tone, UnderlineKind};
 use editor_core::display::{BlockMap, BlockSlot, DisplayLine, DisplayRow, InlayText};
 use editor_core::jump::JumpSession;
@@ -82,6 +84,8 @@ pub struct Layout {
     pub blocks: BlockMap,
     /// Where the display rows sit vertically.
     pub row_layout: RowLayout,
+    /// The width lines were wrapped to, while the view wraps them.
+    pub wrap_width: Option<Pixels>,
     /// The display rows drawn, from `first_display_row` on.
     pub rows: Vec<VisibleRow>,
     /// Where the minimap is, while there is one, so a press on it is not taken for one on the text.
@@ -113,7 +117,84 @@ pub struct VisibleLine {
     /// The buffer row.
     pub row: usize,
     pub display: DisplayLine,
-    pub shaped: ShapedLine,
+    /// The drawn text, in one piece unless the view wraps lines (see `wrap.rs`). Each piece is
+    /// `ROW_HEIGHT` tall, the first at the top of the line's row.
+    pub shaped: WrappedLine,
+}
+
+impl VisibleLine {
+    /// How many pieces the line is wrapped into.
+    pub fn piece_count(&self) -> usize {
+        self.shaped.wrap_boundaries().len() + 1
+    }
+
+    /// The offset in the drawn text where a piece starts.
+    fn piece_start(&self, piece: usize) -> usize {
+        if piece == 0 {
+            return 0;
+        }
+        let Some(boundary) = self.shaped.wrap_boundaries().get(piece - 1) else {
+            return self.shaped.len();
+        };
+        self.shaped.unwrapped_layout.runs[boundary.run_ix].glyphs[boundary.glyph_ix].index
+    }
+
+    /// The offset in the drawn text where a piece ends, which is where the next one starts.
+    fn piece_end(&self, piece: usize) -> usize {
+        self.piece_start(piece + 1)
+    }
+
+    /// The piece an offset is drawn in. An offset where the line wraps starts the next piece.
+    pub fn piece_of(&self, offset: usize) -> usize {
+        let mut piece = 0;
+        while piece + 1 < self.piece_count() && self.piece_start(piece + 1) <= offset {
+            piece += 1;
+        }
+        piece
+    }
+
+    /// Like `piece_of`, but an offset where the line wraps ends the piece before, as the end of
+    /// a range there does.
+    fn piece_ending_at(&self, offset: usize) -> usize {
+        let piece = self.piece_of(offset);
+        if piece > 0 && self.piece_start(piece) == offset {
+            return piece - 1;
+        }
+        piece
+    }
+
+    /// How far right of the text's left edge an offset is drawn in a piece.
+    pub fn x_in_piece(&self, offset: usize, piece: usize) -> Pixels {
+        let layout = &self.shaped.unwrapped_layout;
+        layout.x_for_index(offset) - layout.x_for_index(self.piece_start(piece))
+    }
+
+    /// Where an offset is drawn, from the text's left edge and the top of the line's row.
+    pub fn point_of(&self, offset: usize) -> svelte_gpui::gpui::Point<Pixels> {
+        let piece = self.piece_of(offset);
+        point(self.x_in_piece(offset, piece), ROW_HEIGHT * piece as f32)
+    }
+
+    /// How wide a piece is drawn.
+    pub fn piece_width(&self, piece: usize) -> Pixels {
+        self.x_in_piece(self.piece_end(piece), piece)
+    }
+
+    /// The offset nearest a point given from the text's left edge and the top of the line's row.
+    /// Past the end of a piece the line wraps after, it is the last offset on that piece rather
+    /// than the first of the next.
+    pub fn offset_at(&self, at: svelte_gpui::gpui::Point<Pixels>) -> usize {
+        let piece = ((at.y / ROW_HEIGHT).floor().max(0.0) as usize).min(self.piece_count() - 1);
+        let start = self.piece_start(piece);
+        let end = self.piece_end(piece);
+        let layout = &self.shaped.unwrapped_layout;
+        let offset = layout.closest_index_for_x(at.x + layout.x_for_index(start)).clamp(start, end);
+        if offset < end || piece + 1 == self.piece_count() {
+            return offset;
+        }
+        let text = &self.display.text;
+        text[..end].char_indices().next_back().map_or(start, |(index, _)| index.max(start))
+    }
 }
 
 impl Layout {
@@ -135,7 +216,9 @@ impl Layout {
         let rows_down = self.index_at(point.y);
         match self.rows.get(rows_down) {
             Some(VisibleRow::Text(line)) => {
-                let offset = line.shaped.closest_index_for_x(point.x - self.text_left);
+                let in_line =
+                    svelte_gpui::gpui::point(point.x - self.text_left, point.y - self.top_of_index(rows_down));
+                let offset = line.offset_at(in_line);
                 Position { row: line.row, column: line.display.column_at(offset) }
             }
             Some(VisibleRow::Block { row, placement: Placement::Above }) => Position { row: *row, column: 0 },
@@ -157,10 +240,13 @@ impl Layout {
 
     /// Whether a point is on the text of a line, rather than the gutter or past the line's end.
     pub fn over_text(&self, point: svelte_gpui::gpui::Point<Pixels>) -> bool {
-        let Some(VisibleRow::Text(line)) = self.rows.get(self.index_at(point.y)) else {
+        let index = self.index_at(point.y);
+        let Some(VisibleRow::Text(line)) = self.rows.get(index) else {
             return false;
         };
-        point.x >= self.text_left && point.x <= self.text_left + line.shaped.width
+        let piece = ((point.y - self.top_of_index(index)) / ROW_HEIGHT).floor().max(0.0) as usize;
+        let piece = piece.min(line.piece_count() - 1);
+        point.x >= self.text_left && point.x <= self.text_left + line.piece_width(piece)
     }
 
     /// The y of the top of the drawn display row at `index` (counted from the first drawn).
@@ -191,13 +277,20 @@ pub struct EditorElement {
     pub editor: Entity<Editor>,
 }
 
+/// What a frame needs to wrap lines: the counts of pieces kept between frames, and how much of
+/// the right of its box is not the text's.
+struct Wrapping<'a> {
+    cache: &'a RefCell<WrapCache>,
+    reserved_right: Pixels,
+}
+
 /// One row as this frame paints it.
 struct PaintedRow {
     top: Pixels,
     height: Pixels,
     /// The line number and where it starts; a row of a block has none.
     number: Option<(ShapedLine, Pixels)>,
-    text: ShapedLine,
+    text: WrappedLine,
     is_cursor_row: bool,
     /// Behind the whole row, for the rows of a block and the lines a diff marks.
     tint: Option<Hsla>,
@@ -367,16 +460,26 @@ impl Element for EditorElement {
             }
             companion = editor.read_document(companion_id, |state| {
                 let (_, mut frame) =
-                    build_frame(state, scroll_top, left, window, &theme, &status, options, None, &sources, false);
+                    build_frame(state, scroll_top, left, window, &theme, &status, options, None, &sources, false, None);
                 frame.label = companion_label;
                 Box::new(frame)
             });
         }
-        // Side by side, each half is too narrow to give a strip of it to the minimap.
+        // Side by side, each half is too narrow to give a strip of it to the minimap. The two
+        // sides scroll row for row, which wrapping either would break, so neither wraps.
         let wants_minimap = companion.is_none();
+        let mut wrapping = None;
+        if editor.wrap && wants_minimap {
+            let mut reserved_right = px(0.0);
+            if let Some(strip) = minimap::strip_bounds(own_bounds, minimap_width) {
+                reserved_right = strip.size.width;
+            }
+            wrapping = Some(Wrapping { cache: &editor.wrap_cache, reserved_right });
+        }
         let built = editor.read(|state| {
-            let (mut layout, mut frame) =
-                build_frame(state, scroll_top, own_bounds, window, &theme, &status, options, jump, &sources, true);
+            let (mut layout, mut frame) = build_frame(
+                state, scroll_top, own_bounds, window, &theme, &status, options, jump, &sources, true, wrapping,
+            );
             if wants_minimap {
                 attach_minimap(&mut layout, &mut frame, state, minimap_width, scroll_top, furthest_scroll);
             }
@@ -470,10 +573,11 @@ fn paint_frame(frame: &Frame, focused: bool, window: &mut Window, cx: &mut App) 
         }
         let text_left = bounds.left() + frame.gutter_width;
         for row in &frame.rows {
+            // A wrapped line's number stands beside its first piece.
             if let Some((number, number_left)) = &row.number {
-                let _ = number.paint(point(*number_left, row.top), row.height, window, cx);
+                let _ = number.paint(point(*number_left, row.top), ROW_HEIGHT, window, cx);
             }
-            let _ = row.text.paint(point(text_left, row.top), row.height, window, cx);
+            let _ = row.text.paint(point(text_left, row.top), ROW_HEIGHT, TextAlign::Left, None, window, cx);
         }
         for line_end in &frame.line_ends {
             let _ = line_end.shaped.paint(line_end.origin, line_end.height, window, cx);
@@ -644,6 +748,7 @@ fn build_frame(
     jump: Option<&JumpSession>,
     sources: &SourceFilter,
     active: bool,
+    wrapping: Option<Wrapping>,
 ) -> (Layout, Frame) {
     let line_count = state.buffer().line_count();
     let digits = line_count.max(1).to_string().len();
@@ -653,7 +758,15 @@ fn build_frame(
 
     let blocks = state.decoration_blocks_for(sources);
     let blocks_map = block_map(&blocks);
-    let row_layout = RowLayout::new(blocks_map.total_rows(line_count));
+    let mut wrap_width = None;
+    let row_layout = match wrapping {
+        Some(wrapping) => {
+            let width = wrap::wrap_width(bounds.right() - wrapping.reserved_right - text_left);
+            wrap_width = Some(width);
+            wrapping.cache.borrow_mut().row_layout(state, &blocks_map, width, window)
+        }
+        None => RowLayout::new(blocks_map.total_rows(line_count)),
+    };
     let first_display_row = row_layout.row_at(scroll_top);
     let first_row_top = bounds.top() - (scroll_top - row_layout.top_of(first_display_row));
     let rows_drawn = row_layout.rows_covering(first_display_row, bounds.size.height);
@@ -693,29 +806,33 @@ fn build_frame(
                 let display = line_with_inlays(&state.buffer().line(row), inlays);
                 let inlay_tones: Vec<Tone> = inlays.iter().map(|(_, _, tone)| *tone).collect();
                 let runs = text_runs(&display, &syntax[row - text_rows.start], &inlay_tones, theme);
-                let text = shape_runs(window, &display.text, &runs);
+                let text = shape_wrapped(window, &display.text, &runs, wrap_width);
+                let line = VisibleLine { row, display, shaped: text.clone() };
                 if let Some((line_end_text, tone)) = row_decorations.line_ends.get(&row) {
                     let shaped = shape_italic(window, line_end_text, theme.tone(*tone));
-                    let origin = point(text_left + text.width + LINE_END_GAP, top);
-                    line_ends.push(LineEndPaint { shaped, origin, height });
+                    let last_piece = line.piece_count() - 1;
+                    let left = text_left + line.piece_width(last_piece) + LINE_END_GAP;
+                    let origin = point(left, top + ROW_HEIGHT * last_piece as f32);
+                    line_ends.push(LineEndPaint { shaped, origin, height: ROW_HEIGHT });
                 }
                 painted_rows.push(PaintedRow {
                     top,
                     height,
                     number: Some((number, number_left)),
-                    text: text.clone(),
+                    text,
                     is_cursor_row,
                     tint: line_tints.get(&row).copied(),
                     emphasis: Vec::new(),
                 });
-                visible_rows.push(VisibleRow::Text(VisibleLine { row, display, shaped: text }));
+                visible_rows.push(VisibleRow::Text(line));
             }
             DisplayRow::Block { block, line } => {
                 let placed = &blocks[block];
                 let tone = placed.tone.unwrap_or(Tone::Inlay);
                 let color = theme.tone(tone);
                 let display = DisplayLine::new(&placed.lines[line]);
-                let text = shape_plain(window, &display.text, color);
+                let plain = HighlightStyle { color, bold: false, italic: false };
+                let text = shape_wrapped(window, &display.text, &[text_run(display.text.len(), plain, None)], None);
                 let row_box = (top, height);
                 let emphasis = block_emphasis(placed, line, &display, &text, text_left, row_box, theme);
                 painted_rows.push(PaintedRow {
@@ -740,6 +857,7 @@ fn build_frame(
         first_row_top,
         blocks: blocks_map,
         row_layout,
+        wrap_width,
         rows: visible_rows,
         minimap: None,
         keyed_blocks: keyed,
@@ -861,11 +979,12 @@ fn block_emphasis(
     block: &PlacedBlock,
     line: usize,
     display: &DisplayLine,
-    shaped: &ShapedLine,
+    shaped: &WrappedLine,
     text_left: Pixels,
     (top, height): (Pixels, Pixels),
     theme: &EditorTheme,
 ) -> Vec<(Bounds<Pixels>, Hsla)> {
+    let shaped = &shaped.unwrapped_layout;
     let tone = match block.tone {
         Some(Tone::Deleted) => Tone::DeletedWord,
         Some(Tone::Added) => Tone::AddedWord,
@@ -957,8 +1076,9 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
                     let bar = Bounds::new(point(left + GUTTER_BAR_INSET, top), size(GUTTER_BAR_WIDTH, height));
                     marks.push(GutterPaint::Shape { bounds: bar, color, radius: px(0.0) });
                 }
+                // A dot and a glyph stand beside a wrapped line's first piece, as its number does.
                 GutterMark::Dot => {
-                    let origin = point(left + GUTTER_BAR_INSET, top + (height - GUTTER_DOT_SIZE) / 2.0);
+                    let origin = point(left + GUTTER_BAR_INSET, top + (ROW_HEIGHT - GUTTER_DOT_SIZE) / 2.0);
                     let dot = Bounds::new(origin, size(GUTTER_DOT_SIZE, GUTTER_DOT_SIZE));
                     marks.push(GutterPaint::Shape { bounds: dot, color, radius: GUTTER_DOT_SIZE / 2.0 });
                 }
@@ -972,7 +1092,7 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
                 GutterMark::Glyph(character) => {
                     let shaped = shape_plain(window, &character.to_string(), color);
                     let origin = point(left + (GUTTER_PADDING - shaped.width) / 2.0, top);
-                    marks.push(GutterPaint::Glyph { shaped, origin, height });
+                    marks.push(GutterPaint::Glyph { shaped, origin, height: ROW_HEIGHT });
                 }
             }
         }
@@ -982,9 +1102,9 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
 
 /// Where a cursor is drawn, or none while its row is scrolled out of view.
 pub(super) fn cursor_bounds(layout: &Layout, head: Position) -> Option<Bounds<Pixels>> {
-    let (line, top, height) = layout.line_of(head.row)?;
-    let x = layout.text_left + line.shaped.x_for_index(line.display.offset_of(head.column));
-    Some(Bounds::new(point(x, top), size(CURSOR_WIDTH, height)))
+    let (line, top, _) = layout.line_of(head.row)?;
+    let at = line.point_of(line.display.offset_of(head.column));
+    Some(Bounds::new(point(layout.text_left + at.x, top + at.y), size(CURSOR_WIDTH, ROW_HEIGHT)))
 }
 
 /// A thin line along the bottom of each visible row a range covers.
@@ -999,9 +1119,9 @@ fn underline_bounds(layout: &Layout, start: Position, end: Position) -> Vec<Boun
         .collect()
 }
 
-/// One rectangle per visible row a range covers, as tall as a line. A row the range runs past
-/// the end of is widened by `line_ending_width`. A range starts after the inlays at its first
-/// column and takes in the ones inside it.
+/// One rectangle per visible piece of a line a range covers, as tall as a piece. The last piece
+/// of a line the range runs past the end of is widened by `line_ending_width`. A range starts
+/// after the inlays at its first column and takes in the ones inside it.
 pub(super) fn span_bounds(
     layout: &Layout,
     start: Position,
@@ -1020,13 +1140,23 @@ pub(super) fn span_bounds(
         let left_offset = if line.row == start.row { line.display.range_start_offset(start.column) } else { 0 };
         let right_offset =
             if runs_past_end { line.display.text.len() } else { line.display.range_end_offset(end.column) };
-        let left = layout.text_left + line.shaped.x_for_index(left_offset);
-        let mut right = layout.text_left + line.shaped.x_for_index(right_offset);
-        if runs_past_end {
-            right += line_ending_width;
+        let first_piece = line.piece_of(left_offset);
+        let last_piece = line.piece_ending_at(right_offset).max(first_piece);
+        for piece in first_piece..=last_piece {
+            let mut left = px(0.0);
+            if piece == first_piece {
+                left = line.x_in_piece(left_offset, piece);
+            }
+            let mut right = line.piece_width(piece);
+            if piece == last_piece {
+                right = line.x_in_piece(right_offset, piece);
+            }
+            if runs_past_end && piece == last_piece {
+                right += line_ending_width;
+            }
+            let top = layout.top_of_index(index) + ROW_HEIGHT * piece as f32;
+            spans.push(Bounds::new(point(layout.text_left + left, top), size(right - left, ROW_HEIGHT)));
         }
-        let row_size = size(right - left, layout.height_of_index(index));
-        spans.push(Bounds::new(point(left, layout.top_of_index(index)), row_size));
     }
     spans
 }
@@ -1055,6 +1185,19 @@ fn shape_italic(window: &mut Window, text: &str, color: Hsla) -> ShapedLine {
 /// to the length of the text.
 fn shape_runs(window: &mut Window, text: &str, runs: &[TextRun]) -> ShapedLine {
     window.text_system().shape_line(SharedString::from(text.to_string()), FONT_SIZE, runs, None)
+}
+
+/// Shapes one line of text like `shape_runs`, broken into pieces no wider than `width` when
+/// there is one.
+fn shape_wrapped(window: &mut Window, text: &str, runs: &[TextRun], width: Option<Pixels>) -> WrappedLine {
+    let shaped = window.text_system().shape_text(SharedString::from(text.to_string()), FONT_SIZE, runs, width, None);
+    shaped.ok().and_then(|lines| lines.into_iter().next()).unwrap_or_default()
+}
+
+/// Shapes one line of text in the editor's plain font, wrapped to `width`, to count its pieces.
+pub(super) fn shape_wrapped_plain(window: &mut Window, text: &str, width: Pixels) -> WrappedLine {
+    let plain = HighlightStyle { color: Hsla::default(), bold: false, italic: false };
+    shape_wrapped(window, text, &[text_run(text.len(), plain, None)], Some(width))
 }
 
 /// A run of `length` bytes painted in a style, on a background if it has one.

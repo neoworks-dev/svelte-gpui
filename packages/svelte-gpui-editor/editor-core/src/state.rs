@@ -308,6 +308,10 @@ impl EditorState {
                 self.move_selections(*motion, *extend);
                 true
             }
+            Command::MoveHeads { heads, extend } => {
+                self.move_heads(heads, *extend);
+                true
+            }
             Command::AddCursorAbove => self.add_cursor_vertically(-1),
             Command::AddCursorBelow => self.add_cursor_vertically(1),
             Command::SelectNextOccurrence => self.select_next_occurrence(),
@@ -343,6 +347,21 @@ impl EditorState {
     fn move_selections(&mut self, motion: Motion, extend: bool) {
         let buffer = &self.buffer;
         self.selections.transform(|selection| move_selection(buffer, selection, motion, extend));
+    }
+
+    /// Moves each selection's head to the place given for it, in order. Selections left without
+    /// one stay as they are.
+    fn move_heads(&mut self, heads: &[Position], extend: bool) {
+        let buffer = &self.buffer;
+        let mut heads = heads.iter();
+        self.selections.transform(|selection| {
+            let Some(head) = heads.next() else {
+                return *selection;
+            };
+            let head = buffer.clamp(*head);
+            let anchor = if extend { selection.anchor } else { head };
+            Selection { anchor, head, goal_column: None }
+        });
     }
 
     /// Adds a cursor one line above the topmost selection, or below the bottommost. Returns
@@ -480,6 +499,19 @@ mod tests {
         assert_eq!(heads(&state), vec![at(0, 6), at(1, 2), at(2, 6)]);
         state.apply(&Command::AddCursorAbove);
         assert_eq!(state.selections().count(), 3);
+    }
+
+    #[test]
+    fn heads_move_to_the_places_given_for_them_in_order() {
+        let mut state = state("abcdef\nab\nabcdef");
+        state.apply(&Command::AddCursorBelow);
+        let outcome = state.apply(&Command::MoveHeads { heads: vec![at(0, 4), at(1, 9)], extend: false });
+        assert!(outcome.reveal_newest);
+        assert_eq!(heads(&state), vec![at(0, 4), at(1, 2)]);
+        state.apply(&Command::MoveHeads { heads: vec![at(0, 5)], extend: true });
+        let first = state.selections().all()[0];
+        assert_eq!((first.anchor, first.head), (at(0, 4), at(0, 5)));
+        assert_eq!(heads(&state), vec![at(0, 5), at(1, 2)]);
     }
 
     #[test]
