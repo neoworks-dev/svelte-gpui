@@ -61,9 +61,12 @@ pub fn cursor_bounds_for(
 
 /// Where one cursor is drawn in the shape asked for, or none while its row is out of view.
 fn cursor_in(layout: &Layout, head: Position, shape: CursorShape, character_width: Pixels) -> Option<Bounds<Pixels>> {
-    let (line, top, height) = layout.line_of(head.row)?;
+    let (line, row_top, _) = layout.line_of(head.row)?;
     let start = line.display.offset_of(head.column);
-    let left = layout.text_left + line.shaped.x_for_index(start);
+    let at = line.point_of(start);
+    let left = layout.text_left + at.x;
+    let top = row_top + at.y;
+    let height = ROW_HEIGHT;
     if shape == CursorShape::Bar {
         return Some(Bounds::new(point(left, top), size(px(2.0), height)));
     }
@@ -71,7 +74,7 @@ fn cursor_in(layout: &Layout, head: Position, shape: CursorShape, character_widt
         character_width
     } else {
         let end = line.display.range_end_offset(head.column + 1);
-        layout.text_left + line.shaped.x_for_index(end) - left
+        line.x_in_piece(end, line.piece_of(start)) - at.x
     };
     if shape == CursorShape::Block {
         return Some(Bounds::new(point(left, top), size(width, height)));
