@@ -7,7 +7,7 @@ use std::time::Instant;
 use svelte_gpui::gpui::{Context, Pixels, ScrollDelta, Window, px};
 
 use super::Editor;
-use super::element::LINE_HEIGHT;
+use super::rows::{ROW_HEIGHT, RowLayout};
 use super::smooth_scroll::{ScrollAnimation, glide_start, logging_enabled};
 
 /// The shortest jump that glides when the view follows the cursor: three rows. Following the
@@ -51,7 +51,8 @@ impl Editor {
                 self.set_scroll_top(target);
             }
             ScrollDelta::Lines(lines) => {
-                let target = self.clamp_scroll(self.scroll_target() - LINE_HEIGHT * lines.y);
+                // A notch scrolls by lines of the default height, whatever the rows' own heights.
+                let target = self.clamp_scroll(self.scroll_target() - ROW_HEIGHT * lines.y);
                 self.scroll_to(target, px(0.0));
             }
         }
@@ -81,7 +82,7 @@ impl Editor {
     /// Scrolls the view down by some rows, or up when negative, for vim's page keys. The view may
     /// go as far as the last line at its top, as it does in vim.
     pub(super) fn scroll_by_rows(&mut self, rows: isize) {
-        let target = self.clamp_scroll(self.scroll_target() + LINE_HEIGHT * rows as f32);
+        let target = self.clamp_scroll(self.scroll_target() + ROW_HEIGHT * rows as f32);
         self.scroll_to(target, px(0.0));
     }
 
@@ -103,6 +104,6 @@ impl Editor {
             Some(layout) => layout.blocks.total_rows(line_count),
             None => line_count,
         };
-        LINE_HEIGHT * total_rows.saturating_sub(1) as f32
+        RowLayout::new(total_rows).furthest_scroll()
     }
 }
