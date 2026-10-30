@@ -100,6 +100,12 @@ impl Editor {
         let Some(line_count) = self.read(|state| state.buffer().line_count()) else {
             return px(0.0);
         };
+        // Wrapped rows have the heights the last frame measured.
+        if self.wrap
+            && let Some(layout) = &self.layout
+        {
+            return layout.row_layout.furthest_scroll();
+        }
         let total_rows = match &self.layout {
             Some(layout) => layout.blocks.total_rows(line_count),
             None => line_count,

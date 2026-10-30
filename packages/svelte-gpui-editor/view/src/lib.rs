@@ -39,6 +39,7 @@ mod signature;
 mod smooth_scroll;
 mod theme;
 mod vim_paint;
+mod wrap;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -163,6 +164,13 @@ pub struct Editor {
     sources: SourceFilter,
     /// How wide the minimap is, set by the `minimap` prop; zero for none.
     minimap_width: Pixels,
+    /// Whether lines too wide for the view are broken, set by the `wrap` prop (see `wrap.rs`).
+    wrap: bool,
+    /// How many pieces each line wraps into, kept between frames.
+    wrap_cache: RefCell<wrap::WrapCache>,
+    /// How far right each selection's head aims while up and down move it through wrapped
+    /// lines, so a short piece on the way does not pull it left; empty after any other command.
+    wrap_goals: Vec<Pixels>,
     /// What the app was last told about where rows and keyed blocks are, so it hears of changes only.
     reported_places: Value,
 }
@@ -225,6 +233,9 @@ impl Editor {
             scroll_group: String::new(),
             sources: SourceFilter::default(),
             minimap_width: px(0.0),
+            wrap: false,
+            wrap_cache: RefCell::default(),
+            wrap_goals: Vec::new(),
             reported_places: Value::Null,
         }
     }
@@ -296,8 +307,9 @@ impl Editor {
         };
         let arrived_at = Instant::now();
         // Whatever moves the cursor or changes the text, from a key, a click on the app's own
-        // controls or a jump, leaves the popover behind.
+        // controls or a jump, leaves the popover behind, and the places up and down aimed for.
         self.hide_hover(cx);
+        self.wrap_goals.clear();
         let Some(command) = self.resolve_clipboard(command, cx) else {
             return Outcome::default();
         };
@@ -412,7 +424,7 @@ impl Editor {
     }
 
     /// Handles a key the input layer knows; returns false for the rest, which then bubble to the app.
-    fn handle_key(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) -> bool {
+    fn handle_key(&mut self, keystroke: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.sequence_pending {
             return false;
         }
@@ -434,7 +446,11 @@ impl Editor {
         }
         let mut handled = false;
         for command in &commands {
-            let outcome = self.apply(command, cx);
+            let (command, goals) = self.through_wrapped_lines(command, window);
+            let outcome = self.apply(&command, cx);
+            if let Some(goals) = goals {
+                self.wrap_goals = goals;
+            }
             handled = handled || outcome.changed || !command.passes_on_when_unchanged();
         }
         handled
@@ -771,6 +787,11 @@ impl AppElement for Editor {
             self.set_minimap_width(&value, cx);
             return;
         }
+        if name == "wrap" {
+            self.wrap = value.as_bool().unwrap_or(false);
+            cx.notify();
+            return;
+        }
         if name == "scrollGroup" {
             self.set_scroll_group(value.as_str().unwrap_or(""), cx);
             return;
@@ -916,8 +937,8 @@ impl Render for Editor {
             .id("editor")
             .track_focus(&self.focus)
             .size_full()
-            .on_key_down(cx.listener(|editor, event: &KeyDownEvent, _window, cx| {
-                if !editor.handle_key(&event.keystroke, cx) {
+            .on_key_down(cx.listener(|editor, event: &KeyDownEvent, window, cx| {
+                if !editor.handle_key(&event.keystroke, window, cx) {
                     return;
                 }
                 cx.notify();

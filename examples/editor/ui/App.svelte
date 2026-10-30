@@ -1,6 +1,6 @@
 <!--
-  One document in the editor. The text belongs to no file, and its name's extension picks the
-  language it is highlighted as.
+  Two documents in editors: code that scrolls sideways, and prose that wraps. The texts belong
+  to no file, and each name's extension picks the language it is highlighted as.
 -->
 <script lang="ts">
   import { Text, View } from "@neoworks/svelte-gpui/ui";
@@ -29,12 +29,25 @@ fn main() {
 }
 `;
 
+  const PROSE = `# Notes
+
+Soft wrapping breaks a line that is too wide for the view where the text no longer fits, so prose reads like a page instead of one long row that scrolls sideways. The line keeps its one number in the gutter.
+
+A short line stays as it is.
+`;
+
   let summary = $state<DocumentSummary | null>(null);
+  let prose = $state<DocumentSummary | null>(null);
   let failure = $state("");
 
-  gpuiDocumentHost()
+  const host = gpuiDocumentHost();
+  host
     .openText("sample.rs", SAMPLE)
     .then((opened) => (summary = opened))
+    .catch((error) => (failure = String(error)));
+  host
+    .openText("notes.md", PROSE)
+    .then((opened) => (prose = opened))
     .catch((error) => (failure = String(error)));
 </script>
 
@@ -46,4 +59,8 @@ fn main() {
     <Text style={{ padding: 14, color: "#f87171" }}>{failure}</Text>
   {/if}
   <Editor key="main" document={summary?.id ?? null} {theme} style={{ flex: 1 }} />
+  <View style={{ height: 36, paddingX: 14, justify: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#26262c" }}>
+    <Text style={{ fontSize: 13, color: "#a1a1aa" }}>{prose?.title ?? "Opening…"}</Text>
+  </View>
+  <Editor key="prose" document={prose?.id ?? null} {theme} wrap style={{ flex: 1 }} />
 </View>

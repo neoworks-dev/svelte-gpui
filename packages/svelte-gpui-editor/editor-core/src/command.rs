@@ -24,6 +24,14 @@ pub enum Command {
         #[serde(default)]
         extend: bool,
     },
+    /// Moves each selection's head to the place given for it, in the order of the selections.
+    /// Extending keeps the anchors; otherwise each selection becomes a cursor. For moves the
+    /// buffer alone cannot work out, such as up and down through a line the view wraps.
+    MoveHeads {
+        heads: Vec<Position>,
+        #[serde(default)]
+        extend: bool,
+    },
     /// Adds a cursor on the line above the topmost selection.
     AddCursorAbove,
     /// Adds a cursor on the line below the bottommost selection.
@@ -281,6 +289,7 @@ impl Command {
     pub fn changes_text(&self) -> bool {
         match self {
             Command::MoveSelections { .. }
+            | Command::MoveHeads { .. }
             | Command::AddCursorAbove
             | Command::AddCursorBelow
             | Command::SelectNextOccurrence
