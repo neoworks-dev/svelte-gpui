@@ -1,0 +1,5 @@
+# The editor's crates, which an app takes as git dependencies of this repository.
+# `editor-core` is the editor without a window, and `lsp-client` talks to language servers.
+[workspace]
+members = ["editor-core", "lsp-client"]
+resolver = "3"
