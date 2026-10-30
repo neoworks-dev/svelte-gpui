@@ -29,11 +29,22 @@ fn main() {
 }
 `;
 
+  /** The note in the host's sans-serif, with larger headings and code in monospace. */
+  const proseTheme: Partial<EditorTheme> = {
+    fontFamily: "Geist",
+    fontSize: 15,
+    syntax: {
+      title: { color: "#fafafa", bold: true, size: 24 },
+      "punctuation.special": "#71717a",
+      "text.literal": { color: "#fbbf24", family: "DejaVu Sans Mono", size: 14 },
+    },
+  };
+
   const PROSE = `# Notes
 
 Soft wrapping breaks a line that is too wide for the view where the text no longer fits, so prose reads like a page instead of one long row that scrolls sideways. The line keeps its one number in the gutter.
 
-A short line stays as it is.
+A short line stays as it is, and \`code\` stays in monospace.
 `;
 
   let summary = $state<DocumentSummary | null>(null);
@@ -62,5 +73,5 @@ A short line stays as it is.
   <View style={{ height: 36, paddingX: 14, justify: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#26262c" }}>
     <Text style={{ fontSize: 13, color: "#a1a1aa" }}>{prose?.title ?? "Opening…"}</Text>
   </View>
-  <Editor key="prose" document={prose?.id ?? null} {theme} wrap style={{ flex: 1 }} />
+  <Editor key="prose" document={prose?.id ?? null} theme={proseTheme} wrap style={{ flex: 1 }} />
 </View>

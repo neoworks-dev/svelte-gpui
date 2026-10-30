@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use svelte_gpui::gpui::{
-    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font, GlobalElementId, Hsla,
+    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
     InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign, TextRun,
     UnderlineStyle, Window, WrappedLine, fill, font, point, px, relative, size,
 };
@@ -24,10 +24,10 @@ use super::jump_paint::{self, JumpPaint};
 use super::minimap::{self, MinimapPaint};
 use super::options::EditorOptions;
 use super::popup;
-use super::rows::{ROW_HEIGHT, RowLayout};
+use super::rows::{self, ROW_HEIGHT, RowLayout};
 use super::theme::{EditorTheme, HighlightStyle};
 use super::vim_paint::{self, VimPaint};
-use super::wrap::{self, WrapCache};
+use super::wrap::{self, LineHeights, LineShaping};
 use editor_core::decorations::{DecorationKind, GutterMark, Placed, PlacedBlock, Placement, Tone, UnderlineKind};
 use editor_core::display::{BlockMap, BlockSlot, DisplayLine, DisplayRow, InlayText};
 use editor_core::jump::JumpSession;
@@ -118,14 +118,25 @@ pub struct VisibleLine {
     pub row: usize,
     pub display: DisplayLine,
     /// The drawn text, in one piece unless the view wraps lines (see `wrap.rs`). Each piece is
-    /// `ROW_HEIGHT` tall, the first at the top of the line's row.
+    /// `piece_height` tall, the first at the top of the line's row.
     pub shaped: WrappedLine,
+    pub piece_height: Pixels,
 }
 
 impl VisibleLine {
     /// How many pieces the line is wrapped into.
     pub fn piece_count(&self) -> usize {
         self.shaped.wrap_boundaries().len() + 1
+    }
+
+    /// How far below the top of the line's row a piece starts.
+    pub fn piece_top(&self, piece: usize) -> Pixels {
+        self.piece_height * piece as f32
+    }
+
+    /// The piece a y below the top of the line's row falls in.
+    pub fn piece_at(&self, y: Pixels) -> usize {
+        ((y / self.piece_height).floor().max(0.0) as usize).min(self.piece_count() - 1)
     }
 
     /// The offset in the drawn text where a piece starts.
@@ -172,7 +183,7 @@ impl VisibleLine {
     /// Where an offset is drawn, from the text's left edge and the top of the line's row.
     pub fn point_of(&self, offset: usize) -> svelte_gpui::gpui::Point<Pixels> {
         let piece = self.piece_of(offset);
-        point(self.x_in_piece(offset, piece), ROW_HEIGHT * piece as f32)
+        point(self.x_in_piece(offset, piece), self.piece_top(piece))
     }
 
     /// How wide a piece is drawn.
@@ -184,7 +195,7 @@ impl VisibleLine {
     /// Past the end of a piece the line wraps after, it is the last offset on that piece rather
     /// than the first of the next.
     pub fn offset_at(&self, at: svelte_gpui::gpui::Point<Pixels>) -> usize {
-        let piece = ((at.y / ROW_HEIGHT).floor().max(0.0) as usize).min(self.piece_count() - 1);
+        let piece = self.piece_at(at.y);
         let start = self.piece_start(piece);
         let end = self.piece_end(piece);
         let layout = &self.shaped.unwrapped_layout;
@@ -244,8 +255,7 @@ impl Layout {
         let Some(VisibleRow::Text(line)) = self.rows.get(index) else {
             return false;
         };
-        let piece = ((point.y - self.top_of_index(index)) / ROW_HEIGHT).floor().max(0.0) as usize;
-        let piece = piece.min(line.piece_count() - 1);
+        let piece = line.piece_at(point.y - self.top_of_index(index));
         point.x >= self.text_left && point.x <= self.text_left + line.piece_width(piece)
     }
 
@@ -277,10 +287,11 @@ pub struct EditorElement {
     pub editor: Entity<Editor>,
 }
 
-/// What a frame needs to wrap lines: the counts of pieces kept between frames, and how much of
-/// the right of its box is not the text's.
-struct Wrapping<'a> {
-    cache: &'a RefCell<WrapCache>,
+/// What a frame needs to give lines heights of their own: the heights kept between frames,
+/// whether lines wrap, and how much of the right of its box is not the text's.
+struct Measuring<'a> {
+    heights: &'a RefCell<LineHeights>,
+    wraps: bool,
     reserved_right: Pixels,
 }
 
@@ -288,6 +299,8 @@ struct Wrapping<'a> {
 struct PaintedRow {
     top: Pixels,
     height: Pixels,
+    /// How tall each piece of its text is: the whole row unless the line wraps.
+    piece_height: Pixels,
     /// The line number and where it starts; a row of a block has none.
     number: Option<(ShapedLine, Pixels)>,
     text: WrappedLine,
@@ -466,19 +479,20 @@ impl Element for EditorElement {
             });
         }
         // Side by side, each half is too narrow to give a strip of it to the minimap. The two
-        // sides scroll row for row, which wrapping either would break, so neither wraps.
+        // sides scroll row for row, which rows of their own heights would break, so neither
+        // wraps or measures its lines.
         let wants_minimap = companion.is_none();
-        let mut wrapping = None;
-        if editor.wrap && wants_minimap {
+        let mut measuring = None;
+        if wants_minimap {
             let mut reserved_right = px(0.0);
             if let Some(strip) = minimap::strip_bounds(own_bounds, minimap_width) {
                 reserved_right = strip.size.width;
             }
-            wrapping = Some(Wrapping { cache: &editor.wrap_cache, reserved_right });
+            measuring = Some(Measuring { heights: &editor.line_heights, wraps: editor.wrap, reserved_right });
         }
         let built = editor.read(|state| {
             let (mut layout, mut frame) = build_frame(
-                state, scroll_top, own_bounds, window, &theme, &status, options, jump, &sources, true, wrapping,
+                state, scroll_top, own_bounds, window, &theme, &status, options, jump, &sources, true, measuring,
             );
             if wants_minimap {
                 attach_minimap(&mut layout, &mut frame, state, minimap_width, scroll_top, furthest_scroll);
@@ -575,9 +589,9 @@ fn paint_frame(frame: &Frame, focused: bool, window: &mut Window, cx: &mut App) 
         for row in &frame.rows {
             // A wrapped line's number stands beside its first piece.
             if let Some((number, number_left)) = &row.number {
-                let _ = number.paint(point(*number_left, row.top), ROW_HEIGHT, window, cx);
+                let _ = number.paint(point(*number_left, row.top), row.piece_height, window, cx);
             }
-            let _ = row.text.paint(point(text_left, row.top), ROW_HEIGHT, TextAlign::Left, None, window, cx);
+            let _ = row.text.paint(point(text_left, row.top), row.piece_height, TextAlign::Left, None, window, cx);
         }
         for line_end in &frame.line_ends {
             let _ = line_end.shaped.paint(line_end.origin, line_end.height, window, cx);
@@ -630,8 +644,7 @@ fn paint_side_label(label: &SideLabel, gutter_width: Pixels, theme: &EditorTheme
 
 /// Shapes the name of a side of a side-by-side diff in the editor's font, smaller than the text.
 fn shape_label(window: &mut Window, text: &str, color: Hsla) -> ShapedLine {
-    let plain = HighlightStyle { color, bold: false, italic: false };
-    let run = text_run(text.len(), plain, None);
+    let run = text_run(text.len(), &HighlightStyle::plain(color), None);
     window.text_system().shape_line(SharedString::from(text.to_string()), LABEL_FONT_SIZE, &[run], None)
 }
 
@@ -748,7 +761,7 @@ fn build_frame(
     jump: Option<&JumpSession>,
     sources: &SourceFilter,
     active: bool,
-    wrapping: Option<Wrapping>,
+    measuring: Option<Measuring>,
 ) -> (Layout, Frame) {
     let line_count = state.buffer().line_count();
     let digits = line_count.max(1).to_string().len();
@@ -759,14 +772,16 @@ fn build_frame(
     let blocks = state.decoration_blocks_for(sources);
     let blocks_map = block_map(&blocks);
     let mut wrap_width = None;
-    let row_layout = match wrapping {
-        Some(wrapping) => {
-            let width = wrap::wrap_width(bounds.right() - wrapping.reserved_right - text_left);
-            wrap_width = Some(width);
-            wrapping.cache.borrow_mut().row_layout(state, &blocks_map, width, window)
+    let mut row_layout = RowLayout::new(blocks_map.total_rows(line_count));
+    if let Some(measuring) = measuring {
+        if measuring.wraps {
+            wrap_width = Some(wrap::wrap_width(bounds.right() - measuring.reserved_right - text_left));
         }
-        None => RowLayout::new(blocks_map.total_rows(line_count)),
-    };
+        if wrap_width.is_some() || theme.has_own_fonts() {
+            let shaping = LineShaping { theme, wrap_width };
+            row_layout = measuring.heights.borrow_mut().row_layout(state, &blocks_map, &shaping, window);
+        }
+    }
     let first_display_row = row_layout.row_at(scroll_top);
     let first_row_top = bounds.top() - (scroll_top - row_layout.top_of(first_display_row));
     let rows_drawn = row_layout.rows_covering(first_display_row, bounds.size.height);
@@ -805,21 +820,21 @@ fn build_frame(
                 let inlays = row_decorations.inlays.get(&row).map(Vec::as_slice).unwrap_or_default();
                 let display = line_with_inlays(&state.buffer().line(row), inlays);
                 let inlay_tones: Vec<Tone> = inlays.iter().map(|(_, _, tone)| *tone).collect();
-                let runs = text_runs(&display, &syntax[row - text_rows.start], &inlay_tones, theme);
-                let text = shape_wrapped(window, &display.text, &runs, wrap_width);
-                let line = VisibleLine { row, display, shaped: text.clone() };
+                let spans = &syntax[row - text_rows.start];
+                let line = shape_line(window, row, display, spans, &inlay_tones, theme, wrap_width);
                 if let Some((line_end_text, tone)) = row_decorations.line_ends.get(&row) {
                     let shaped = shape_italic(window, line_end_text, theme.tone(*tone));
                     let last_piece = line.piece_count() - 1;
                     let left = text_left + line.piece_width(last_piece) + LINE_END_GAP;
-                    let origin = point(left, top + ROW_HEIGHT * last_piece as f32);
-                    line_ends.push(LineEndPaint { shaped, origin, height: ROW_HEIGHT });
+                    let origin = point(left, top + line.piece_top(last_piece));
+                    line_ends.push(LineEndPaint { shaped, origin, height: line.piece_height });
                 }
                 painted_rows.push(PaintedRow {
                     top,
                     height,
+                    piece_height: line.piece_height,
                     number: Some((number, number_left)),
-                    text,
+                    text: line.shaped.clone(),
                     is_cursor_row,
                     tint: line_tints.get(&row).copied(),
                     emphasis: Vec::new(),
@@ -831,13 +846,14 @@ fn build_frame(
                 let tone = placed.tone.unwrap_or(Tone::Inlay);
                 let color = theme.tone(tone);
                 let display = DisplayLine::new(&placed.lines[line]);
-                let plain = HighlightStyle { color, bold: false, italic: false };
-                let text = shape_wrapped(window, &display.text, &[text_run(display.text.len(), plain, None)], None);
+                let run = text_run(display.text.len(), &HighlightStyle::plain(color), None);
+                let text = shape_wrapped(window, &display.text, &[run], FONT_SIZE, None);
                 let row_box = (top, height);
                 let emphasis = block_emphasis(placed, line, &display, &text, text_left, row_box, theme);
                 painted_rows.push(PaintedRow {
                     top,
                     height,
+                    piece_height: ROW_HEIGHT,
                     number: None,
                     text,
                     is_cursor_row: false,
@@ -1068,9 +1084,10 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
             _ => placed.start.row..placed.start.row + 1,
         };
         for row in rows {
-            let Some((_, top, height)) = layout.line_of(row) else {
+            let Some((line, top, height)) = layout.line_of(row) else {
                 continue;
             };
+            let first_piece = line.piece_height;
             match mark {
                 GutterMark::Bar => {
                     let bar = Bounds::new(point(left + GUTTER_BAR_INSET, top), size(GUTTER_BAR_WIDTH, height));
@@ -1078,7 +1095,7 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
                 }
                 // A dot and a glyph stand beside a wrapped line's first piece, as its number does.
                 GutterMark::Dot => {
-                    let origin = point(left + GUTTER_BAR_INSET, top + (ROW_HEIGHT - GUTTER_DOT_SIZE) / 2.0);
+                    let origin = point(left + GUTTER_BAR_INSET, top + (first_piece - GUTTER_DOT_SIZE) / 2.0);
                     let dot = Bounds::new(origin, size(GUTTER_DOT_SIZE, GUTTER_DOT_SIZE));
                     marks.push(GutterPaint::Shape { bounds: dot, color, radius: GUTTER_DOT_SIZE / 2.0 });
                 }
@@ -1092,7 +1109,7 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
                 GutterMark::Glyph(character) => {
                     let shaped = shape_plain(window, &character.to_string(), color);
                     let origin = point(left + (GUTTER_PADDING - shaped.width) / 2.0, top);
-                    marks.push(GutterPaint::Glyph { shaped, origin, height: ROW_HEIGHT });
+                    marks.push(GutterPaint::Glyph { shaped, origin, height: first_piece });
                 }
             }
         }
@@ -1104,7 +1121,7 @@ fn gutter_marks(layout: &Layout, decorations: &[Placed], theme: &EditorTheme, wi
 pub(super) fn cursor_bounds(layout: &Layout, head: Position) -> Option<Bounds<Pixels>> {
     let (line, top, _) = layout.line_of(head.row)?;
     let at = line.point_of(line.display.offset_of(head.column));
-    Some(Bounds::new(point(layout.text_left + at.x, top + at.y), size(CURSOR_WIDTH, ROW_HEIGHT)))
+    Some(Bounds::new(point(layout.text_left + at.x, top + at.y), size(CURSOR_WIDTH, line.piece_height)))
 }
 
 /// A thin line along the bottom of each visible row a range covers.
@@ -1154,8 +1171,8 @@ pub(super) fn span_bounds(
             if runs_past_end && piece == last_piece {
                 right += line_ending_width;
             }
-            let top = layout.top_of_index(index) + ROW_HEIGHT * piece as f32;
-            spans.push(Bounds::new(point(layout.text_left + left, top), size(right - left, ROW_HEIGHT)));
+            let top = layout.top_of_index(index) + line.piece_top(piece);
+            spans.push(Bounds::new(point(layout.text_left + left, top), size(right - left, line.piece_height)));
         }
     }
     spans
@@ -1163,22 +1180,20 @@ pub(super) fn span_bounds(
 
 /// How wide a line of text is in the editor's font at the size popovers use.
 pub(super) fn measure_text_width(window: &mut Window, text: &str) -> Pixels {
-    let plain = HighlightStyle { color: Hsla::default(), bold: false, italic: false };
-    let run = text_run(text.len(), plain, None);
+    let run = text_run(text.len(), &HighlightStyle::plain(Hsla::default()), None);
     let size = px(13.0);
     window.text_system().shape_line(SharedString::from(text.to_string()), size, &[run], None).width
 }
 
 /// Shapes one line of text in the editor's font, in a single colour.
 pub(super) fn shape_plain(window: &mut Window, text: &str, color: Hsla) -> ShapedLine {
-    let plain = HighlightStyle { color, bold: false, italic: false };
-    shape_runs(window, text, &[text_run(text.len(), plain, None)])
+    shape_runs(window, text, &[text_run(text.len(), &HighlightStyle::plain(color), None)])
 }
 
 /// Like `shape_plain`, in italics.
 fn shape_italic(window: &mut Window, text: &str, color: Hsla) -> ShapedLine {
-    let italic = HighlightStyle { color, bold: false, italic: true };
-    shape_runs(window, text, &[text_run(text.len(), italic, None)])
+    let italic = HighlightStyle { italic: true, ..HighlightStyle::plain(color) };
+    shape_runs(window, text, &[text_run(text.len(), &italic, None)])
 }
 
 /// Shapes one line of text in the editor's font, in the colours of its runs, which must add up
@@ -1187,22 +1202,50 @@ fn shape_runs(window: &mut Window, text: &str, runs: &[TextRun]) -> ShapedLine {
     window.text_system().shape_line(SharedString::from(text.to_string()), FONT_SIZE, runs, None)
 }
 
-/// Shapes one line of text like `shape_runs`, broken into pieces no wider than `width` when
-/// there is one.
-fn shape_wrapped(window: &mut Window, text: &str, runs: &[TextRun], width: Option<Pixels>) -> WrappedLine {
-    let shaped = window.text_system().shape_text(SharedString::from(text.to_string()), FONT_SIZE, runs, width, None);
+/// Shapes one line of text at a size, broken into pieces no wider than `width` when there is one.
+fn shape_wrapped(
+    window: &mut Window,
+    text: &str,
+    runs: &[TextRun],
+    font_size: Pixels,
+    width: Option<Pixels>,
+) -> WrappedLine {
+    let shaped = window.text_system().shape_text(SharedString::from(text.to_string()), font_size, runs, width, None);
     shaped.ok().and_then(|lines| lines.into_iter().next()).unwrap_or_default()
 }
 
-/// Shapes one line of text in the editor's plain font, wrapped to `width`, to count its pieces.
-pub(super) fn shape_wrapped_plain(window: &mut Window, text: &str, width: Pixels) -> WrappedLine {
-    let plain = HighlightStyle { color: Hsla::default(), bold: false, italic: false };
-    shape_wrapped(window, text, &[text_run(text.len(), plain, None)], Some(width))
+/// A buffer line shaped as the view draws it: each highlight in the theme's font for it, the
+/// whole line at the largest size any of them asks for, and broken into pieces no wider than
+/// `wrap_width` when there is one. `display` may have inlays, whose tones are in `inlay_tones`.
+pub(super) fn shape_line(
+    window: &mut Window,
+    row: usize,
+    display: DisplayLine,
+    spans: &[HighlightSpan],
+    inlay_tones: &[Tone],
+    theme: &EditorTheme,
+    wrap_width: Option<Pixels>,
+) -> VisibleLine {
+    let runs = text_runs(&display, spans, inlay_tones, theme);
+    let font_size = line_font_size(spans, theme);
+    let shaped = shape_wrapped(window, &display.text, &runs, font_size, wrap_width);
+    VisibleLine { row, display, shaped, piece_height: rows::piece_height(font_size) }
+}
+
+/// The size a line is drawn at: the text's, or the largest any highlight on it asks for.
+fn line_font_size(spans: &[HighlightSpan], theme: &EditorTheme) -> Pixels {
+    let mut size = theme.font_size;
+    for span in spans {
+        if let Some(asked) = theme.style_of(span.id).and_then(|style| style.size) {
+            size = size.max(asked);
+        }
+    }
+    size
 }
 
 /// A run of `length` bytes painted in a style, on a background if it has one.
-fn text_run(length: usize, style: HighlightStyle, background: Option<Hsla>) -> TextRun {
-    let mut run_font = editor_font();
+fn text_run(length: usize, style: &HighlightStyle, background: Option<Hsla>) -> TextRun {
+    let mut run_font = font(style.family.clone());
     if style.bold {
         run_font = run_font.bold();
     }
@@ -1235,7 +1278,7 @@ fn syntax_segments(
             continue;
         }
         if let Some(style) = theme.style_of(span.id) {
-            segments.push((start..end, style));
+            segments.push((start..end, style.clone()));
         }
         painted = end;
     }
@@ -1250,7 +1293,7 @@ fn text_runs(
     inlay_tones: &[Tone],
     theme: &EditorTheme,
 ) -> Vec<TextRun> {
-    let plain = HighlightStyle { color: theme.foreground, bold: false, italic: false };
+    let plain = theme.text_style();
     let segments = syntax_segments(display, spans, theme);
     let inlays = display.inlay_ranges();
     let mut boundaries = vec![0, display.text.len()];
@@ -1264,21 +1307,16 @@ fn text_runs(
         let inlay = inlays.iter().position(|range| range.start <= start && start < range.end);
         if let Some(index) = inlay {
             let color = theme.tone(inlay_tones.get(index).copied().unwrap_or(Tone::Inlay));
-            let style = HighlightStyle { color, bold: false, italic: false };
-            runs.push(text_run(end - start, style, Some(color.opacity(BLOCK_OPACITY))));
+            let style = HighlightStyle { color, ..plain.clone() };
+            runs.push(text_run(end - start, &style, Some(color.opacity(BLOCK_OPACITY))));
             continue;
         }
         let segment = segments.iter().find(|(range, _)| range.start <= start && start < range.end);
-        let style = segment.map(|(_, style)| *style).unwrap_or(plain);
+        let style = segment.map_or(&plain, |(_, style)| style);
         runs.push(text_run(end - start, style, None));
     }
     if runs.is_empty() {
-        runs.push(text_run(0, plain, None));
+        runs.push(text_run(0, &plain, None));
     }
     runs
-}
-
-/// The editor's monospace font.
-fn editor_font() -> Font {
-    font(FONT_FAMILY)
 }
