@@ -1,0 +1,13 @@
+{
+  "name": "@neoworks/svelte-gpui-editor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "A text editor for svelte-gpui apps: the editor element and the documents it shows.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@neoworks/svelte-gpui": "*"
+  }
+}
