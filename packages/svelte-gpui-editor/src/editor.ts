@@ -4,8 +4,13 @@
 import { element } from "@neoworks/svelte-gpui";
 import type { TextPosition } from "./decorations";
 
-/** A syntax colour, or one with a weight and slant. */
-export type SyntaxStyle = string | { color: string; bold?: boolean; italic?: boolean };
+/**
+ * A syntax colour, or one with a weight and slant, and a font family and size of its own. A line
+ * is drawn at the largest size any text on it asks for.
+ */
+export type SyntaxStyle =
+  | string
+  | { color: string; bold?: boolean; italic?: boolean; family?: string; size?: number };
 
 /** What the editor's `theme` prop carries (documented in `view/src/theme.rs`). */
 export interface EditorTheme {
@@ -35,6 +40,9 @@ export interface EditorTheme {
   jumpLabel: string;
   jumpLabelText: string;
   jumpMatch: string;
+  /** The font the text is drawn in and its size in pixels; the editor's monospace font at 14 by default. */
+  fontFamily: string;
+  fontSize: number;
   /** Styles by highlight name; a name left out takes its dotted prefix's style, else the foreground. */
   syntax: Record<string, SyntaxStyle>;
 }

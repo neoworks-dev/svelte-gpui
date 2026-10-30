@@ -1,12 +1,20 @@
 //! Where display rows sit vertically, in pixels from the top of the first row. Everything that
 //! turns a display row into pixels or pixels into a display row asks `RowLayout`, so rows can be
 //! given heights of their own by changing this file alone. Rows are `ROW_HEIGHT` tall unless the
-//! layout is given their heights, as it is for soft wrapping (see `wrap.rs`).
+//! layout is given their heights, as it is for soft wrapping and for themes with fonts of their
+//! own (see `wrap.rs`).
 
 use svelte_gpui::gpui::{Pixels, px};
 
 /// The height of a row of text in the editor's font.
 pub const ROW_HEIGHT: Pixels = px(21.0);
+/// How much taller than its font's size a row of text is: 21 pixels for the editor's 14.
+const LINE_SPACING: f32 = 1.5;
+
+/// How tall a piece of a line drawn at `font_size` is.
+pub fn piece_height(font_size: Pixels) -> Pixels {
+    (font_size * LINE_SPACING).round()
+}
 
 /// The rows of a document's display: its lines and the rows of its blocks.
 #[derive(Clone, Debug, PartialEq)]
@@ -160,6 +168,13 @@ mod tests {
             assert_eq!(given.rows_covering(row, px(100.0)), default.rows_covering(row, px(100.0)));
         }
         assert_eq!(given.furthest_scroll(), default.furthest_scroll());
+    }
+
+    #[test]
+    fn a_piece_is_half_again_as_tall_as_its_font() {
+        assert_eq!(piece_height(px(14.0)), ROW_HEIGHT);
+        assert_eq!(piece_height(px(24.0)), px(36.0));
+        assert_eq!(piece_height(px(15.0)), px(23.0));
     }
 
     #[test]
