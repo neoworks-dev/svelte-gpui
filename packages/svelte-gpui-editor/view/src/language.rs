@@ -664,7 +664,7 @@ impl Editor {
             self.pending_center = Some(row);
             return;
         };
-        let row_top = super::element::LINE_HEIGHT * layout.blocks.display_row_of(row) as f32;
+        let row_top = layout.row_layout.top_of(layout.blocks.display_row_of(row));
         let half_view = layout.bounds.size.height / 2.0;
         let target = (row_top - half_view).max(Pixels::ZERO);
         self.set_scroll_top(target);

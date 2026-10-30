@@ -4,7 +4,8 @@
 
 use svelte_gpui::gpui::{Bounds, Hsla, Pixels, ShapedLine, Window, fill, point, px, size};
 
-use super::element::{LINE_ENDING_WIDTH, LINE_HEIGHT, Layout, shape_plain, span_bounds};
+use super::element::{LINE_ENDING_WIDTH, Layout, shape_plain, span_bounds};
+use super::rows::ROW_HEIGHT;
 use super::theme::EditorTheme;
 use editor_core::{CursorShape, InputStatus, Position, Selection, SelectionStyle};
 
@@ -60,11 +61,11 @@ pub fn cursor_bounds_for(
 
 /// Where one cursor is drawn in the shape asked for, or none while its row is out of view.
 fn cursor_in(layout: &Layout, head: Position, shape: CursorShape, character_width: Pixels) -> Option<Bounds<Pixels>> {
-    let (line, top) = layout.line_of(head.row)?;
+    let (line, top, height) = layout.line_of(head.row)?;
     let start = line.display.offset_of(head.column);
     let left = layout.text_left + line.shaped.x_for_index(start);
     if shape == CursorShape::Bar {
-        return Some(Bounds::new(point(left, top), size(px(2.0), LINE_HEIGHT)));
+        return Some(Bounds::new(point(left, top), size(px(2.0), height)));
     }
     let width = if start >= line.display.text.len() {
         character_width
@@ -73,9 +74,9 @@ fn cursor_in(layout: &Layout, head: Position, shape: CursorShape, character_widt
         layout.text_left + line.shaped.x_for_index(end) - left
     };
     if shape == CursorShape::Block {
-        return Some(Bounds::new(point(left, top), size(width, LINE_HEIGHT)));
+        return Some(Bounds::new(point(left, top), size(width, height)));
     }
-    let bottom = top + LINE_HEIGHT - UNDERLINE_CURSOR_HEIGHT;
+    let bottom = top + height - UNDERLINE_CURSOR_HEIGHT;
     Some(Bounds::new(point(left, bottom), size(width, UNDERLINE_CURSOR_HEIGHT)))
 }
 
@@ -118,10 +119,10 @@ pub fn command_line(
 ) -> Option<CommandLinePaint> {
     let text = status.command_line.as_ref()?;
     let bounds = layout.bounds;
-    let bar = Bounds::new(point(bounds.left(), bounds.bottom() - LINE_HEIGHT), size(bounds.size.width, LINE_HEIGHT));
+    let bar = Bounds::new(point(bounds.left(), bounds.bottom() - ROW_HEIGHT), size(bounds.size.width, ROW_HEIGHT));
     let shaped = shape_plain(window, text, theme.foreground);
     let caret_left = bounds.left() + px(8.0) + shaped.width;
-    let caret = Bounds::new(point(caret_left, bar.top()), size(CARET_WIDTH, LINE_HEIGHT));
+    let caret = Bounds::new(point(caret_left, bar.top()), size(CARET_WIDTH, ROW_HEIGHT));
     Some(CommandLinePaint { bar, text: shaped, caret })
 }
 
@@ -143,6 +144,6 @@ pub fn paint_command_line(paint: &VimPaint, theme: &EditorTheme, window: &mut Wi
     let border = Bounds::new(line.bar.origin, size(line.bar.size.width, px(1.0)));
     window.paint_quad(fill(border, theme.line_number));
     let origin = point(line.bar.left() + px(8.0), line.bar.top());
-    let _ = line.text.paint(origin, LINE_HEIGHT, window, cx);
+    let _ = line.text.paint(origin, ROW_HEIGHT, window, cx);
     window.paint_quad(fill(line.caret, theme.cursor));
 }
