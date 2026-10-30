@@ -100,8 +100,8 @@ impl Editor {
         let Some(line_count) = self.read(|state| state.buffer().line_count()) else {
             return px(0.0);
         };
-        // Wrapped rows have the heights the last frame measured.
-        if self.wrap
+        // Rows of their own heights have the heights the last frame measured.
+        if (self.wrap || self.theme.has_own_fonts())
             && let Some(layout) = &self.layout
         {
             return layout.row_layout.furthest_scroll();
