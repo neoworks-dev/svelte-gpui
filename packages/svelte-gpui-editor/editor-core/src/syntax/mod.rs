@@ -119,10 +119,12 @@ impl Syntax {
 
         let mut captures = Vec::new();
         collect_captures(root, rope, &bytes, &mut captures);
+        let embedded = highlight_for_capture("embedded");
         for layer in injections::layers_in(&self.injected, &bytes) {
-            // The outer language's colour for the embedded text gives way to the layer's own.
+            // The outer language's colour for the embedded text gives way to the layer's own, and
+            // what the layer leaves unhighlighted is `embedded`, which a prose theme draws as code.
             if !layer.language.overlay {
-                captures.push((layer.range.clone(), None));
+                captures.push((layer.range.clone(), embedded));
             }
             collect_captures(layer, rope, &bytes, &mut captures);
         }
