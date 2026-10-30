@@ -13,7 +13,8 @@
     "paths": {
       "@neoworks/svelte-gpui": ["./runtime/index.ts"],
       "@neoworks/svelte-gpui/ui": ["./runtime/ui/index.ts"],
-      "@neoworks/svelte-gpui-ui": ["./packages/svelte-gpui-ui/src/index.ts"]
+      "@neoworks/svelte-gpui-ui": ["./packages/svelte-gpui-ui/src/index.ts"],
+      "@neoworks/svelte-gpui-editor": ["./packages/svelte-gpui-editor/src/index.ts"]
     }
   },
   "include": ["runtime", "packages/*/src", "packages/*/scripts/*.ts", "examples/*/src", "examples/*/ui"]
