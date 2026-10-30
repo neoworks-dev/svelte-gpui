@@ -1,11 +1,13 @@
 //! Text: paragraphs gathered from nested `g-text` runs, with what they inherit.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Div, FontWeight, Hsla, IntoElement, Rgba, SharedString, StyledText, div, px};
+use gpui::{AnyElement, Context, Div, FontWeight, Hsla, IntoElement, Rgba, SharedString, StyledText, div, px, size};
 
 use super::Painter;
-use crate::style::{SANS, Style};
+use super::inline::{InlineBox, InlineFlow};
+use crate::style::{Dimension, SANS, Style};
 use crate::tree::{Kind, Node, NodeId};
+use crate::workbench::Workbench;
 
 /// What text inherits from the elements above it.
 #[derive(Clone, PartialEq)]
@@ -52,9 +54,18 @@ pub(super) const DEFAULT_FONT_SIZE: f32 = 14.0;
 
 pub(super) const DEFAULT_TEXT: Rgba = Rgba { r: 0.957, g: 0.957, b: 0.961, a: 1.0 };
 
+/// A paragraph as it is gathered: its text, the runs that style it, and the elements in it.
+#[derive(Default)]
+struct Paragraph {
+    text: String,
+    runs: Vec<gpui::TextRun>,
+    boxes: Vec<InlineBox>,
+}
+
 impl Painter<'_> {
     /// Text and nested `g-text` elements drawn as one wrapping paragraph, each nested
-    /// element's weight, colour and font applied to its stretch of the text.
+    /// element's weight, colour and font applied to its stretch of the text. Any other element
+    /// in it sits in the lines as a box.
     pub(super) fn text_content(
         &self,
         element: Div,
@@ -62,16 +73,26 @@ impl Painter<'_> {
         node: &Node,
         style: &Style,
         inherited: &Inherited,
+        cx: &mut Context<Workbench>,
     ) -> Div {
         let preserve = node.attributes.contains_key("pre");
-        let mut text = String::new();
-        let mut runs: Vec<gpui::TextRun> = Vec::new();
-        self.flow(id, inherited, preserve, &mut text, &mut runs);
+        let mut paragraph = Paragraph::default();
+        self.flow(id, inherited, preserve, &mut paragraph, cx);
+        let Paragraph { mut text, mut runs, mut boxes } = paragraph;
         if !preserve {
             // Whitespace at the ends of the paragraph is template indentation.
             let trimmed_start = text.len() - text.trim_start().len();
             let trimmed_end = text.trim_end().len();
             trim_runs(&mut text, &mut runs, trimmed_start, trimmed_end);
+            for inline in &mut boxes {
+                inline.at = inline.at.clamp(trimmed_start, trimmed_end.max(trimmed_start)) - trimmed_start;
+            }
+        }
+        if !boxes.is_empty() {
+            let widest = boxes.iter().map(|inline| f32::from(inline.size.width)).fold(0.0, f32::max);
+            let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
+            let narrowest = widest.max(longest as f32 * inherited.font_size * 0.6);
+            return element.min_w(px(narrowest)).child(InlineFlow::new(text, runs, boxes));
         }
         if text.is_empty() {
             return element;
@@ -99,8 +120,8 @@ impl Painter<'_> {
         id: NodeId,
         inherited: &Inherited,
         preserve: bool,
-        text: &mut String,
-        runs: &mut Vec<gpui::TextRun>,
+        paragraph: &mut Paragraph,
+        cx: &mut Context<Workbench>,
     ) {
         let Some(node) = self.tree.nodes.get(&id) else {
             return;
@@ -112,9 +133,12 @@ impl Painter<'_> {
             match &child_node.kind {
                 Kind::Text { data } => {
                     let piece = if preserve { data.clone() } else { collapse(data) };
-                    // Collapsing continues across pieces, as it would in one string.
-                    let piece = if !preserve && text.ends_with(' ') { piece.trim_start().to_string() } else { piece };
-                    push_run(text, runs, &transform(&piece, inherited), inherited, None);
+                    // Collapsing continues across pieces, as it would in one string. A box counts
+                    // as a word, so the space after one stays.
+                    let box_last = paragraph.boxes.last().is_some_and(|inline| inline.at == paragraph.text.len());
+                    let after_space = paragraph.text.ends_with(' ') && !box_last;
+                    let piece = if !preserve && after_space { piece.trim_start().to_string() } else { piece };
+                    push_run(&mut paragraph.text, &mut paragraph.runs, &transform(&piece, inherited), inherited, None);
                 }
                 Kind::Element { tag } if tag == "g-text" => {
                     let computed = self.computed(*child);
@@ -122,16 +146,32 @@ impl Painter<'_> {
                         continue;
                     }
                     let here = inherited.under(&computed.style);
-                    let before = runs.len();
-                    self.flow(*child, &here, preserve, text, runs);
+                    let before = paragraph.runs.len();
+                    self.flow(*child, &here, preserve, paragraph, cx);
                     if let Some(background) = computed.style.background {
-                        for run in &mut runs[before..] {
+                        for run in &mut paragraph.runs[before..] {
                             run.background_color = Some(Hsla::from(background));
                         }
                     }
                 }
-                Kind::Element { tag } => {
-                    eprintln!("svelte-gpui: <{tag}> inside a g-text is not drawn; only text and g-text are");
+                Kind::Element { .. } => {
+                    let Some(element) = self.element(*child, inherited, cx) else {
+                        continue;
+                    };
+                    // Lines are broken before the box is laid out, so its size comes from its
+                    // style, or is the font size, as an icon's is.
+                    let style = &self.computed(*child).style;
+                    let side = inherited.under(style).font_size;
+                    let fixed = |dimension: Option<Dimension>| match dimension {
+                        Some(Dimension::Px(length)) => length,
+                        _ => side,
+                    };
+                    paragraph.boxes.push(InlineBox {
+                        at: paragraph.text.len(),
+                        element,
+                        size: size(px(fixed(style.width)), px(fixed(style.height))),
+                        raise: style.vertical_align.unwrap_or(0.0),
+                    });
                 }
             }
         }

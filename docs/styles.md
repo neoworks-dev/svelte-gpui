@@ -108,6 +108,7 @@ setting `color` or `fontSize` on a `Button` styles its label.
 | `nowrap` | `boolean` | Keeps text on one line. |
 | `truncate` | `boolean` | One line, cut off with an ellipsis. |
 | `maxLines` | `number` | Cuts off after that many lines. |
+| `verticalAlign` | `number` | For an element inside a `Text`: how far it sits above the baseline, in pixels. Negative lowers it. Not inherited. |
 
 The window starts with white-ish text (`#f4f4f5`) on a dark background (`#18181b`).
 Set `background` on the root `View` to change it.
