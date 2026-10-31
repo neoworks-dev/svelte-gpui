@@ -1,11 +1,13 @@
 //! Canvases, images and icons.
 
+use std::path::PathBuf;
+
 use gpui::prelude::*;
-use gpui::{Div, ObjectFit, SharedString, StyledImage, canvas, img, px, svg};
+use gpui::{Div, Img, ObjectFit, SharedString, StyledImage, canvas, img, px, svg};
 
 use super::{Inherited, Painter, attribute, is_far_away};
 use crate::assets::register_svg;
-use crate::images::ImageState;
+use crate::images::{Drawn, ImageState, copy_width};
 use crate::style::Style;
 use crate::tree::{Node, NodeId};
 
@@ -79,25 +81,44 @@ impl Painter<'_> {
         let Some(placed) = bounds.filter(|placed| !is_far_away(*placed, view)) else {
             return element;
         };
-        let wanted = f32::from(placed.size.width) * self.interaction.scale.get();
-        let bucket = ((wanted.ceil() as u32).max(1)).div_ceil(64) * 64;
-        let ImageState::Ready(file) = images.scaled(&path, bucket) else {
-            return element;
+        // A zoom changes the drawn size on every step: the copy drawn so far stays on screen until
+        // a copy of the new size is ready, and GPUI has loaded it.
+        let wanted = (f32::from(placed.size.width) * self.interaction.scale.get()).ceil() as u32;
+        let drawn = self.interaction.drawn_images.borrow().get(&id).filter(|drawn| drawn.source == path).cloned();
+        let width = copy_width(drawn.as_ref().map(|drawn| drawn.width), wanted);
+        let file = match images.scaled(&path, width) {
+            ImageState::Ready(file) => file,
+            _ => match &drawn {
+                Some(drawn) => drawn.file.clone(),
+                None => return element,
+            },
         };
-        let fit = match attribute(node, "fit") {
-            "cover" => ObjectFit::Cover,
-            "fill" => ObjectFit::Fill,
-            _ => ObjectFit::Contain,
-        };
-        let mut picture = img(file).size_full().object_fit(fit);
-        let [top_left, top_right, bottom_right, bottom_left] = style.radius;
-        let corners = &mut picture.style().corner_radii;
-        corners.top_left = top_left.map(|radius| px(radius).into());
-        corners.top_right = top_right.map(|radius| px(radius).into());
-        corners.bottom_right = bottom_right.map(|radius| px(radius).into());
-        corners.bottom_left = bottom_left.map(|radius| px(radius).into());
+        let fit = attribute(node, "fit").to_string();
+        let radius = style.radius;
+        let mut picture = picture_of(file.clone(), &fit, radius);
+        if let Some(previous) = drawn.as_ref().map(|drawn| drawn.file.clone()).filter(|previous| *previous != file) {
+            picture = picture.with_loading(move || picture_of(previous.clone(), &fit, radius).into_any_element());
+        }
+        self.interaction.drawn_images.borrow_mut().insert(id, Drawn { source: path, width, file });
         element.child(picture)
     }
+}
+
+/// An image file filling its box as the `fit` attribute says, with the element's rounded corners.
+fn picture_of(file: PathBuf, fit: &str, radius: [Option<f32>; 4]) -> Img {
+    let fit = match fit {
+        "cover" => ObjectFit::Cover,
+        "fill" => ObjectFit::Fill,
+        _ => ObjectFit::Contain,
+    };
+    let mut picture = img(file).size_full().object_fit(fit);
+    let [top_left, top_right, bottom_right, bottom_left] = radius;
+    let corners = &mut picture.style().corner_radii;
+    corners.top_left = top_left.map(|radius| px(radius).into());
+    corners.top_right = top_right.map(|radius| px(radius).into());
+    corners.bottom_right = bottom_right.map(|radius| px(radius).into());
+    corners.bottom_left = bottom_left.map(|radius| px(radius).into());
+    picture
 }
 
 /// An icon: SVG markup the app passed, or a file, tinted with the text colour.

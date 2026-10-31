@@ -33,7 +33,7 @@ use gpui::{
 
 use crate::elements::Instances;
 use crate::field::Field;
-use crate::images::Images;
+use crate::images::{Drawn, Images};
 use crate::style::{self, Dimension, SANS, Style};
 use crate::tree::{Kind, Node, NodeId, ROOT, Tree};
 use crate::workbench::Workbench;
@@ -91,6 +91,8 @@ pub struct Interaction {
     pub instances: RefCell<Instances>,
     pub workbench: RefCell<Option<WeakEntity<Workbench>>>,
     pub images: Images,
+    /// The scaled copy each image element last drew, which it keeps drawing while another loads.
+    pub drawn_images: RefCell<HashMap<NodeId, Drawn>>,
 }
 
 impl Interaction {
@@ -117,6 +119,7 @@ impl Interaction {
             instances: RefCell::new(Instances::default()),
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
+            drawn_images: RefCell::new(HashMap::new()),
         }
     }
 
