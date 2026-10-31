@@ -10,7 +10,8 @@ use crate::style::Style;
 use crate::tree::{Node, NodeId};
 
 impl Painter<'_> {
-    /// The canvas's pixels, sized to its box at the window's scale and drawn as an image.
+    /// The canvas's pixels, sized to its box at the window's scale and drawn as an image, or a
+    /// vector canvas's shapes painted as paths.
     pub(super) fn canvas_content(&self, element: Div, id: NodeId, style: &Style) -> Div {
         let Some(surface) = self.tree.canvases.get(&id).cloned() else {
             return element;
@@ -21,6 +22,10 @@ impl Painter<'_> {
             move |bounds, _, window, _cx| {
                 let scale = window.scale_factor();
                 let mut surface = surface.borrow_mut();
+                if let Some(shapes) = &surface.shapes {
+                    shapes.paint(bounds, window);
+                    return;
+                }
                 let width = (f32::from(bounds.size.width) * scale).round() as u32;
                 let height = (f32::from(bounds.size.height) * scale).round() as u32;
                 surface.resize(width, height, scale);
