@@ -3,10 +3,11 @@
 
 use std::ops::Range;
 
-use gpui::{ClipboardItem, Context, Keystroke, Pixels, Point, Window};
+use gpui::{ClipboardEntry, ClipboardItem, Context, Keystroke, Pixels, Point, Window};
 use serde_json::json;
 
 use super::Workbench;
+use crate::clipboard::save_image;
 use crate::field::{Field, byte_offset, utf16_offset};
 use crate::tree::{Node, NodeId};
 
@@ -406,13 +407,29 @@ impl Workbench {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
-    /// Reads the system clipboard into the copy the app can read, and returns it.
+    /// Reads the system clipboard into the copy the app can read, and returns its text. An image
+    /// on it goes to a file in the temporary directory, for `clipboard.readImage()`.
     pub fn read_clipboard(&mut self, cx: &mut Context<Self>) -> String {
-        let text = match cx.read_from_clipboard().and_then(|item| item.text()) {
+        let item = cx.read_from_clipboard();
+        let text = match item.as_ref().and_then(|item| item.text()) {
             Some(text) => text,
             None => String::new(),
         };
+        let image = item.as_ref().and_then(|item| {
+            item.entries().iter().find_map(|entry| match entry {
+                ClipboardEntry::Image(image) => Some(image),
+                ClipboardEntry::String(_) => None,
+            })
+        });
+        let saved = image.and_then(|image| match save_image(&std::env::temp_dir(), image.format, &image.bytes) {
+            Ok(saved) => Some(saved),
+            Err(error) => {
+                eprintln!("svelte-gpui: cannot keep the clipboard's image: {error}");
+                None
+            }
+        });
         *self.svelte.clipboard.borrow_mut() = text.clone();
+        *self.svelte.clipboard_image.borrow_mut() = saved;
         text
     }
 }
