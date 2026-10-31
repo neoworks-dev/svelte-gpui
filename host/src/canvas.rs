@@ -289,7 +289,7 @@ impl Shapes {
                     }
                 }
                 Shape::Rect { bounds: rect, colour } => {
-                    window.paint_quad(gpui::fill(Bounds::new(place(rect.origin), rect.size * zoom), *colour));
+                    window.paint_quad(gpui::fill(Bounds::new(place(rect.origin), rect.size.map(|side| side * zoom)), *colour));
                 }
                 Shape::Circle { centre, radius, colour } => paint_dot(place(*centre), radius * zoom, *colour, window),
             }
