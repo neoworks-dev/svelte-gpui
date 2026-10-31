@@ -62,6 +62,7 @@ do: children stretch across by default, and `flex: 1` grows from nothing.
 | `top`, `right`, `bottom`, `left` | `Size` | |
 | `overflow` | `"visible"` \| `"hidden"` | `"hidden"` clips children, including to rounded corners. |
 | `translate` | `[x, y]` | Moves the element after layout, in pixels. Use it for drags and offsets. |
+| `zoom` | `number` | Multiplies every length in the element and everything inside it. See below. |
 
 Later siblings draw over earlier ones; there is no `zIndex`. To put something on top,
 place it last, usually with `position: "absolute"`.
@@ -77,6 +78,28 @@ A row of fixed-width items next to one that should take the rest:
 
 `minWidth: 0` lets a flexible child become narrower than its content, for example so
 long text inside it can truncate instead of pushing the layout wider.
+
+### Zoom
+
+`zoom`, as in CSS, lays out the element and everything inside it with every length
+multiplied: sizes, positions, `translate`, padding, margins, gaps, borders, radii,
+shadows, font sizes and line heights. Shares of the parent stay shares, and zooms
+inside a zoom multiply. Text is shaped at the zoomed size, so it stays sharp, and a
+`Canvas` inside draws in its own units at the zoomed size.
+
+A canvas the user zooms sets it once on the layer that holds the content, instead of
+multiplying every child's sizes, so a zoom step changes one style:
+
+```svelte
+<View style={{ position: "absolute", left: panX, top: panY, zoom }}>
+  {#each cards as card (card.id)}
+    <Card style={{ position: "absolute", left: card.x, top: card.y, width: 240 }} />
+  {/each}
+</View>
+```
+
+Pointer positions and the sizes `onresize` reports stay in window pixels, zoom
+included.
 
 ## Paint
 

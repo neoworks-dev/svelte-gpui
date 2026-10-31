@@ -82,6 +82,11 @@ export interface Style {
   overflow?: "visible" | "hidden";
   /** Moves the element from where layout put it, in pixels: `[x, y]`. */
   translate?: [number, number];
+  /**
+   * Multiplies every length in the element and everything inside it, as CSS's `zoom` does:
+   * sizes, positions, padding, gaps, borders, radii, shadows and text. Zooms inside multiply.
+   */
+  zoom?: number;
 
   // Paint.
   background?: Color;

@@ -152,6 +152,8 @@ pub struct Style {
     /// How far an element in a paragraph's lines sits above the baseline, in pixels.
     pub vertical_align: Option<f32>,
     pub cursor: Option<CursorStyle>,
+    /// A factor every length under this element is multiplied by, its own included.
+    pub zoom: Option<f32>,
 }
 
 pub const SANS: &str = "Geist";
@@ -243,7 +245,8 @@ impl Style {
             max_lines,
             uppercase,
             vertical_align,
-            cursor
+            cursor,
+            zoom
         );
         for side in 0..4 {
             if other.padding[side].is_some() {
@@ -262,5 +265,71 @@ impl Style {
                 self.radius[side] = other.radius[side];
             }
         }
+    }
+
+    /// This style with every length in pixels multiplied by `factor`, as it is laid out under
+    /// a zoom. Shares of the parent, ratios and `zoom` itself stay as they are.
+    pub fn zoomed(&self, factor: f32) -> Style {
+        let length = |value: Option<f32>| value.map(|pixels| pixels * factor);
+        let dimension = |value: Option<Dimension>| match value {
+            Some(Dimension::Px(pixels)) => Some(Dimension::Px(pixels * factor)),
+            other => other,
+        };
+        let shadow = |shadow: &Shadow| Shadow {
+            x: shadow.x * factor,
+            y: shadow.y * factor,
+            blur: shadow.blur * factor,
+            spread: shadow.spread * factor,
+            color: shadow.color,
+        };
+        Style {
+            basis: dimension(self.basis),
+            row_gap: length(self.row_gap),
+            column_gap: length(self.column_gap),
+            padding: self.padding.map(length),
+            margin: self.margin.map(dimension),
+            width: dimension(self.width),
+            height: dimension(self.height),
+            min_width: dimension(self.min_width),
+            min_height: dimension(self.min_height),
+            max_width: dimension(self.max_width),
+            max_height: dimension(self.max_height),
+            inset: self.inset.map(dimension),
+            translate: self.translate.map(|(x, y)| (x * factor, y * factor)),
+            border_width: self.border_width.map(length),
+            radius: self.radius.map(length),
+            shadow: self.shadow.as_ref().map(|shadows| shadows.iter().map(shadow).collect()),
+            font_size: length(self.font_size),
+            line_height: length(self.line_height),
+            vertical_align: length(self.vertical_align),
+            ..self.clone()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dimension, Shadow, Style};
+
+    #[test]
+    fn a_zoom_multiplies_lengths_in_pixels() {
+        let style = Style {
+            width: Some(Dimension::Px(100.0)),
+            height: Some(Dimension::Percent(50.0)),
+            padding: [Some(4.0), None, Some(8.0), None],
+            font_size: Some(14.0),
+            radius: [Some(6.0); 4],
+            shadow: Some(vec![Shadow { x: 0.0, y: 2.0, blur: 4.0, spread: 0.0, color: Default::default() }]),
+            opacity: Some(0.5),
+            ..Style::default()
+        };
+        let zoomed = style.zoomed(2.0);
+        assert_eq!(zoomed.width, Some(Dimension::Px(200.0)));
+        assert_eq!(zoomed.height, Some(Dimension::Percent(50.0)));
+        assert_eq!(zoomed.padding, [Some(8.0), None, Some(16.0), None]);
+        assert_eq!(zoomed.font_size, Some(28.0));
+        assert_eq!(zoomed.radius, [Some(12.0); 4]);
+        assert_eq!(zoomed.shadow.unwrap()[0].blur, 8.0);
+        assert_eq!(zoomed.opacity, Some(0.5));
     }
 }

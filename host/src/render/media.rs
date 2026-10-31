@@ -11,8 +11,9 @@ use crate::tree::{Node, NodeId};
 
 impl Painter<'_> {
     /// The canvas's pixels, sized to its box at the window's scale and drawn as an image, or a
-    /// vector canvas's shapes painted as paths.
-    pub(super) fn canvas_content(&self, element: Div, id: NodeId, style: &Style) -> Div {
+    /// vector canvas's shapes painted as paths. The app draws in the canvas's own units, which
+    /// `zoom` makes larger on screen.
+    pub(super) fn canvas_content(&self, element: Div, id: NodeId, style: &Style, zoom: f32) -> Div {
         let Some(surface) = self.tree.canvases.get(&id).cloned() else {
             return element;
         };
@@ -23,12 +24,12 @@ impl Painter<'_> {
                 let scale = window.scale_factor();
                 let mut surface = surface.borrow_mut();
                 if let Some(shapes) = &surface.shapes {
-                    shapes.paint(bounds, window);
+                    shapes.paint(bounds, zoom, window);
                     return;
                 }
                 let width = (f32::from(bounds.size.width) * scale).round() as u32;
                 let height = (f32::from(bounds.size.height) * scale).round() as u32;
-                surface.resize(width, height, scale);
+                surface.resize(width, height, scale * zoom);
                 for old in std::mem::take(&mut surface.stale) {
                     window.drop_image(old).ok();
                 }
