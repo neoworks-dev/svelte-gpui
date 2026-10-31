@@ -108,6 +108,11 @@ impl Workbench {
             (true, "v") => Some("paste"),
             _ => None,
         };
+        // The app may answer a paste itself, outside any field, with `clipboard.read()`: give it
+        // what the clipboard holds now, not what it held at the last paste into a field.
+        if clipboard_event == Some("paste") {
+            self.read_clipboard(cx);
+        }
         let detail = key_detail(keystroke, held);
         if self.emit(target, "key", detail, cx).prevented {
             return true;
