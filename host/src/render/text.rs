@@ -98,8 +98,9 @@ impl Painter<'_> {
             return element;
         }
         let single_line = style.nowrap == Some(true) || style.truncate == Some(true);
+        let anywhere = style.wrap_anywhere == Some(true);
         let mut element = element;
-        if !single_line && !preserve {
+        if !single_line && !preserve && !anywhere {
             // Text may shrink and wrap, but not below its longest word, which GPUI cannot work
             // out for itself and would otherwise break between letters.
             let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
@@ -108,6 +109,10 @@ impl Painter<'_> {
             } else {
                 element = element.whitespace_nowrap();
             }
+        }
+        if !single_line && !preserve && anywhere {
+            // Down to nothing: in a row the text's own minimum would be its unwrapped width.
+            element = element.min_w(px(0.));
         }
         if preserve {
             element = element.whitespace_nowrap();
