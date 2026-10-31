@@ -80,6 +80,26 @@ pub struct Computed {
     pub hover: Option<Rc<Style>>,
     pub active: Option<Rc<Style>>,
     pub focus: Option<Rc<Style>>,
+    /// The product of this element's `zoom` and its ancestors', which its lengths are already
+    /// multiplied by.
+    pub zoom: f32,
+}
+
+impl Computed {
+    /// The style as it is laid out under `zoom`, the zoom of everything above it and its own.
+    pub(super) fn zoomed(self, zoom: f32) -> Computed {
+        if zoom == 1.0 {
+            return Computed { zoom, ..self };
+        }
+        let patch = |style: Option<Rc<Style>>| style.map(|style| Rc::new(style.zoomed(zoom)));
+        Computed {
+            style: self.style.zoomed(zoom),
+            hover: patch(self.hover),
+            active: patch(self.active),
+            focus: patch(self.focus),
+            zoom,
+        }
+    }
 }
 
 pub(super) fn compute(node: &Node) -> Computed {
@@ -92,5 +112,5 @@ pub(super) fn compute(node: &Node) -> Computed {
     for (name, value) in &node.style {
         style.apply_inline(name, value);
     }
-    Computed { style, hover: patch("hover"), active: patch("active"), focus: patch("focus") }
+    Computed { style, hover: patch("hover"), active: patch("active"), focus: patch("focus"), zoom: 1.0 }
 }

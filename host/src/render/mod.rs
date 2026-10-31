@@ -50,7 +50,7 @@ use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
 pub use text::Inherited;
-use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform};
+use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
 
 /// What lives between frames: the handles GPUI needs to keep focus and scroll
 /// positions, what the last layout measured, and the images being loaded.
@@ -212,21 +212,29 @@ impl<'a> Painter<'a> {
         weight
     }
 
-    /// The style of a node, worked out once per version of the tree.
+    /// The style of a node, worked out once per version of the tree, with its lengths
+    /// multiplied by the zoom it is under.
     fn computed(&self, id: NodeId) -> Rc<Computed> {
-        let mut cache = self.interaction.styles.borrow_mut();
-        if cache.0 != self.tree.version {
-            cache.0 = self.tree.version;
-            cache.1.clear();
-        }
-        if let Some(found) = cache.1.get(&id) {
-            return found.clone();
+        {
+            let mut cache = self.interaction.styles.borrow_mut();
+            if cache.0 != self.tree.version {
+                cache.0 = self.tree.version;
+                cache.1.clear();
+            }
+            if let Some(found) = cache.1.get(&id) {
+                return found.clone();
+            }
         }
         let computed = match self.tree.nodes.get(&id) {
-            Some(node) => Rc::new(compute(node)),
-            None => Rc::new(Computed { style: Style::default(), hover: None, active: None, focus: None }),
+            Some(node) => {
+                let own = compute(node);
+                let above = node.parent.map(|parent| self.computed(parent).zoom).unwrap_or(1.0);
+                let zoom = above * own.style.zoom.unwrap_or(1.0);
+                Rc::new(own.zoomed(zoom))
+            }
+            None => Rc::new(Computed { style: Style::default(), hover: None, active: None, focus: None, zoom: 1.0 }),
         };
-        cache.1.insert(id, computed.clone());
+        self.interaction.styles.borrow_mut().1.insert(id, computed.clone());
         computed
     }
 
@@ -426,7 +434,7 @@ impl<'a> Painter<'a> {
         let style = &computed.style;
         let inherited = inherited.under(style);
 
-        let mut element = style::apply(div().flex(), style);
+        let mut element = zoom_text(style::apply(div().flex(), style), style, &inherited);
         if is_view_top {
             // The outer layout sized this box; it fills it, and the margins are the outer layout's.
             element = element.w_full().h_full().m_0();
@@ -437,7 +445,7 @@ impl<'a> Painter<'a> {
             Primitive::Image => self.image_content(element, id, node, style),
             Primitive::Icon => icon_content(element, node, style, &inherited),
             Primitive::Input => self.field_content(element, id, node, style, &inherited, cx),
-            Primitive::Canvas => self.canvas_content(element, id, style),
+            Primitive::Canvas => self.canvas_content(element, id, style, computed.zoom),
             Primitive::Element => self.element_content(element, id, node),
             Primitive::Scroll if anchoring_of(node).is_some() => {
                 // Each child is wrapped, so the scroller's end anchoring can find where layout put it.
