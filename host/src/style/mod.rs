@@ -143,6 +143,9 @@ pub struct Style {
     pub strikethrough: Option<bool>,
     pub text_align: Option<TextAlign>,
     pub nowrap: Option<bool>,
+    /// `overflowWrap: "anywhere"`: a word longer than the line breaks between letters, and the
+    /// text no longer keeps its box at least as wide as its longest word.
+    pub wrap_anywhere: Option<bool>,
     pub truncate: Option<bool>,
     pub max_lines: Option<usize>,
     pub uppercase: Option<bool>,
@@ -235,6 +238,7 @@ impl Style {
             strikethrough,
             text_align,
             nowrap,
+            wrap_anywhere,
             truncate,
             max_lines,
             uppercase,
