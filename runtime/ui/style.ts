@@ -100,7 +100,7 @@ export interface Style {
   /** All corners, or `[topLeft, topRight, bottomRight, bottomLeft]`. */
   radius?: number | [number, number, number, number];
   shadow?: Shadow | Shadow[] | null;
-  cursor?: "default" | "pointer" | "text" | "grab" | "grabbing" | "crosshair" | "col-resize" | "row-resize" | "not-allowed";
+  cursor?: "default" | "pointer" | "text" | "grab" | "grabbing" | "crosshair" | "col-resize" | "row-resize" | "nwse-resize" | "nesw-resize" | "not-allowed";
   /** Eases changes of colour and opacity, including hover: a duration in milliseconds, or the details. */
   transition?: number | Transition;
 
