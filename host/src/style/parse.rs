@@ -145,6 +145,12 @@ impl Style {
             "truncate" => self.truncate = value.as_bool(),
             "maxLines" => self.max_lines = value.as_u64().map(|lines| lines as usize),
             "uppercase" => self.uppercase = value.as_bool(),
+            "zoom" => {
+                let Some(factor) = number(value).filter(|factor| *factor > 0.0) else {
+                    return false;
+                };
+                self.zoom = Some(factor);
+            }
             "cursor" => {
                 self.cursor = match value.as_str() {
                     Some("default") => Some(CursorStyle::Arrow),
