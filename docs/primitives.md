@@ -319,7 +319,9 @@ Each row's size is read with `onresize` on a view around it, so a row costs one 
 
 Images load only once they come within a screen of the window, and are decoded no
 larger than they are drawn. Until an image loads, its box keeps the image's
-proportions where they are known.
+proportions where they are known. An image drawn at another size, as under a changing
+`zoom`, keeps its decoded copy until it is drawn more than one and a half times as wide or
+less than half as wide, and keeps showing it while the copy for the new size loads.
 
 ## Icon
 
