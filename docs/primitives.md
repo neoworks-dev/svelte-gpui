@@ -82,7 +82,7 @@ weight, font, decoration or background. The paragraph wraps as one.
 ```
 
 To limit a paragraph, use `truncate: true` for one line with an ellipsis, or
-`maxLines: n`. Text properties set on any element (`color`, `fontSize`, …) are
+`maxLines: n` for n lines, the last ending in an ellipsis. Text properties set on any element (`color`, `fontSize`, …) are
 inherited by the text inside it, so a `Button` can set the colour of its label.
 
 Any other element inside a `Text`, such as an `Icon` or a `View`, is an inline box: it

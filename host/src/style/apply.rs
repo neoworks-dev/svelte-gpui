@@ -246,7 +246,9 @@ fn apply_text<T: Styled>(mut element: T, style: &Style) -> T {
         element = element.whitespace_nowrap();
     }
     if let Some(lines) = style.max_lines {
-        element = element.line_clamp(lines);
+        // The ellipsis makes GPUI cut the last line to fit; without it the clamp leaves the rest
+        // of the text on that line, clipped mid-word.
+        element = element.overflow_hidden().text_ellipsis().line_clamp(lines);
     }
     element
 }
