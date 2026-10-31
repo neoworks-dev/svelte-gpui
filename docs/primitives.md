@@ -354,6 +354,7 @@ scale.
 | Prop | Type | |
 |---|---|---|
 | `style` | `Style` | Give it a size. |
+| `vector` | `boolean` | Keeps the shapes drawn since the last `clear` and paints them as paths on every frame, with no pixels to upload. Set it when the canvas is made. |
 | `ondown`, `onmove`, `onup` | `(e: PointerEvent) => void` | As on `View`, with pointer capture. |
 | `onhover`, `onwheel`, `onlayout` | | As on `View`. |
 
@@ -383,6 +384,11 @@ pointer events report:
   onup={() => pad.end()}
 />
 ```
+
+A `vector` canvas suits a drawing that is cleared and drawn again whole, such as an
+arrow that follows what it connects: it stays sharp at any size, and changing it uploads
+nothing. A drawing that piles up stroke on stroke, such as a sketch pad, belongs on a pixel
+canvas, whose cost doesn't grow with what is already on it.
 
 Canvas has no curves, text or images yet, and pixels cannot be read back.
 
