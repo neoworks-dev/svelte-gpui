@@ -135,6 +135,13 @@ impl Style {
                 }
             }
             "nowrap" => self.nowrap = value.as_bool(),
+            "overflowWrap" => {
+                self.wrap_anywhere = match value.as_str() {
+                    Some("anywhere") => Some(true),
+                    Some("normal") => Some(false),
+                    _ => return false,
+                }
+            }
             "truncate" => self.truncate = value.as_bool(),
             "maxLines" => self.max_lines = value.as_u64().map(|lines| lines as usize),
             "uppercase" => self.uppercase = value.as_bool(),

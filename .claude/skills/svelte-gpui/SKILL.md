@@ -66,7 +66,7 @@ These are the only keys; anything else is ignored. See `docs/styles.md` for valu
 - **Paint:** `background opacity borderWidth border{Top,Right,Bottom,Left}Width
   borderColor radius shadow cursor transition`
 - **Text:** `color fontSize fontWeight fontFamily lineHeight italic underline
-  strikethrough textAlign nowrap truncate maxLines uppercase verticalAlign`
+  strikethrough textAlign nowrap overflowWrap truncate maxLines uppercase verticalAlign`
 
 The values that trip people up:
 
@@ -261,7 +261,8 @@ with 1, and a run ended by `--exit-after-ms` summarises them and exits with 1.
 - Is a `Scroll` or `List` missing a bounded height (`flex: 1` or `height`)?
 - Is a flex child collapsed? Give it a size, or `flex: 1` in a parent that has room.
 - Is text cut off or overflowing? Add `minWidth: 0` on the flexible parent, and
-  `truncate` or `maxLines` on the text.
+  `truncate` or `maxLines` on the text. A single word longer than the box (a URL, a
+  path) needs `overflowWrap: "anywhere"` on the text.
 - Did a transition run on a component directly? Use `Presence`.
 - Does a style key do nothing? Check the spelling against `runtime/ui/style.ts`. The
   host ignores unknown keys.
