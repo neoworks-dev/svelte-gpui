@@ -112,7 +112,7 @@ included.
 | `borderColor` | `Color` | |
 | `radius` | `number` \| `[topLeft, topRight, bottomRight, bottomLeft]` | Corner radius. |
 | `shadow` | `Shadow` \| `Shadow[]` \| `null` | `{ x?, y?, blur?, spread?, color? }`. The colour defaults to black at 30%. |
-| `cursor` | `"default"` \| `"pointer"` \| `"text"` \| `"grab"` \| `"grabbing"` \| `"crosshair"` \| `"col-resize"` \| `"row-resize"` \| `"not-allowed"` | The pointer's shape over the element. |
+| `cursor` | `"default"` \| `"pointer"` \| `"text"` \| `"grab"` \| `"grabbing"` \| `"crosshair"` \| `"col-resize"` \| `"row-resize"` \| `"nwse-resize"` \| `"nesw-resize"` \| `"not-allowed"` | The pointer's shape over the element. `nwse-resize` points from top left to bottom right and `nesw-resize` from top right to bottom left, for resizing from a corner. |
 
 ## Text
 

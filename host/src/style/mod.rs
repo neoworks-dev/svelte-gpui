@@ -332,4 +332,13 @@ mod tests {
         assert_eq!(zoomed.shadow.unwrap()[0].blur, 8.0);
         assert_eq!(zoomed.opacity, Some(0.5));
     }
+
+    #[test]
+    fn the_diagonal_resize_cursors_are_gpuis() {
+        let mut style = Style::default();
+        assert!(style.set("cursor", &serde_json::json!("nwse-resize")));
+        assert_eq!(style.cursor, Some(gpui::CursorStyle::ResizeUpLeftDownRight));
+        assert!(style.set("cursor", &serde_json::json!("nesw-resize")));
+        assert_eq!(style.cursor, Some(gpui::CursorStyle::ResizeUpRightDownLeft));
+    }
 }

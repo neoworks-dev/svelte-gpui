@@ -161,6 +161,8 @@ impl Style {
                     Some("crosshair") => Some(CursorStyle::Crosshair),
                     Some("col-resize") => Some(CursorStyle::ResizeLeftRight),
                     Some("row-resize") => Some(CursorStyle::ResizeUpDown),
+                    Some("nwse-resize") => Some(CursorStyle::ResizeUpLeftDownRight),
+                    Some("nesw-resize") => Some(CursorStyle::ResizeUpRightDownLeft),
                     Some("not-allowed") => Some(CursorStyle::OperationNotAllowed),
                     _ => return false,
                 }
