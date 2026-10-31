@@ -184,7 +184,13 @@ impl Tree {
             }
             DRAW => {
                 if let Some(Value::Array(command)) = parts.get(2) {
-                    self.canvases.entry(id).or_default().borrow_mut().command(command);
+                    let vector = self.nodes.get(&id).is_some_and(|node| node.attributes.contains_key("vector"));
+                    let mut surface = self.canvases.entry(id).or_default().borrow_mut();
+                    if vector && surface.shapes.is_none() {
+                        surface.shapes = Some(Default::default());
+                    }
+                    surface.command(command);
+                    drop(surface);
                     self.dirty.insert(id);
                 }
             }

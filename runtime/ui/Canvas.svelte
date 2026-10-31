@@ -6,6 +6,10 @@
 
     <Canvas bind:this={pad} ondown={(e) => pad.begin(e.x, e.y, { color, width: 4 })}
             onmove={(e) => pad.lineTo(e.x, e.y)} onup={() => pad.end()} />
+
+  With `vector`, the host keeps the shapes drawn since the last `clear` and paints them
+  as paths on every frame, uploading no pixels. That suits a drawing that is cleared and
+  drawn again as it moves, such as an arrow, and not one that piles up stroke on stroke.
 -->
 <script lang="ts">
   import { draw } from "../host/bridge";
@@ -14,6 +18,8 @@
 
   interface Props {
     style?: Style;
+    /** Keeps shapes and paints them as paths instead of pixels. Set it when the canvas is made. */
+    vector?: boolean;
     ondown?: (event: PointerEvent) => void;
     onmove?: (event: PointerEvent) => void;
     onup?: (event: PointerEvent) => void;
@@ -26,6 +32,7 @@
 
   const attributes = $derived({
     look: encode(props.style),
+    vector: props.vector ? "" : undefined,
     ondown: listener(props.ondown, itself<PointerEvent>),
     onmove: listener(props.onmove, itself<PointerEvent>),
     onup: listener(props.onup, itself<PointerEvent>),
