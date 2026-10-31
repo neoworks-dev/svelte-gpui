@@ -106,6 +106,7 @@ setting `color` or `fontSize` on a `Button` styles its label.
 | `italic`, `underline`, `strikethrough`, `uppercase` | `boolean` | |
 | `textAlign` | `"left"` \| `"center"` \| `"right"` | |
 | `nowrap` | `boolean` | Keeps text on one line. |
+| `overflowWrap` | `"normal"` \| `"anywhere"` | `"anywhere"` breaks a word longer than the line between letters, so a long URL or path wraps inside its box. By default a text is never narrower than its longest word, and such a word widens its box. |
 | `truncate` | `boolean` | One line, cut off with an ellipsis. |
 | `maxLines` | `number` | At most that many lines, the last cut off with an ellipsis. |
 | `verticalAlign` | `number` | For an element inside a `Text`: how far it sits above the baseline, in pixels. Negative lowers it. Not inherited. |

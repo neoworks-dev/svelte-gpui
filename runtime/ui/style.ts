@@ -112,6 +112,12 @@ export interface Style {
   strikethrough?: boolean;
   textAlign?: "left" | "center" | "right";
   nowrap?: boolean;
+  /**
+   * `"anywhere"` breaks a word longer than the line between letters, as CSS does, so a long URL
+   * or path wraps inside its box instead of widening it. By default (`"normal"`) a text is never
+   * narrower than its longest word.
+   */
+  overflowWrap?: "normal" | "anywhere";
   /** One line, cut off with an ellipsis. */
   truncate?: boolean;
   maxLines?: number;
