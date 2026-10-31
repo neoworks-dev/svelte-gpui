@@ -10,6 +10,7 @@ use rquickjs::{
     ArrayBuffer, CaughtError, Coerced, Context, Function, Object, Runtime, function::Opt, function::Rest, qjs,
 };
 
+use crate::clipboard::ClipboardImage;
 use crate::errors::{AppError, ErrorKind, ErrorList, Report};
 use crate::field::Field;
 use crate::io::{Commands, Completion, Io};
@@ -31,6 +32,8 @@ pub struct App {
     pub tree: Rc<RefCell<Tree>>,
     /// What the system clipboard held when the host last looked, for `navigator.clipboard`.
     pub clipboard: Rc<RefCell<String>>,
+    /// The image the system clipboard held then, if any, for `clipboard.readImage()`.
+    pub clipboard_image: Rc<RefCell<Option<ClipboardImage>>>,
     /// The text fields in the window, which the window keeps up to date and `host.fieldState` reads.
     pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
     /// Operations applied and batches received, for the stress report.
@@ -266,6 +269,7 @@ impl App {
             context,
             tree,
             clipboard,
+            clipboard_image: Rc::new(RefCell::new(None)),
             fields: Rc::new(RefCell::new(HashMap::new())),
             counters,
             io: Rc::new(Io::new(Some(bundle_path), allow_files, commands.clone())),
@@ -326,6 +330,15 @@ impl App {
             let read_clipboard =
                 Function::new(ctx.clone(), move || clipboard.borrow().clone()).expect("clipboard function");
             host.set("clipboardText", read_clipboard).expect("set clipboardText");
+            let clipboard_image = self.clipboard_image.clone();
+            let read_image = Function::new(ctx.clone(), move || -> Vec<String> {
+                match &*clipboard_image.borrow() {
+                    Some(image) => vec![image.path.clone(), image.mime.to_string()],
+                    None => Vec::new(),
+                }
+            })
+            .expect("clipboardImage function");
+            host.set("clipboardImage", read_image).expect("set clipboardImage");
             // A field's selection and where its cursor sits among the rows, as it is right now:
             // start, end, row and row count, or nothing for an element that is not a drawn field.
             let field_state = Function::new(ctx.clone(), move |id: f64| -> Vec<f64> {

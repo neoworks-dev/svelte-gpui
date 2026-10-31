@@ -705,5 +705,6 @@ From `@neoworks/svelte-gpui`:
 - `frameStats()` returns `{ fps, buildMs }`: the frames drawn in the last second, and
   the average time building their elements took. GPUI only draws when something
   changed, so an idle window reports few frames.
-- `clipboard.write(text)` and `clipboard.read()`, which return promises.
+- `clipboard.write(text)`, `clipboard.read()` and `clipboard.readImage()`, which return
+  promises. See [Clipboard](patterns.md#clipboard).
 - `files`, `FileError` and their types. See [Network and files](io.md).

@@ -8,6 +8,7 @@
 
 mod assets;
 mod canvas;
+mod clipboard;
 mod diagnostics;
 mod elements;
 mod embedded;
