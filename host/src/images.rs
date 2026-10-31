@@ -184,6 +184,28 @@ impl Images {
     }
 }
 
+/// An image element's scaled copy as it was last drawn: which image, the width the copy was made
+/// for, and its file. While a copy of another width loads, the element keeps drawing this one.
+#[derive(Clone)]
+pub struct Drawn {
+    pub source: PathBuf,
+    pub width: u32,
+    pub file: PathBuf,
+}
+
+/// The width to ask for a copy of an image drawn `wanted` pixels wide, in steps of 64, when its
+/// copy so far was made for `current`. The copy is kept while it is drawn between half and one
+/// and a half times its width, so zooming starts a few jobs rather than one at every step.
+pub fn copy_width(current: Option<u32>, wanted: u32) -> u32 {
+    if let Some(current) = current
+        && wanted * 2 >= current
+        && wanted * 2 <= current * 3
+    {
+        return current;
+    }
+    wanted.max(1).div_ceil(64) * 64
+}
+
 /// Writes a copy of `source` that is `width` pixels wide.
 fn shrink(source: &PathBuf, target: &PathBuf, width: u32) -> bool {
     if target.is_file() {
@@ -288,5 +310,18 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         assert!(wakeups.try_recv().is_err());
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn a_zoomed_image_keeps_its_copy_until_the_size_changes_a_lot() {
+        // The first copy is the drawn width, rounded up to a step of 64.
+        assert_eq!(copy_width(None, 300), 320);
+        // Drawn between half and one and a half times as wide, the copy stays.
+        assert_eq!(copy_width(Some(320), 300), 320);
+        assert_eq!(copy_width(Some(320), 160), 320);
+        assert_eq!(copy_width(Some(320), 480), 320);
+        // Further, a new copy is made for the new width.
+        assert_eq!(copy_width(Some(320), 481), 512);
+        assert_eq!(copy_width(Some(320), 159), 192);
     }
 }
