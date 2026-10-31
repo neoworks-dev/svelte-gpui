@@ -52,8 +52,9 @@ impl Surface {
         self.run(parts);
     }
 
-    /// Gives the canvas its size in device pixels. What was drawn is kept, from the top left,
-    /// and scaled when the window moved to a screen of another scale.
+    /// Gives the canvas its size in device pixels, and `scale`, the device pixels to one unit
+    /// the app draws in: the window's scale times the zoom the canvas is under. What was drawn
+    /// is kept, from the top left, and resampled when the scale changed.
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
         let same = self.pixmap.as_ref().is_some_and(|pixmap| pixmap.width() == width && pixmap.height() == height);
         if (same && self.scale == scale) || width == 0 || height == 0 {
@@ -63,7 +64,8 @@ impl Surface {
             return;
         };
         if let Some(old) = &self.pixmap {
-            // Moving to a screen of another scale keeps the drawing where it was, resampled.
+            // A new screen scale or zoom keeps the drawing where it was, resampled until the
+            // app draws it again.
             let factor = if self.scale > 0.0 { scale / self.scale } else { 1.0 };
             let paint = PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..PixmapPaint::default() };
             fresh.draw_pixmap(0, 0, old.as_ref(), &paint, Transform::from_scale(factor, factor), None);
@@ -258,36 +260,38 @@ impl Shapes {
         }
     }
 
-    /// Paints every shape into `bounds`, the canvas's box in the window.
-    pub fn paint(&self, bounds: Bounds<Pixels>, window: &mut Window) {
+    /// Paints every shape into `bounds`, the canvas's box in the window, with the canvas's
+    /// units multiplied by `zoom`.
+    pub fn paint(&self, bounds: Bounds<Pixels>, zoom: f32, window: &mut Window) {
         if let Some(background) = self.background {
             window.paint_quad(gpui::fill(bounds, background));
         }
-        let origin = bounds.origin;
+        let place = |at: gpui::Point<Pixels>| bounds.origin + at * zoom;
         for shape in &self.list {
             match shape {
                 Shape::Stroke { points, colour, width } if points.len() == 1 => {
-                    paint_dot(origin + points[0], width / 2.0, *colour, window);
+                    paint_dot(place(points[0]), width * zoom / 2.0, *colour, window);
                 }
                 Shape::Stroke { points, colour, width } => {
+                    let width = width * zoom;
                     let options = gpui::StrokeOptions::default()
-                        .with_line_width(*width)
+                        .with_line_width(width)
                         .with_line_cap(lyon::tessellation::LineCap::Round)
                         .with_line_join(lyon::tessellation::LineJoin::Round);
                     let mut builder =
-                        gpui::PathBuilder::stroke(px(*width)).with_style(gpui::PathStyle::Stroke(options));
-                    builder.move_to(origin + points[0]);
+                        gpui::PathBuilder::stroke(px(width)).with_style(gpui::PathStyle::Stroke(options));
+                    builder.move_to(place(points[0]));
                     for at in &points[1..] {
-                        builder.line_to(origin + *at);
+                        builder.line_to(place(*at));
                     }
                     if let Ok(path) = builder.build() {
                         window.paint_path(path, gpui::Hsla::from(*colour));
                     }
                 }
                 Shape::Rect { bounds: rect, colour } => {
-                    window.paint_quad(gpui::fill(Bounds::new(origin + rect.origin, rect.size), *colour));
+                    window.paint_quad(gpui::fill(Bounds::new(place(rect.origin), rect.size * zoom), *colour));
                 }
-                Shape::Circle { centre, radius, colour } => paint_dot(origin + *centre, *radius, *colour, window),
+                Shape::Circle { centre, radius, colour } => paint_dot(place(*centre), radius * zoom, *colour, window),
             }
         }
     }

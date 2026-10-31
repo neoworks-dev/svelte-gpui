@@ -24,7 +24,7 @@ use gpui::{
 };
 
 use super::events::button_number;
-use super::text::Inherited;
+use super::text::{Inherited, zoom_text};
 use super::{Computed, Painter, Primitive, pointer_detail};
 use crate::style;
 use crate::tree::{Kind, Node, NodeId};
@@ -450,7 +450,8 @@ impl Painter<'_> {
         }
         let at = point_of(node);
         let anchor = Rc::new(Cell::new(None));
-        let mut content = style::apply(div().flex().flex_none(), style).children(children).child(self.measure(id));
+        let content = zoom_text(style::apply(div().flex().flex_none(), style), style, &inherited);
+        let mut content = content.children(children).child(self.measure(id));
         if node.attributes.contains_key("match-width") {
             content = content.min_w(relative(1.0));
         }

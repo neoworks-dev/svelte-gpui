@@ -20,6 +20,10 @@ pub struct Inherited {
     pub(super) underline: bool,
     pub(super) strikethrough: bool,
     pub(super) uppercase: bool,
+    /// A line height in pixels set above, or none for the window's 1.4 times the font size.
+    pub(super) line_height: Option<f32>,
+    /// The zoom everything here is under. A cached view whose zoom changed is drawn again.
+    pub(super) zoom: f32,
 }
 
 impl Inherited {
@@ -33,12 +37,17 @@ impl Inherited {
             underline: false,
             strikethrough: false,
             uppercase: false,
+            line_height: None,
+            zoom: 1.0,
         }
     }
 
+    /// What the children of an element with `style` inherit. The style is already zoomed; a font
+    /// size or line height that comes from above is multiplied by the element's own zoom here.
     pub(super) fn under(&self, style: &Style) -> Self {
+        let own_zoom = style.zoom.unwrap_or(1.0);
         Inherited {
-            font_size: style.font_size.unwrap_or(self.font_size),
+            font_size: style.font_size.unwrap_or(self.font_size * own_zoom),
             colour: style.color.unwrap_or(self.colour),
             weight: style.font_weight.unwrap_or(self.weight),
             family: style.font_family.clone().unwrap_or_else(|| self.family.clone()),
@@ -46,8 +55,25 @@ impl Inherited {
             underline: style.underline.unwrap_or(self.underline),
             strikethrough: style.strikethrough.unwrap_or(self.strikethrough),
             uppercase: style.uppercase.unwrap_or(self.uppercase),
+            line_height: style.line_height.or(self.line_height.map(|height| height * own_zoom)),
+            zoom: self.zoom * own_zoom,
         }
     }
+}
+
+/// Sets the font size and line height GPUI passes down on an element with a `zoom`, when they
+/// come from above it and so were not multiplied by its zoom. `inherited` is what its children get.
+pub(super) fn zoom_text<T: Styled>(mut element: T, style: &Style, inherited: &Inherited) -> T {
+    if style.zoom.is_none() {
+        return element;
+    }
+    if style.font_size.is_none() {
+        element = element.text_size(px(inherited.font_size));
+    }
+    if let (None, Some(height)) = (style.line_height, inherited.line_height) {
+        element = element.line_height(px(height));
+    }
+    element
 }
 
 pub(super) const DEFAULT_FONT_SIZE: f32 = 14.0;

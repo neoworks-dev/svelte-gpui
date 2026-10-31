@@ -62,7 +62,7 @@ These are the only keys; anything else is ignored. See `docs/styles.md` for valu
   columnGap padding paddingX paddingY padding{Top,Right,Bottom,Left} margin marginX
   marginY margin{Top,Right,Bottom,Left} display`
 - **Size and position:** `width height size minWidth minHeight maxWidth maxHeight
-  aspectRatio position inset top right bottom left overflow translate`
+  aspectRatio position inset top right bottom left overflow translate zoom`
 - **Paint:** `background opacity borderWidth border{Top,Right,Bottom,Left}Width
   borderColor radius shadow cursor transition`
 - **Text:** `color fontSize fontWeight fontFamily lineHeight italic underline
@@ -79,6 +79,9 @@ The values that trip people up:
 - `lineHeight` is in pixels.
 - `transition` eases only `background`, `color`, `borderColor` and `opacity`. Animate
   size and position with `Tween` or `Spring` driving `translate`, `width` and so on.
+- `zoom` scales an element's whole subtree in the host, like CSS's. A zoomable canvas sets
+  it once on its layer instead of multiplying every child's sizes, so a zoom step restyles
+  one element. Pointer positions and measured sizes stay in window pixels.
 - There is no `zIndex`: later siblings draw on top.
 - A flexible child that should truncate needs `minWidth: 0`.
 
