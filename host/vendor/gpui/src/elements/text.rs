@@ -1,9 +1,9 @@
 use crate::{
     ActiveTooltip, AnyView, App, Bounds, DispatchPhase, Element, ElementId, GlobalElementId,
-    HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
+    HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, LineWrapper,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, TextOverflow,
-    TextRun, TextStyle, TooltipId, WhiteSpace, Window, WrappedLine, WrappedLineLayout,
-    register_tooltip_mouse_handlers, set_tooltip_on_window,
+    TextRun, TextStyle, TooltipId, WhiteSpace, Window, WrappedLine, WrappedLineLayout, px,
+    register_tooltip_mouse_handlers, set_tooltip_on_window, update_runs_after_truncation,
 };
 use anyhow::Context as _;
 use smallvec::SmallVec;
@@ -307,6 +307,78 @@ impl IntoElement for StyledText {
     }
 }
 
+/// `text` cut so that, wrapped at `wrap_width`, it fills at most `max_lines` lines and the last
+/// one ends in `suffix`; `runs` are cut to match. GPUI's own truncation measures the text as one
+/// line `wrap_width × max_lines` long, which word wrapping can still overflow: the clamp then
+/// dropped the suffix and clipped the last line mid-word.
+#[allow(clippy::too_many_arguments)]
+fn clamp_lines(
+    text: &SharedString,
+    runs: &mut Vec<TextRun>,
+    wrap_width: Pixels,
+    max_lines: usize,
+    suffix: &str,
+    font_size: Pixels,
+    line_wrapper: &mut LineWrapper,
+    window: &mut Window,
+) -> SharedString {
+    let Some(last_start) = last_line_start(text, runs, wrap_width, max_lines, font_size, window)
+    else {
+        return text.clone();
+    };
+    let line_end = text[last_start..]
+        .find('\n')
+        .map_or(text.len(), |ix| last_start + ix);
+    let suffix_width = suffix
+        .chars()
+        .map(|c| line_wrapper.width_for_char(c))
+        .fold(px(0.), |a, w| a + w);
+    let mut width = px(0.);
+    let mut cut = line_end;
+    for (ix, c) in text[last_start..line_end].char_indices() {
+        width += line_wrapper.width_for_char(c);
+        if width + suffix_width > wrap_width {
+            cut = last_start + ix;
+            break;
+        }
+    }
+    let result = SharedString::from(format!("{}{suffix}", text[..cut].trim_end()));
+    update_runs_after_truncation(&result, suffix, runs);
+    result
+}
+
+/// Where the last of `max_lines` lines starts when `text` wraps at `wrap_width`, if the text runs
+/// past `max_lines` lines.
+fn last_line_start(
+    text: &SharedString,
+    runs: &[TextRun],
+    wrap_width: Pixels,
+    max_lines: usize,
+    font_size: Pixels,
+    window: &mut Window,
+) -> Option<usize> {
+    let last = max_lines.checked_sub(1)?;
+    let lines = window
+        .text_system()
+        .shape_text(text.clone(), font_size, runs, Some(wrap_width), None)
+        .log_err()?;
+    let mut starts = Vec::new();
+    let mut offset = 0;
+    for line in &lines {
+        starts.push(offset);
+        for boundary in &line.wrap_boundaries {
+            let glyph = &line.unwrapped_layout.runs[boundary.run_ix].glyphs[boundary.glyph_ix];
+            starts.push(offset + glyph.index);
+        }
+        // The `\n` that ended the line.
+        offset += line.text.len() + 1;
+    }
+    if starts.len() <= max_lines {
+        return None;
+    }
+    Some(starts[last])
+}
+
 /// The Layout for TextElement. This can be used to map indices to pixels and vice versa.
 #[derive(Default, Clone)]
 pub struct TextLayout(Rc<RefCell<Option<TextLayoutInner>>>);
@@ -378,16 +450,32 @@ impl TextLayout {
                 }
 
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
-                let text = if let Some(truncate_width) = truncate_width {
-                    line_wrapper.truncate_line(
-                        text.clone(),
-                        truncate_width,
-                        &truncation_suffix,
-                        &mut runs,
-                    )
-                } else {
-                    text.clone()
-                };
+                let text =
+                    if let (Some(max_lines), Some(width), Some(TextOverflow::Truncate(suffix))) = (
+                        text_style.line_clamp,
+                        wrap_width,
+                        text_style.text_overflow.clone(),
+                    ) {
+                        clamp_lines(
+                            &text,
+                            &mut runs,
+                            width,
+                            max_lines,
+                            &suffix,
+                            font_size,
+                            &mut line_wrapper,
+                            window,
+                        )
+                    } else if let Some(truncate_width) = truncate_width {
+                        line_wrapper.truncate_line(
+                            text.clone(),
+                            truncate_width,
+                            &truncation_suffix,
+                            &mut runs,
+                        )
+                    } else {
+                        text.clone()
+                    };
                 let len = text.len();
 
                 let Some(lines) = window

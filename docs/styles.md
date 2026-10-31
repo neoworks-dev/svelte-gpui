@@ -107,7 +107,7 @@ setting `color` or `fontSize` on a `Button` styles its label.
 | `textAlign` | `"left"` \| `"center"` \| `"right"` | |
 | `nowrap` | `boolean` | Keeps text on one line. |
 | `truncate` | `boolean` | One line, cut off with an ellipsis. |
-| `maxLines` | `number` | Cuts off after that many lines. |
+| `maxLines` | `number` | At most that many lines, the last cut off with an ellipsis. |
 | `verticalAlign` | `number` | For an element inside a `Text`: how far it sits above the baseline, in pixels. Negative lowers it. Not inherited. |
 
 The window starts with white-ish text (`#f4f4f5`) on a dark background (`#18181b`).

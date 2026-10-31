@@ -190,7 +190,7 @@ impl LineWrapper {
     }
 
     #[inline(always)]
-    fn width_for_char(&mut self, c: char) -> Pixels {
+    pub(crate) fn width_for_char(&mut self, c: char) -> Pixels {
         if (c as u32) < 128 {
             if let Some(cached_width) = self.cached_ascii_char_widths[c as usize] {
                 cached_width
@@ -224,7 +224,7 @@ impl LineWrapper {
     }
 }
 
-fn update_runs_after_truncation(result: &str, ellipsis: &str, runs: &mut Vec<TextRun>) {
+pub(crate) fn update_runs_after_truncation(result: &str, ellipsis: &str, runs: &mut Vec<TextRun>) {
     let mut truncate_at = result.len() - ellipsis.len();
     for (run_index, run) in runs.iter_mut().enumerate() {
         if run.len <= truncate_at {
