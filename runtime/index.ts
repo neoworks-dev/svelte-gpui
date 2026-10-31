@@ -114,4 +114,13 @@ export const clipboard = {
   read(): Promise<string> {
     return (globalThis as any).navigator.clipboard.readText();
   },
+  /**
+   * The image the clipboard held when the host last looked, as a file the host wrote it to, or
+   * null when it held none. Read it in a paste shortcut's key handler, as `read()`.
+   */
+  readImage(): Promise<{ path: string; mime: string } | null> {
+    const found = (globalThis as any).host.clipboardImage() as string[];
+    if (found.length === 0) return Promise.resolve(null);
+    return Promise.resolve({ path: found[0], mime: found[1] });
+  },
 };

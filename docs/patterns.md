@@ -280,3 +280,14 @@ Fields copy, cut and paste by themselves. `clipboard.read()` answers with what t
 clipboard held when the host last looked: at the last Ctrl+V or Cmd+V, before the app hears
 the key, and at the last paste into a field. A paste shortcut of the app's own, such as
 pasting onto a canvas, reads it in its key handler.
+
+`clipboard.readImage()` answers with an image the clipboard held at the same moment, as
+`{ path, mime }`, or null. The host writes the image to a file in the temporary directory,
+named after its bytes, so the app can copy or move it like any other file. GPUI reads text
+first: when a program puts both text and an image on the clipboard, `read()` has the text and
+`readImage()` answers null.
+
+```ts
+const image = await clipboard.readImage();
+if (image) addImage(image.path);
+```

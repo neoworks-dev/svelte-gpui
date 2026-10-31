@@ -172,6 +172,9 @@ second part only. Only the scroller's own children are kept in place, and it is 
   (`e.paths`, readable once dropped). Inside the app, `Draggable` and `DropTarget`.
 - **Shortcuts:** `<svelte:window onkeydown>` with `event.ctrlKey` and similar. Call
   `preventDefault()` so a focused field does not type the key too.
+- **Paste of the app's own:** in the Ctrl+V handler, `clipboard.read()` has the text and
+  `clipboard.readImage()` an image as a file (`{ path, mime }` or null). Text wins when a program
+  offers both.
 - **Focus:** a press that lands on nothing focusable blurs the field that has focus, as on the web
   (`onblur`, `oncommit`). Put `keepFocus` on a `View` or `Overlay` that must be pressed without that, such as
   suggestions under a field.
