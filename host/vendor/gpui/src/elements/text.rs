@@ -406,7 +406,7 @@ impl TextLayout {
             .line_height
             .to_pixels(font_size.into(), window.rem_size());
 
-        let mut runs = if let Some(runs) = runs {
+        let runs = if let Some(runs) = runs {
             runs
         } else {
             vec![text_style.to_run(text.len())]
@@ -449,6 +449,10 @@ impl TextLayout {
                     return text_layout.size.unwrap();
                 }
 
+                // Truncation shortens the runs to the text it keeps, and taffy measures the same
+                // text more than once, at different widths. Each measure starts from the full runs,
+                // else a narrow first pass leaves later, wider ones styling only its few characters.
+                let mut runs = runs.clone();
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
                 let text =
                     if let (Some(max_lines), Some(width), Some(TextOverflow::Truncate(suffix))) = (
