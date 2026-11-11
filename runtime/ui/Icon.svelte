@@ -4,18 +4,10 @@
   or the path of a file.
 -->
 <script lang="ts">
-  import { encode, type Color, type Style } from "./style";
+  import { encode } from "./style";
+  import type { IconProps } from "./props";
 
-  interface Props {
-    svg?: string;
-    src?: string;
-    /** Width and height in pixels; the font size around it otherwise. */
-    size?: number;
-    color?: Color;
-    style?: Style;
-  }
-
-  let props: Props = $props();
+  let props: IconProps = $props();
 
   const attributes = $derived({
     svg: props.svg,

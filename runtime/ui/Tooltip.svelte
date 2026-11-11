@@ -15,32 +15,11 @@
 </script>
 
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import Text from "./Text.svelte";
-  import View from "./View.svelte";
+  import { Overlay, Text, View } from "#primitives";
   import { tip } from "./overlay-look";
-  import type { Style } from "./style";
+  import type { TooltipProps } from "./props";
 
-  interface Props {
-    text?: string;
-    content?: Snippet;
-    /** Milliseconds the pointer rests before it shows. The default is 500. */
-    delay?: number;
-    side?: "top" | "bottom" | "left" | "right";
-    align?: "start" | "center" | "end";
-    /** The gap between the content and the tooltip. The default is 6. */
-    offset?: number;
-    /** Never shows. */
-    disabled?: boolean;
-    /** The tooltip's style. */
-    style?: Style;
-    /** The wrapper around the content, which is what the pointer rests on. */
-    anchorStyle?: Style;
-    children?: Snippet;
-  }
-
-  let { text, content, delay = 500, side = "bottom", align = "center", offset = 6, disabled = false, style, anchorStyle, children }: Props = $props();
+  let { text, content, delay = 500, side = "bottom", align = "center", offset = 6, disabled = false, style, anchorStyle, children }: TooltipProps = $props();
 
   let shown = $state(false);
   let timer: number | undefined;

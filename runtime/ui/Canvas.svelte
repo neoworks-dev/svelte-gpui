@@ -13,22 +13,11 @@
 -->
 <script lang="ts">
   import { draw } from "../host/bridge";
-  import { encode, type Color, type Pen, type Style } from "./style";
+  import { encode, type Color, type Pen } from "./style";
   import { itself, listener, type Layout, type PointerEvent, type WheelEvent } from "./events";
+  import type { CanvasProps } from "./props";
 
-  interface Props {
-    style?: Style;
-    /** Keeps shapes and paints them as paths instead of pixels. Set it when the canvas is made. */
-    vector?: boolean;
-    ondown?: (event: PointerEvent) => void;
-    onmove?: (event: PointerEvent) => void;
-    onup?: (event: PointerEvent) => void;
-    onhover?: (hovered: boolean) => void;
-    onwheel?: (event: WheelEvent) => void;
-    onlayout?: (layout: Layout) => void;
-  }
-
-  let props: Props = $props();
+  let props: CanvasProps = $props();
 
   const attributes = $derived({
     look: encode(props.style),

@@ -50,6 +50,22 @@ export interface FileDragEvent {
   windowY: number;
   paths: string[];
   count: number;
+  /**
+   * In a browser only, and only on `ondrop`: the files themselves. A browser tells a page the path of no
+   * file, so `paths` is empty there, and `files` is how an app reads what was dropped. Native hosts leave it out.
+   */
+  files?: DroppedFile[];
+}
+
+/** What a browser gives a page for a dropped file: the part of the web's `File` an app reads it with. */
+export interface DroppedFile {
+  readonly name: string;
+  readonly size: number;
+  readonly type: string;
+  /** Milliseconds since the epoch. */
+  readonly lastModified: number;
+  text(): Promise<string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 /** A button went down outside an overlay. */

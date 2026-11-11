@@ -4,8 +4,7 @@
   over it, while it is pressed, and while it has focus.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
   import {
     itself,
     listener,
@@ -15,40 +14,9 @@
     type PointerEvent,
     type WheelEvent,
   } from "./events";
+  import type { ViewProps } from "./props";
 
-  interface Props {
-    style?: Style;
-    hover?: Style;
-    active?: Style;
-    focus?: Style;
-    /** Takes keyboard focus when pressed. */
-    focusable?: boolean;
-    /** A press here does not take focus from the field that has it, nor give it to anything. */
-    keepFocus?: boolean;
-    onpress?: (event: PointerEvent) => void;
-    onhover?: (hovered: boolean) => void;
-    /** A button went down here; `onmove` and `onup` follow wherever the pointer goes until release. */
-    ondown?: (event: PointerEvent) => void;
-    /** The buttons `ondown` takes. A press of another button passes to what is around the view. The default is all three. */
-    buttons?: ("left" | "middle" | "right")[];
-    onmove?: (event: PointerEvent) => void;
-    onup?: (event: PointerEvent) => void;
-    onwheel?: (event: WheelEvent) => void;
-    onlayout?: (layout: Layout) => void;
-    /** Like `onlayout`, but only when its width or height changed, not when it merely moved. */
-    onresize?: (layout: Layout) => void;
-    onkey?: (event: KeyEvent) => void;
-    onfocus?: () => void;
-    onblur?: () => void;
-    /** Files dragged in from another program entered, left, moved over this, or were dropped on it. */
-    ondragenter?: (event: FileDragEvent) => void;
-    ondragleave?: (event: FileDragEvent) => void;
-    ondragover?: (event: FileDragEvent) => void;
-    ondrop?: (event: FileDragEvent) => void;
-    children?: Snippet;
-  }
-
-  let props: Props = $props();
+  let props: ViewProps = $props();
 
   const attributes = $derived({
     look: encode(props.style),

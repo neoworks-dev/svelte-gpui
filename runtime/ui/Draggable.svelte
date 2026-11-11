@@ -13,32 +13,10 @@
   such as a `ContextMenu` or a view with `ondown`.
 -->
 <script lang="ts" generics="T">
-  import type { Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import View from "./View.svelte";
+  import { Overlay, View } from "#primitives";
   import { beginDrag, dragging, endDrag, moveDrag } from "./dnd.svelte";
   import type { Layout, PointerEvent } from "./events";
-  import type { Style } from "./style";
-
-  interface Props {
-    /** What a target is given when this is dropped on it. */
-    data: T;
-    disabled?: boolean;
-    /** How far the pointer moves, in pixels, before the drag starts. The default is 4. */
-    threshold?: number;
-    style?: Style;
-    hover?: Style;
-    /** Laid over `style` on the original while it is being dragged. The default dims it. */
-    draggingStyle?: Style;
-    /** What follows the pointer. The default is a copy of the children. */
-    preview?: Snippet<[T]>;
-    /** Laid over the preview's wrapper, which is as wide as the original. */
-    previewStyle?: Style;
-    onstart?: (data: T) => void;
-    /** The drag ended, dropped on a target or not. */
-    onend?: (result: { data: T; dropped: boolean }) => void;
-    children?: Snippet;
-  }
+  import type { DraggableProps } from "./props";
 
   let {
     data,
@@ -52,7 +30,7 @@
     onstart,
     onend,
     children,
-  }: Props = $props();
+  }: DraggableProps<T> = $props();
 
   let pressed: { x: number; y: number; grabX: number; grabY: number } | null = null;
   let held = $state(false);

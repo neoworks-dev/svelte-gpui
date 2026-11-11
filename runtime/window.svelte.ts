@@ -2,7 +2,9 @@
 // host, which carries them out on its next tick; what the window is like comes back through
 // `receive`, which the host calls when anything changed.
 
-declare const console: { error(...args: unknown[]): void };
+import { CloseHandlers, type CloseHandler } from "./close-handlers";
+
+export type { CloseHandler } from "./close-handlers";
 
 /** How the window opens, in `start(App, props, { window })`. The host's `--width` and `--height` override the size. */
 export interface WindowOptions {
@@ -15,12 +17,6 @@ export interface WindowOptions {
   minWidth?: number;
   minHeight?: number;
 }
-
-/**
- * Decides whether the window may close. Return `false`, or a promise that resolves to
- * `false`, to keep it open; anything else lets it close.
- */
-export type CloseHandler = () => boolean | void | Promise<boolean | void>;
 
 interface HostWindow {
   window(operation: string, argumentsJson: string): void;
@@ -35,8 +31,7 @@ let focused = $state(true);
 let maximized = $state(false);
 let fullscreen = $state(false);
 
-const closeHandlers = new Set<CloseHandler>();
-let asking = false;
+const closeHandlers = new CloseHandlers();
 
 function request(operation: string, args: Record<string, unknown> = {}): void {
   host().window(operation, JSON.stringify(args));
@@ -67,51 +62,12 @@ export function receive(
   return resized;
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
-}
-
 /**
  * Asks the close handlers. Answers whether the window may close now. When a handler answers
  * later, this answers `false` and closes the window itself once every handler has said yes.
  */
 export function askToClose(): boolean {
-  if (asking) {
-    return false;
-  }
-  const later: PromiseLike<unknown>[] = [];
-  for (const handler of [...closeHandlers]) {
-    let answer;
-    try {
-      answer = handler();
-    } catch (error) {
-      console.error("a close handler threw:", error);
-      continue;
-    }
-    if (answer === false) {
-      return false;
-    }
-    if (isThenable(answer)) {
-      later.push(answer);
-    }
-  }
-  if (later.length === 0) {
-    return true;
-  }
-  asking = true;
-  Promise.all(later).then(
-    (answers) => {
-      asking = false;
-      if (answers.every((answer) => answer !== false)) {
-        request("destroy");
-      }
-    },
-    (error) => {
-      asking = false;
-      console.error("a close handler failed:", error);
-    },
-  );
-  return false;
+  return closeHandlers.ask(() => request("destroy"));
 }
 
 /**
@@ -188,9 +144,6 @@ export const window = {
    * anything else. Returns a function that removes the handler.
    */
   onCloseRequested(handler: CloseHandler): () => void {
-    closeHandlers.add(handler);
-    return () => {
-      closeHandlers.delete(handler);
-    };
+    return closeHandlers.add(handler);
   },
 };

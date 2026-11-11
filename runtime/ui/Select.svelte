@@ -14,39 +14,16 @@
 </script>
 
 <script lang="ts" generics="T">
-  import Button from "./Button.svelte";
-  import Icon from "./Icon.svelte";
+  import { Button, Icon, Text } from "#primitives";
   import Menu from "./Menu.svelte";
   import Popover from "./Popover.svelte";
-  import Text from "./Text.svelte";
   import { caretUpDown } from "./icons";
   import { colors } from "./overlay-look";
   import type { MenuItem } from "./menu";
   import type { KeyEvent } from "./events";
+  import type { SelectOption, SelectProps } from "./props";
 
-  interface Option {
-    value: T;
-    label: string;
-    disabled?: boolean;
-  }
-
-  interface Props {
-    /** The chosen option's value. */
-    value?: T;
-    /** Plain values, or `{ value, label, disabled }`. */
-    options: (T | Option)[];
-    placeholder?: string;
-    disabled?: boolean;
-    /** The tallest the list gets, in pixels, before it scrolls. The default is 260. */
-    maxHeight?: number;
-    onchange?: (value: T) => void;
-    /** The button's style. */
-    style?: Style;
-    hover?: Style;
-    focus?: Style;
-    /** The list's panel style. */
-    panelStyle?: Style;
-  }
+  type Option = SelectOption<T>;
 
   let {
     value = $bindable(),
@@ -59,7 +36,7 @@
     hover,
     focus,
     panelStyle,
-  }: Props = $props();
+  }: SelectProps<T> = $props();
 
   const isOption = (candidate: T | Option): candidate is Option =>
     typeof candidate === "object" && candidate !== null && "value" in candidate && "label" in candidate;

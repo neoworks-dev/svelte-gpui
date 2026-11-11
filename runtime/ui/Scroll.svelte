@@ -15,22 +15,13 @@
     back, or to an offset at or past `maxY`, pins it again.
 -->
 <script lang="ts">
-  import { untrack, type Snippet } from "svelte";
-  import { encode, type Style } from "./style";
+  import { untrack } from "svelte";
+  import { encode } from "./style";
   import { offsetAfter } from "./scroll";
   import { itself, listener, type Layout, type ScrollPosition } from "./events";
+  import type { ScrollProps } from "./props";
 
-  interface Props {
-    style?: Style;
-    horizontal?: boolean;
-    /** What the host keeps in view as the content changes: the window's content, or that and the end. Vertical only. */
-    anchor?: "content" | "end";
-    onscroll?: (position: ScrollPosition) => void;
-    onlayout?: (layout: Layout) => void;
-    children?: Snippet;
-  }
-
-  let props: Props = $props();
+  let props: ScrollProps = $props();
 
   const attributes = $derived({
     look: encode(props.style),

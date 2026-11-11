@@ -10,53 +10,11 @@
   close behaviour.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
   import { itself, listener, type KeyEvent, type Layout, type OutsideEvent, type PointerEvent } from "./events";
+  import type { OverlayProps } from "./props";
 
-  interface Props {
-    style?: Style;
-    hover?: Style;
-    active?: Style;
-    focus?: Style;
-    /** Which edge of the parent it sits against. The default is `"bottom"`. */
-    side?: "top" | "bottom" | "left" | "right";
-    /** Where along that edge it lines up. The default is `"start"`. */
-    align?: "start" | "center" | "end";
-    /** The gap between the parent and the overlay, along `side`. */
-    offset?: number;
-    /** Slides it along the edge, toward the end. */
-    crossOffset?: number;
-    /** A point in the window to place it against, `[x, y]`, instead of the parent's box. */
-    at?: [number, number];
-    /** Moves to the opposite side when the chosen one has too little room. The default is on. */
-    flip?: boolean;
-    /** Slides back inside the window when it would stick out. The default is on. */
-    shift?: boolean;
-    /** The least distance kept from the window's edges. The default is 4. */
-    margin?: number;
-    /** At least as wide as the parent. */
-    matchWidth?: boolean;
-    /** Lets the pointer through to what is behind it, instead of blocking it. */
-    passthrough?: boolean;
-    /** Overlays with a higher layer are drawn over those with a lower one. */
-    layer?: number;
-    /** Takes keyboard focus when pressed, and when `focus()` is called. */
-    focusable?: boolean;
-    /** A press here does not take focus from the field that has it, nor give it to anything. */
-    keepFocus?: boolean;
-    /** A button went down outside it (and outside any overlay opened from inside it). */
-    onoutside?: (event: OutsideEvent) => void;
-    onpress?: (event: PointerEvent) => void;
-    onhover?: (hovered: boolean) => void;
-    onlayout?: (layout: Layout) => void;
-    onkey?: (event: KeyEvent) => void;
-    onfocus?: () => void;
-    onblur?: () => void;
-    children?: Snippet;
-  }
-
-  let props: Props = $props();
+  let props: OverlayProps = $props();
 
   const attributes = $derived({
     look: encode(props.style),

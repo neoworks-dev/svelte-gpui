@@ -3,27 +3,11 @@
   Its children sit in a row.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
   import { itself, listener, type KeyEvent, type PointerEvent } from "./events";
+  import type { ButtonProps } from "./props";
 
-  interface Props {
-    style?: Style;
-    hover?: Style;
-    active?: Style;
-    focus?: Style;
-    /** Laid over `style` while the button is disabled. */
-    disabledStyle?: Style;
-    disabled?: boolean;
-    onpress?: (event: PointerEvent) => void;
-    onhover?: (hovered: boolean) => void;
-    onkey?: (event: KeyEvent) => void;
-    onfocus?: () => void;
-    onblur?: () => void;
-    children?: Snippet;
-  }
-
-  let props: Props = $props();
+  let props: ButtonProps = $props();
 
   const attributes = $derived({
     look: encode(props.disabled ? { cursor: "default", ...props.style, ...props.disabledStyle } : props.style),

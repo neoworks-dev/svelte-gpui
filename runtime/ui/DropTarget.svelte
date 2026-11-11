@@ -12,28 +12,14 @@
   accepted drag is under way. The children can read both from their snippet argument.
 -->
 <script lang="ts" generics="T">
-  import { onMount, type Snippet } from "svelte";
-  import View from "./View.svelte";
+  import { onMount } from "svelte";
+  import { View } from "#primitives";
   import { accepts, addTarget, dragging, type DragInfo } from "./dnd.svelte";
   import type { Layout } from "./events";
+  import type { DropTargetProps } from "./props";
   import type { Style } from "./style";
 
-  interface Props {
-    /** Which dragged data it takes. The default is everything. */
-    accept?: (data: T) => boolean;
-    ondragenter?: (info: DragInfo<T>) => void;
-    ondragover?: (info: DragInfo<T>) => void;
-    ondragleave?: () => void;
-    ondrop?: (info: DragInfo<T>) => void;
-    style?: Style;
-    /** Laid over `style` while an accepted drag is over it. */
-    over?: Style;
-    /** Laid over `style` while any accepted drag is in progress, over it or not. */
-    active?: Style;
-    children?: Snippet<[{ over: boolean; dragging: boolean }]>;
-  }
-
-  let { accept, ondragenter, ondragover, ondragleave, ondrop, style, over: overStyle, active: activeStyle, children }: Props = $props();
+  let { accept, ondragenter, ondragover, ondragleave, ondrop, style, over: overStyle, active: activeStyle, children }: DropTargetProps<T> = $props();
 
   let bounds: Layout = { x: 0, y: 0, width: 0, height: 0 };
   let over = $state(false);

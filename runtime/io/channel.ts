@@ -75,6 +75,21 @@ function failure(json: any): Error {
   return error;
 }
 
+/**
+ * Ends every call still waiting, for a host that went away: promises reject, and streams close
+ * as a socket does that dropped without a closing handshake.
+ */
+export function failAll(message: string, code: string): void {
+  for (const [call, handlers] of [...calls]) {
+    calls.delete(call);
+    if (handlers.close !== undefined) {
+      handlers.close({ json: { code: 1006, reason: message, wasClean: false } });
+    } else {
+      handlers.reject?.(failure({ message, code }));
+    }
+  }
+}
+
 /** Called by the host with what a call produced. */
 export function receive(call: number, settle: string, json: string, bytes: ArrayBuffer | undefined): void {
   const handlers = calls.get(call);

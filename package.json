@@ -7,7 +7,7 @@
   "description": "Native apps from Svelte 5 components, drawn by GPUI. No webview, no DOM, no CSS.",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit -p tsconfig.web.json && svelte-check --tsconfig ./tsconfig.web.json",
     "test": "bun test tests"
   },
   "peerDependencies": {
@@ -23,8 +23,20 @@
     "typescript": "^5.7.2"
   },
   "exports": {
-    ".": "./runtime/index.ts",
-    "./ui": "./runtime/ui/index.ts",
+    ".": {
+      "browser": "./runtime/web/index.ts",
+      "default": "./runtime/index.ts"
+    },
+    "./ui": {
+      "browser": "./runtime/web/ui/index.ts",
+      "default": "./runtime/ui/index.ts"
+    },
     "./build": "./build.mjs"
+  },
+  "imports": {
+    "#primitives": {
+      "browser": "./runtime/web/ui/primitives.ts",
+      "default": "./runtime/ui/primitives.ts"
+    }
   }
 }

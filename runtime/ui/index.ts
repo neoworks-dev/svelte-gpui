@@ -28,4 +28,4 @@ export type { CloseReason, PopoverApi } from "./overlay-stack";
 export * as overlayLook from "./overlay-look";
 export { encode, merge } from "./style";
 export type { Align, Color, Pen, Shadow, Sides, Size, Style, Transition } from "./style";
-export type { FileDragEvent, KeyEvent, Layout, Modifiers, OutsideEvent, PointerEvent, ScrollPosition, WheelEvent } from "./events";
+export type { DroppedFile, FileDragEvent, KeyEvent, Layout, Modifiers, OutsideEvent, PointerEvent, ScrollPosition, WheelEvent } from "./events";

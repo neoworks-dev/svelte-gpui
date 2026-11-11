@@ -17,29 +17,14 @@
     <View ondown={(event) => event.button === 2 && menu.openAt(event.windowX, event.windowY, rowItems)} />
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { View } from "#primitives";
   import Menu from "./Menu.svelte";
   import Popover from "./Popover.svelte";
-  import View from "./View.svelte";
   import type { MenuItem } from "./menu";
   import type { PointerEvent } from "./events";
-  import type { Style } from "./style";
+  import type { ContextMenuProps } from "./props";
 
-  interface Props {
-    /** The menu's items. Optional when `openAt` is always given its own. */
-    items?: MenuItem[] | ((event: PointerEvent) => MenuItem[]);
-    onselect?: (item: MenuItem, index: number) => void;
-    onopen?: (event: PointerEvent) => void;
-    /** The region's style. */
-    style?: Style;
-    /** The menu's own style. */
-    menuStyle?: Style;
-    /** The popover's panel style. */
-    panelStyle?: Style;
-    children?: Snippet;
-  }
-
-  let { items = [], onselect, onopen, style, menuStyle, panelStyle, children: region }: Props = $props();
+  let { items = [], onselect, onopen, style, menuStyle, panelStyle, children: region }: ContextMenuProps = $props();
 
   let open = $state(false);
   let at: [number, number] = $state([0, 0]);

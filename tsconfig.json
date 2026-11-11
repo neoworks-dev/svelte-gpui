@@ -17,5 +17,6 @@
       "@neoworks/svelte-gpui-editor": ["./packages/svelte-gpui-editor/src/index.ts"]
     }
   },
-  "include": ["runtime", "packages/*/src", "packages/*/scripts/*.ts", "examples/*/src", "examples/*/ui"]
+  "include": ["runtime", "packages/*/src", "packages/*/scripts/*.ts", "examples/*/src", "examples/*/ui"],
+  "exclude": ["runtime/web"]
 }

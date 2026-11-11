@@ -18,45 +18,20 @@
   The popover is then placed against its parent's box when `at` is absent, as `Overlay` is.
 -->
 <script lang="ts">
-  import { untrack, type Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import View from "./View.svelte";
-  import { focusedElement, isTopmost, pushOverlay, restoreFocus, type CloseReason, type PopoverApi } from "./overlay-stack";
+  import { untrack } from "svelte";
+  import { Overlay, View } from "#primitives";
+  import {
+    focusedElement,
+    isTopmost,
+    pushOverlay,
+    restoreFocus,
+    type CloseReason,
+    type FocusTarget,
+    type PopoverApi,
+  } from "./overlay-stack";
   import { panel as panelLook } from "./overlay-look";
-  import type { KeyEvent, OutsideEvent } from "./events";
-  import type { Style } from "./style";
-  import type { SElement } from "../dom/nodes";
-
-  interface Props {
-    open?: boolean;
-    trigger?: Snippet<[PopoverApi]>;
-    children?: Snippet<[PopoverApi]>;
-    side?: "top" | "bottom" | "left" | "right";
-    align?: "start" | "center" | "end";
-    /** The gap between the trigger and the popover. The default is 6. */
-    offset?: number;
-    crossOffset?: number;
-    flip?: boolean;
-    shift?: boolean;
-    margin?: number;
-    /** At least as wide as the trigger. */
-    matchWidth?: boolean;
-    /** A point in the window to place it against, instead of the trigger. */
-    at?: [number, number];
-    /** The panel's look. The default is a dark card; pass `{}` for none. */
-    style?: Style;
-    /** The wrapper around the trigger, whose box the popover is placed against. */
-    anchorStyle?: Style;
-    closeOnOutside?: boolean;
-    closeOnEscape?: boolean;
-    /** Moves focus to the panel when it opens. Turn it off when the content takes focus itself. */
-    focusPanel?: boolean;
-    /** Gives focus back to what had it when it closes by Escape or a choice. The default is on. */
-    restoreFocus?: boolean;
-    layer?: number;
-    onclose?: (reason: CloseReason) => void;
-    onkey?: (event: KeyEvent) => void;
-  }
+  import type { OutsideEvent } from "./events";
+  import type { PopoverProps } from "./props";
 
   let {
     open = $bindable(false),
@@ -80,10 +55,10 @@
     layer,
     onclose,
     onkey,
-  }: Props = $props();
+  }: PopoverProps = $props();
 
   let overlay: ReturnType<typeof Overlay> | undefined = $state();
-  let before: SElement | null = null;
+  let before: FocusTarget | null = null;
   let reason: CloseReason | undefined;
 
   function close(why: CloseReason = "api"): void {

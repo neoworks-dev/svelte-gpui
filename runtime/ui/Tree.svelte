@@ -13,48 +13,12 @@
   then goes to its parent), Home and End jump, and Enter activates the row, which also toggles a branch.
 -->
 <script lang="ts" generics="T">
-  import type { Snippet } from "svelte";
-  import Icon from "./Icon.svelte";
+  import { Icon, View } from "#primitives";
   import List from "./List.svelte";
-  import View from "./View.svelte";
   import { caretDown, caretRight } from "./icons";
-  import type { TreeRow } from "./tree";
   import type { KeyEvent, PointerEvent } from "./events";
+  import type { TreeProps } from "./props";
   import type { Style } from "./style";
-
-  interface Props {
-    /** The top level. */
-    items: T[];
-    /** Identifies a node, for what is expanded and selected. It must be unique and stay the same for the same node. */
-    key: (node: T) => string | number;
-    /** A node's children. Return nothing for a leaf. It is called for expanded branches only. */
-    childrenOf?: (node: T) => T[] | undefined | null;
-    /** Whether a node can be expanded. The default is that it has children, which a lazily loaded branch does not yet. */
-    isBranch?: (node: T) => boolean;
-    row: Snippet<[T, TreeRow]>;
-    /** The keys of the nodes that are expanded. Replace it to change it; it is never changed in place. */
-    expanded?: Set<string | number>;
-    /** The key of the selected node. */
-    selected?: string | number | undefined;
-    /** The height of every row, in pixels, or `"auto"` to measure rows that differ. The default is 28. */
-    rowHeight?: number | "auto";
-    /** The indent of each level, in pixels. The default is 16. */
-    indent?: number;
-    overscan?: number;
-    /** A node was selected, by the pointer or the keys. */
-    onselect?: (node: T) => void;
-    /** Enter, or a second press, on a node. */
-    onactivate?: (node: T) => void;
-    /** A branch was expanded: load its children here. */
-    onexpand?: (node: T) => void;
-    oncollapse?: (node: T) => void;
-    /** The tree's style. Give it a bounded height. */
-    style?: Style;
-    /** Laid over every row's style. */
-    rowStyle?: Style;
-    /** Laid over a selected row's style. */
-    selectedStyle?: Style;
-  }
 
   let {
     items,
@@ -74,7 +38,7 @@
     style,
     rowStyle,
     selectedStyle,
-  }: Props = $props();
+  }: TreeProps<T> = $props();
 
   interface Entry {
     node: T;

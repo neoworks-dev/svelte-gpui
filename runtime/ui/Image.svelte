@@ -4,19 +4,11 @@
   larger than it is shown. Until then its box keeps the image's proportions.
 -->
 <script lang="ts">
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
   import { listener } from "./events";
+  import type { ImageProps } from "./props";
 
-  interface Props {
-    src: string;
-    /** How the image fills its box. */
-    fit?: "contain" | "cover" | "fill";
-    style?: Style;
-    onload?: () => void;
-    onerror?: () => void;
-  }
-
-  let props: Props = $props();
+  let props: ImageProps = $props();
 
   const attributes = $derived({
     src: props.src,

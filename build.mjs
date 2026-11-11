@@ -3,17 +3,26 @@
 // TypeScript-aware Svelte preprocessor — is wired up here explicitly.
 // Adapted from svelte-gtk4's build.
 
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 import { compile, compileModule, preprocess } from "svelte/compiler";
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 
-const sveltePlugin = {
+// `emitCss` is for a browser build, where a component's `<style>` block becomes a stylesheet;
+// the host has no CSS, so the native build leaves them out.
+const makeSveltePlugin = ({ emitCss }) => ({
   name: "svelte",
   setup(build) {
+    const stylesheets = new Map();
+    build.onResolve({ filter: /\.svelte\.css$/ }, (args) => ({ path: args.path, namespace: "svelte-css" }));
+    build.onLoad({ filter: /.*/, namespace: "svelte-css" }, (args) => ({
+      contents: stylesheets.get(args.path) ?? "",
+      loader: "css",
+    }));
+
     // A `.svelte.ts` module is ordinary TypeScript that may use runes, so it is
     // stripped of its types and then run through the compiler's module half.
     build.onLoad({ filter: /\.svelte\.[jt]s$/ }, reportingErrors(async (args) => {
@@ -50,7 +59,7 @@ const sveltePlugin = {
       } catch (error) {
         throw await inOriginalSource(error, processed.map);
       }
-      const { js, warnings } = compiled;
+      const { js, css, warnings } = compiled;
       for (const warning of warnings) {
         // Accessibility advice is about a browser's assistive tools, which this is not.
         if (warning.code.startsWith("a11y_")) {
@@ -58,10 +67,17 @@ const sveltePlugin = {
         }
         console.warn(`${args.path}: ${warning.message}`);
       }
-      return { contents: await withSourceMap(js, source), loader: "js" };
+      let contents = await withSourceMap(js, source);
+      if (emitCss && css?.code) {
+        stylesheets.set(`${args.path}.css`, css.code);
+        contents += `\nimport ${JSON.stringify(`${args.path}.css`)};`;
+      }
+      return { contents, loader: "js" };
     }));
   },
-};
+});
+
+const sveltePlugin = makeSveltePlugin({ emitCss: false });
 
 // The compiler reports positions in the code it was given, which is the file with its types
 // stripped; this moves one back to the file itself, when the map to do that can be read.
@@ -151,19 +167,31 @@ function dedupeSvelte(root) {
   return {
     name: "dedupe-svelte",
     setup(build) {
-      build.onResolve({ filter: /^svelte($|\/)/ }, (args) => {
+      build.onResolve({ filter: /^svelte($|\/)/ }, async (args) => {
         if (args.pluginData === "deduped") {
           return null;
         }
-        return build.resolve(args.path, {
-          kind: args.kind,
-          resolveDir: root,
-          pluginData: "deduped",
-        });
+        const options = { kind: args.kind, pluginData: "deduped" };
+        const found = await build.resolve(args.path, { ...options, resolveDir: root });
+        if (found.errors.length === 0) {
+          return found;
+        }
+        // An app that has no `svelte` of its own runs on the one this library was installed with.
+        return build.resolve(args.path, { ...options, resolveDir: here("./") });
       });
     },
   };
 }
+
+// The composed components import their primitives as `#primitives`, which package.json points at
+// the DOM versions under the `browser` condition. This build asks for that condition too, because
+// Svelte's own client runtime needs it, so the native primitives are named here.
+const nativeSeam = {
+  name: "native-primitives",
+  setup(build) {
+    build.onResolve({ filter: /^#primitives$/ }, () => ({ path: here("./runtime/ui/primitives.ts") }));
+  },
+};
 
 // Writes each output to a temporary file and renames it into place, so a host that watches
 // the bundle never reads one half written. When the build has errors, the bundle is left as
@@ -231,6 +259,7 @@ export async function build(options) {
     loader: { ".svg": "text", ...options.loader },
     plugins: [
       dedupeSvelte(dirname(options.entry)),
+      nativeSeam,
       sveltePlugin,
       ...(options.plugins ?? []),
       writeAtomically(options),
@@ -251,4 +280,142 @@ export async function build(options) {
   if (result.metafile) {
     await writeFile(`${options.outfile}.meta.json`, JSON.stringify(result.metafile));
   }
+}
+
+// The browser target resolves `@neoworks/svelte-gpui` and `@neoworks/svelte-gpui/ui` to the DOM
+// versions, as the `browser` export condition in package.json does for any other bundler. Naming
+// them here as well keeps a build working for an app that has no copy of this package in its own
+// node_modules, which is how a consumer outside this repository builds.
+function browserPackage(alias) {
+  const files = {
+    "@neoworks/svelte-gpui": here("./runtime/web/index.ts"),
+    "@neoworks/svelte-gpui/ui": here("./runtime/web/ui/index.ts"),
+  };
+  return {
+    name: "browser-package",
+    setup(build) {
+      build.onResolve({ filter: /^@neoworks\/svelte-gpui(\/ui)?$/ }, (args) => {
+        // An alias the app gave wins over this default.
+        return alias[args.path] === undefined ? { path: files[args.path] } : null;
+      });
+    },
+  };
+}
+
+function pageFor({ title, js, css }) {
+  const escaped = String(title).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escaped}</title>${css ? `\n    <link rel="stylesheet" href="${css}" />` : ""}
+    <script type="module" src="${js}"></script>
+  </head>
+  <body></body>
+</html>
+`;
+}
+
+/**
+ * Bundles an app for the browser: the same entry that `build` bundles for the native host, with the
+ * DOM primitives under it. Writes `index.html`, `app.js` and, when a component has a `<style>` block
+ * or the app imports CSS, `app.css` into `outdir`, which the host serves with `svelte-gpui --web DIR`.
+ *
+ * Options: `entry` (an absolute path) and `outdir`; `alias`, `define`, `loader` and `plugins`, which are
+ * esbuild's; `title`, for the page until the app sets its own with `start(…, { window: { title } })`;
+ * `sourcemap` (`"linked"` when watching) and `minify` (on unless watching); and `watch: true` to rebuild
+ * whenever a source file changes.
+ *
+ * Resolves to `{ outdir, html, js, css, stop }`. `css` is `null` without a stylesheet, and `stop` ends the
+ * watching, when there is any.
+ */
+export async function buildWeb(options) {
+  const entry = resolve(options.entry);
+  const outdir = resolve(options.outdir);
+  const watch = options.watch === true;
+  const alias = {
+    "@neoworks/svelte-gpui-ui": here("./packages/svelte-gpui-ui/src"),
+    "@neoworks/svelte-gpui-editor": here("./packages/svelte-gpui-editor/src"),
+    ...options.alias,
+  };
+  const title = options.title ?? "svelte-gpui app";
+  const written = { outdir, html: join(outdir, "index.html"), js: join(outdir, "app.js"), css: null, stop: undefined };
+
+  const writePage = {
+    name: "write-page",
+    setup(build) {
+      build.onEnd(async (result) => {
+        if (result.errors.length > 0) {
+          return;
+        }
+        const css = Object.keys(result.metafile?.outputs ?? {}).some((file) => file.endsWith(".css"));
+        written.css = css ? join(outdir, "app.css") : null;
+        await mkdir(outdir, { recursive: true });
+        await writeFile(written.html, pageFor({ title, js: "app.js", css: css ? "app.css" : null }));
+        // The fonts the host draws with, which the page asks for by name (see runtime/web/ui/base.ts).
+        await cp(here("./host/assets/fonts"), join(outdir, "fonts"), { recursive: true, force: false, errorOnExist: false });
+        if (watch) {
+          console.log(`[watch] wrote ${outdir} at ${new Date().toISOString()}`);
+        }
+      });
+    },
+  };
+
+  const config = {
+    entryPoints: { app: entry },
+    outdir,
+    entryNames: "[name]",
+    assetNames: "assets/[name]-[hash]",
+    bundle: true,
+    metafile: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    conditions: ["svelte", "browser", "production", "default"],
+    mainFields: ["svelte", "browser", "module", "main"],
+    alias,
+    define: options.define,
+    sourcemap: options.sourcemap ?? (watch ? "linked" : false),
+    sourcesContent: true,
+    minify: options.minify ?? !watch,
+    legalComments: "none",
+    loader: {
+      ".svg": "text",
+      ".png": "file",
+      ".jpg": "file",
+      ".jpeg": "file",
+      ".gif": "file",
+      ".webp": "file",
+      ".woff": "file",
+      ".woff2": "file",
+      ".ttf": "file",
+      ...options.loader,
+    },
+    plugins: [
+      dedupeSvelte(dirname(entry)),
+      browserPackage(alias),
+      makeSveltePlugin({ emitCss: true }),
+      ...(options.plugins ?? []),
+      writePage,
+    ],
+    logLevel: "info",
+  };
+
+  if (watch) {
+    // `watch()` starts with a build; wait for it, so the page exists when this resolves.
+    let firstBuild;
+    const built = new Promise((resolve) => (firstBuild = resolve));
+    config.plugins.push({ name: "first-build", setup: (build) => build.onEnd(() => firstBuild()) });
+    const context = await esbuild.context(config);
+    await context.watch();
+    await built;
+    written.stop = () => context.dispose();
+    return written;
+  }
+  const result = await esbuild.build(config);
+  if (result.errors.length > 0) {
+    throw new Error(`the browser build of ${entry} failed`);
+  }
+  return written;
 }

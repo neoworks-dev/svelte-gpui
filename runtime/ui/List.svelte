@@ -20,37 +20,16 @@
   list that inserts or reorders wants. Adding items at the end is cheap either way.
 -->
 <script lang="ts" generics="T">
-  import { untrack, type Snippet } from "svelte";
-  import Scroll from "./Scroll.svelte";
-  import View from "./View.svelte";
+  import { untrack } from "svelte";
+  import { Scroll, View } from "#primitives";
   import { Heights } from "./heights";
   import type { Layout, ScrollPosition } from "./events";
-  import type { Style } from "./style";
-
-  interface Props {
-    items: T[];
-    /** The height of every row, in pixels. Leave it out for rows of different heights. */
-    rowHeight?: number;
-    /** What a row not measured yet counts as, before any has been. The default is 40. */
-    estimatedRowHeight?: number;
-    row: Snippet<[T, number]>;
-    /** Keeps a row's state, and its measured height, with its item as the list changes. */
-    key?: (item: T, index: number) => unknown;
-    /** How many rows past each edge of the window are built anyway, within a window's height of it. The default is 8. */
-    overscan?: number;
-    /**
-     * Opens at the end, and stays there as items are added and rows change height, as a chat does, for as long
-     * as the list is scrolled to its end. Scrolling up lets go of it; scrolling back to the end takes it again.
-     */
-    stickToEnd?: boolean;
-    style?: Style;
-    onscroll?: (position: ScrollPosition) => void;
-  }
+  import type { ListProps } from "./props";
 
   /** How tall a stretch of rows is laid out at once, in pixels. */
   const STRETCH = 1_000_000;
 
-  let { items, rowHeight, estimatedRowHeight = 40, row, key, overscan = 8, stickToEnd = false, style, onscroll }: Props = $props();
+  let { items, rowHeight, estimatedRowHeight = 40, row, key, overscan = 8, stickToEnd = false, style, onscroll }: ListProps<T> = $props();
 
   let scroller: ReturnType<typeof Scroll> | undefined = $state();
   /** How far the list is scrolled, counted from the top of the whole list. */

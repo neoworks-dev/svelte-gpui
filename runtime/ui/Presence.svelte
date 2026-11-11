@@ -6,27 +6,11 @@
   the host draws; other properties they animate are not drawn.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
   import type { TransitionConfig } from "svelte/transition";
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
+  import type { PresenceProps, TransitionFunction, TransitionProp } from "./props";
 
-  type TransitionFunction = (
-    node: any,
-    params: any,
-    options: { direction: "in" | "out" | "both" },
-  ) => TransitionConfig | (() => TransitionConfig);
-
-  /** A transition, or one with its parameters: `fade`, `[fly, { x: -20, duration: 300 }]`. */
-  type TransitionProp = TransitionFunction | [TransitionFunction, unknown];
-
-  interface Props {
-    in?: TransitionProp;
-    out?: TransitionProp;
-    style?: Style;
-    children?: Snippet;
-  }
-
-  let props: Props = $props();
+  let props: PresenceProps = $props();
 
   const still = (): TransitionConfig => ({ duration: 0 });
   const split = (given: TransitionProp | undefined): [TransitionFunction, unknown] =>

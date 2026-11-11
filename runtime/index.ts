@@ -31,6 +31,9 @@ export type {
   WatchOptions,
 } from "./io/files";
 
+/** Which target the app is running on, for the few things that differ: `"native"` in the host's window, `"browser"` in a page. */
+export const target: "native" | "browser" = "native";
+
 /** What `start` takes beyond the component and its props. */
 export interface StartOptions {
   /** Limits the files the app may reach. Without it, everything is allowed. */

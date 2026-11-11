@@ -4,40 +4,11 @@
   through `oninput` and `bind:value`, and setting `value` replaces the text.
 -->
 <script lang="ts">
-  import { encode, type Style } from "./style";
+  import { encode } from "./style";
   import { itself, listener, type KeyEvent } from "./events";
+  import type { InputProps } from "./props";
 
-  interface Props {
-    value?: string;
-    placeholder?: string;
-    /** Several lines; Enter breaks the line instead of submitting. */
-    multiline?: boolean;
-    /** How many lines a multiline field shows at least. */
-    rows?: number;
-    /** Shows dots instead of the text. */
-    secure?: boolean;
-    /** Takes only digits, signs, a point and exponents. */
-    numeric?: boolean;
-    maxLength?: number;
-    disabled?: boolean;
-    readonly?: boolean;
-    style?: Style;
-    hover?: Style;
-    focus?: Style;
-    /** Every change to the text. */
-    oninput?: (value: string) => void;
-    /** Enter in a single-line field. */
-    onsubmit?: (value: string) => void;
-    /** The text changed since the field took focus, and focus left or Enter was pressed. */
-    oncommit?: (value: string) => void;
-    /** The cursor or the selection moved, with the text offsets (UTF-16, as for `select()`) of its two ends. */
-    onselect?: (selection: { start: number; end: number }) => void;
-    onkey?: (event: KeyEvent) => void;
-    onfocus?: () => void;
-    onblur?: () => void;
-  }
-
-  let { value = $bindable(""), ...props }: Props = $props();
+  let { value = $bindable(""), ...props }: InputProps = $props();
 
   const attributes = $derived({
     look: encode(props.style),

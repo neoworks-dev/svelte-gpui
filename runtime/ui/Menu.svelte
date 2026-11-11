@@ -12,36 +12,14 @@
 -->
 <script lang="ts">
   import { untrack } from "svelte";
-  import Icon from "./Icon.svelte";
-  import Scroll from "./Scroll.svelte";
-  import Text from "./Text.svelte";
-  import View from "./View.svelte";
+  import { Icon, Scroll, Text, View } from "#primitives";
   import { check } from "./icons";
   import { colors } from "./overlay-look";
-  import type { MenuItem } from "./menu";
   import type { KeyEvent, Layout, ScrollPosition } from "./events";
+  import type { MenuProps } from "./props";
   import type { Style } from "./style";
 
-  interface Props {
-    items: MenuItem[];
-    /** Called with the item and its index after the item's own `onselect`. */
-    onselect?: (item: MenuItem, index: number) => void;
-    /** Called after any choice. Close the popover here. */
-    onclose?: () => void;
-    /** The item highlighted when it appears. The default is the first one that is not disabled. */
-    initial?: number;
-    /** Takes keyboard focus when it appears. The default is on. */
-    autofocus?: boolean;
-    /** Scrolls when the rows are taller than this. */
-    maxHeight?: number;
-    /** The width, in pixels. The default is as wide as the widest row, and at least the popover's. */
-    width?: number;
-    style?: Style;
-    /** Laid over every row's own style. */
-    itemStyle?: Style;
-  }
-
-  let { items, onselect, onclose, initial, autofocus = true, maxHeight, width, style, itemStyle }: Props = $props();
+  let { items, onselect, onclose, initial, autofocus = true, maxHeight, width, style, itemStyle }: MenuProps = $props();
 
   const ROW = 28;
   const SEPARATOR = 9;
