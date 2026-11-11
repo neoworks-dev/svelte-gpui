@@ -1,0 +1,18 @@
+{
+  // The browser target, checked with the DOM's types and the `browser` export condition, so the
+  // package resolves to the DOM versions as it does in a browser build. The apps in this repository
+  // are checked against them too: the same source has to type check on both targets.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "customConditions": ["browser"],
+    "paths": {
+      "@neoworks/svelte-gpui": ["./runtime/web/index.ts"],
+      "@neoworks/svelte-gpui/ui": ["./runtime/web/ui/index.ts"],
+      "@neoworks/svelte-gpui-ui": ["./packages/svelte-gpui-ui/src/index.ts"],
+      "@neoworks/svelte-gpui-editor": ["./packages/svelte-gpui-editor/src/index.ts"]
+    }
+  },
+  "include": ["runtime", "packages/*/src", "packages/*/scripts/*.ts", "examples/*/src", "examples/*/ui"],
+  "exclude": []
+}
