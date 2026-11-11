@@ -1,10 +1,15 @@
 // Tells an element's owner where it was laid out, as the host does after each frame: in window
-// coordinates, and again whenever that changes, whether it was resized or only moved.
+// coordinates, and again whenever that changes.
 //
-// A `ResizeObserver` hears size changes but not moves, and a move is what scrolling, a sibling
-// growing or a panel opening does. So something that might have moved anything, such as a scroll,
-// a change to the page, an animation or the window resizing, asks for one check on the next
-// frame, which measures every watched element. Nothing runs while the page is still.
+// A size change is what a `ResizeObserver` reports, for exactly the elements that changed, so a
+// watch that only wants sizes (`onresize`) costs nothing while its element keeps its size, however
+// much else on the page changes.
+//
+// A move is what it doesn't report: scrolling, a sibling growing or a panel opening moves an
+// element without resizing it. So while any watch wants moves too (`onlayout`), something that
+// might have moved anything (a scroll, a change to the page, an animation, the window resizing)
+// asks for one check on the next frame, which measures those watches, and only those. A page
+// whose watches all want sizes never measures on a change it doesn't see.
 
 import type { Layout } from "../../ui/events";
 
@@ -16,7 +21,12 @@ interface Watch {
   last: Layout | null;
 }
 
-const watches = new Set<Watch>();
+/** Watches that want sizes only, by element: driven by the `ResizeObserver` alone. */
+const sized = new Map<Element, Set<Watch>>();
+/** Watches that want moves too: measured on every check. */
+const placed = new Set<Watch>();
+/** How many watches each observed element has, so it is observed once and let go with the last. */
+const observed = new Map<Element, number>();
 let resizes: ResizeObserver | undefined;
 let changes: MutationObserver | undefined;
 let pending = 0;
@@ -38,18 +48,39 @@ function changed(watch: Watch, now: Layout): boolean {
   return watch.sizeOnly ? resized : resized || !same(before.x, now.x) || !same(before.y, now.y);
 }
 
+/** Tells the watch if its element's box changed (as it counts it); whether it did. */
+function report(watch: Watch, now: Layout): boolean {
+  if (!changed(watch, now)) {
+    return false;
+  }
+  watch.last = now;
+  watch.callback(now);
+  return true;
+}
+
+/** The elements that changed size: their size watches hear it; a move watch may have moved. */
+function resized(entries: ResizeObserverEntry[]): void {
+  for (const entry of entries) {
+    const watches = sized.get(entry.target);
+    if (watches === undefined) {
+      continue;
+    }
+    const now = measure(entry.target);
+    for (const watch of [...watches]) {
+      if (watches.has(watch)) {
+        report(watch, now);
+      }
+    }
+  }
+  ask();
+}
+
 function check(): void {
   pending = 0;
   let moved = false;
-  for (const watch of [...watches]) {
-    if (!watches.has(watch)) {
-      continue;
-    }
-    const now = measure(watch.element);
-    if (changed(watch, now)) {
-      watch.last = now;
+  for (const watch of [...placed]) {
+    if (placed.has(watch) && report(watch, measure(watch.element))) {
       moved = true;
-      watch.callback(now);
     }
   }
   // What a callback did may have moved something else, so look once more.
@@ -58,17 +89,20 @@ function check(): void {
   }
 }
 
-/** Asks for a check on the next frame. Asking again before it runs changes nothing. */
+/**
+ * Asks for a check of the watches that want moves on the next frame; nothing when there are none.
+ * Asking again before it runs changes nothing.
+ */
 export function ask(): void {
-  if (pending === 0 && watches.size > 0) {
+  if (pending === 0 && placed.size > 0) {
     pending = requestAnimationFrame(check);
   }
 }
 
 const EVENTS = ["scroll", "resize", "transitionend", "animationend", "load", "pointerup", "keyup"];
 
-function start(): void {
-  resizes = new ResizeObserver(ask);
+/** Hears what may move things: only while a watch wants moves. */
+function listen(): void {
   changes = new MutationObserver(ask);
   changes.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
   for (const type of EVENTS) {
@@ -76,10 +110,9 @@ function start(): void {
   }
 }
 
-function stop(): void {
-  resizes?.disconnect();
+function unlisten(): void {
   changes?.disconnect();
-  resizes = changes = undefined;
+  changes = undefined;
   for (const type of EVENTS) {
     window.removeEventListener(type, ask, { capture: true });
   }
@@ -89,25 +122,69 @@ function stop(): void {
   }
 }
 
+function observe(element: Element): void {
+  resizes ??= new ResizeObserver(resized);
+  const count = observed.get(element) ?? 0;
+  observed.set(element, count + 1);
+  if (count === 0) {
+    resizes.observe(element);
+  }
+}
+
+function unobserve(element: Element): void {
+  const count = (observed.get(element) ?? 1) - 1;
+  if (count > 0) {
+    observed.set(element, count);
+    return;
+  }
+  observed.delete(element);
+  resizes?.unobserve(element);
+  if (observed.size === 0) {
+    resizes?.disconnect();
+    resizes = undefined;
+  }
+}
+
 /**
  * Calls `callback` with the element's box once it is laid out, and each time that changes. With
  * `sizeOnly`, only when its width or height changed. Returns the function that stops.
  */
 export function watchLayout(element: Element, callback: (layout: Layout) => void, sizeOnly = false): () => void {
   const watch: Watch = { element, sizeOnly, callback, last: null };
-  if (watches.size === 0) {
-    start();
+  // A new observation is reported once laid out, so a size watch hears its first box from it.
+  observe(element);
+  if (sizeOnly) {
+    let watches = sized.get(element);
+    if (watches === undefined) {
+      watches = new Set();
+      sized.set(element, watches);
+    }
+    watches.add(watch);
+  } else {
+    if (placed.size === 0) {
+      listen();
+    }
+    placed.add(watch);
+    ask();
   }
-  watches.add(watch);
-  resizes?.observe(element);
-  ask();
+  let stopped = false;
   return () => {
-    if (!watches.delete(watch)) {
+    if (stopped) {
       return;
     }
-    resizes?.unobserve(element);
-    if (watches.size === 0) {
-      stop();
+    stopped = true;
+    unobserve(element);
+    if (sizeOnly) {
+      const watches = sized.get(element);
+      watches?.delete(watch);
+      if (watches?.size === 0) {
+        sized.delete(element);
+      }
+    } else {
+      placed.delete(watch);
+      if (placed.size === 0) {
+        unlisten();
+      }
     }
   };
 }
