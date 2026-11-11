@@ -44,6 +44,29 @@
     props.onscroll?.(now);
   }
 
+  let reportFrame: number | null = null;
+  let reportTask: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Reports once the next frame is laid out and its resize observers have run. What `keepPlace` moved
+   * is reported this way: the app may answer a report by changing the children, which calls
+   * `keepPlace` again. Reported at once, that circle never leaves the microtasks and the page hangs;
+   * reported in the frame's own animation callbacks, it still comes before the new children are
+   * measured. Either way an app that places them by their measured height, as `List` does, never
+   * learns it and swings between two places. The task queued from the frame runs after it.
+   */
+  function reportSoon(node: HTMLElement): void {
+    if (reportFrame !== null || reportTask !== null) {
+      return;
+    }
+    reportFrame = requestAnimationFrame(() => {
+      reportFrame = null;
+      reportTask = setTimeout(() => {
+        reportTask = null;
+        report(node);
+      }, 0);
+    });
+  }
+
   /** Whether the scroller is held at its end, which `anchor="end"` keeps it at as the content grows. */
   let pinned = false;
   /** The child at the top of the window, and how far below the top edge it was. */
@@ -75,7 +98,7 @@
       }
     }
     remember(node);
-    report(node);
+    reportSoon(node);
   }
 
   /** Untracked, so that what the app's `onscroll` reads does not make the scroller set itself up again. */
@@ -125,6 +148,14 @@
       node.removeEventListener("scroll", onscroll);
       resizes.disconnect();
       changes.disconnect();
+      if (reportFrame !== null) {
+        cancelAnimationFrame(reportFrame);
+        reportFrame = null;
+      }
+      if (reportTask !== null) {
+        clearTimeout(reportTask);
+        reportTask = null;
+      }
     };
   }
 
