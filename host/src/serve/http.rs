@@ -225,7 +225,8 @@ mod tests {
 
     #[test]
     fn a_head_is_read_with_lower_case_header_names() {
-        let head = parse_head("GET /io?token=abc HTTP/1.1\r\nHost: 127.0.0.1:80\r\nUpgrade: WebSocket\r\n\r\n").unwrap();
+        let head =
+            parse_head("GET /io?token=abc HTTP/1.1\r\nHost: 127.0.0.1:80\r\nUpgrade: WebSocket\r\n\r\n").unwrap();
         assert_eq!(head.path(), "/io");
         assert_eq!(head.query("token"), Some("abc"));
         assert_eq!(head.query("other"), None);

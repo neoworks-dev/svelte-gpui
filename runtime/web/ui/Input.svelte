@@ -82,12 +82,14 @@
       };
       node.addEventListener("keydown", keydown);
       node.addEventListener("focus", focus);
-      node.addEventListener("blur", commit);
+      // Focus leaves while the page may be taking the field away, so what the app hears waits until that is done.
+      const left = (): void => queueMicrotask(commit);
+      node.addEventListener("blur", left);
       document.addEventListener("selectionchange", selection);
       return () => {
         node.removeEventListener("keydown", keydown);
         node.removeEventListener("focus", focus);
-        node.removeEventListener("blur", commit);
+        node.removeEventListener("blur", left);
         document.removeEventListener("selectionchange", selection);
       };
     });

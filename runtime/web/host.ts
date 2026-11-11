@@ -10,6 +10,7 @@
 import { failAll, receive } from "../io/channel";
 import { fetch as hostFetch } from "../io/fetch";
 import { WebSocket as HostWebSocket } from "../io/websocket";
+import { decodeReply, encodeCall } from "./wire";
 
 /** The browser's own, before the page's are replaced by the host's. */
 const BrowserWebSocket = globalThis.WebSocket;
@@ -44,36 +45,27 @@ function tokenFromPage(): string | null {
   }
 }
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
-/** A call as the host reads it: a length, the header, and the payload. */
-function frame(op: string, call: number, argsJson: string, bytes: ArrayBuffer | undefined): ArrayBuffer {
-  const header = encoder.encode(`{"op":${JSON.stringify(op)},"call":${call},"args":${argsJson}}`);
-  const payload = bytes === undefined ? 0 : bytes.byteLength;
-  const message = new Uint8Array(4 + header.length + payload);
-  new DataView(message.buffer).setUint32(0, header.length);
-  message.set(header, 4);
-  if (bytes !== undefined) {
-    message.set(new Uint8Array(bytes), 4 + header.length);
-  }
-  return message.buffer;
-}
-
 function open(token: string): Connection {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const socket = new BrowserWebSocket(`${scheme}://${location.host}/io?token=${token}`);
   socket.binaryType = "arraybuffer";
   const opened = new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("could not connect to the svelte-gpui host")), { once: true });
+    socket.addEventListener(
+      "error",
+      () =>
+        reject(
+          new Error(
+            "could not connect to the svelte-gpui host. It is not running, or the token this page has is not its own: " +
+              "open the address the host printed, which carries the current one.",
+          ),
+        ),
+      { once: true },
+    );
   });
   socket.addEventListener("message", (event) => {
-    const data = event.data as ArrayBuffer;
-    const length = new DataView(data).getUint32(0);
-    const header = JSON.parse(decoder.decode(new Uint8Array(data, 4, length)));
-    const bytes = data.byteLength > 4 + length ? data.slice(4 + length) : undefined;
-    receive(header.call, header.settle, JSON.stringify(header.json), bytes);
+    const reply = decodeReply(event.data as ArrayBuffer);
+    receive(reply.call, reply.settle, JSON.stringify(reply.json), reply.bytes);
   });
   socket.addEventListener("close", () => {
     failAll("the connection to the svelte-gpui host closed", "HostClosed");
@@ -92,7 +84,7 @@ function io(op: string, call: number, argsJson: string, bytes: ArrayBuffer | und
     return;
   }
   const { socket, opened } = connection;
-  const message = frame(op, call, argsJson, bytes);
+  const message = encodeCall(op, call, argsJson, bytes);
   if (socket.readyState === socket.OPEN) {
     socket.send(message);
     return;

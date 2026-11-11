@@ -55,7 +55,8 @@ pub(super) fn parse_call(message: &[u8]) -> Option<Call> {
 pub(super) fn completion_message(completion: &Completion) -> Vec<u8> {
     // The payload is JSON already, so it goes into the header as it is.
     let json = if completion.json.is_empty() { "null" } else { completion.json.as_str() };
-    let header = format!("{{\"call\":{},\"settle\":\"{}\",\"json\":{}}}", completion.call, completion.settle.name(), json);
+    let header =
+        format!("{{\"call\":{},\"settle\":\"{}\",\"json\":{}}}", completion.call, completion.settle.name(), json);
     let mut message = Vec::with_capacity(4 + header.len() + completion.bytes.as_ref().map_or(0, Vec::len));
     message.extend_from_slice(&(header.len() as u32).to_be_bytes());
     message.extend_from_slice(header.as_bytes());

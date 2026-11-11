@@ -76,6 +76,15 @@
     node.style.top = `${Math.round(placed.y)}px`;
   }
 
+  // A change of look rewrites the element's `style`, which is where its place is written, so it is placed again.
+  $effect(() => {
+    void [css, props.side, props.align, props.offset, props.crossOffset, props.at, props.matchWidth, props.layer];
+    const node = element;
+    if (node !== undefined) {
+      untrack(() => update(node));
+    }
+  });
+
   /** Moves the element into the layer, and keeps it placed for as long as it is there. */
   function portal(node: HTMLElement): () => void {
     return untrack(() => {

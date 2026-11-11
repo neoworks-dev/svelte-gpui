@@ -253,14 +253,21 @@ export function interaction(read: () => Interactive): Interaction {
     }
 
     if (wants.focus) {
-      on(node, "focus", () => {
-        focused = true;
-        read().onfocus?.();
-      });
-      on(node, "blur", () => {
-        focused = false;
-        read().onblur?.();
-      });
+      // Focus moves when Svelte is in the middle of removing or adding elements, as when a popover closes and
+      // gives focus back. State may not be written then, nor may what the app's handlers write, so these run
+      // as soon as it is done, still before anything is drawn.
+      on(node, "focus", () =>
+        queueMicrotask(() => {
+          focused = true;
+          read().onfocus?.();
+        }),
+      );
+      on(node, "blur", () =>
+        queueMicrotask(() => {
+          focused = false;
+          read().onblur?.();
+        }),
+      );
     }
 
     if (wants.keepFocus) {
@@ -351,7 +358,9 @@ export function interaction(read: () => Interactive): Interaction {
       return listening;
     },
     attach,
-    focus: (node) => node?.focus(),
+    // In the host, asking for focus reaches the window a moment later, so what had focus is still known when
+    // the call returns, which a popover relies on to give focus back to it when it closes.
+    focus: (node) => void queueMicrotask(() => node?.focus()),
     blur: (node) => node && giveUpFocus(node),
   };
 }

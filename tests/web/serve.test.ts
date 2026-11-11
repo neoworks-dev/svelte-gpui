@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { decodeReply, encodeCall } from "../../runtime/web/wire";
 
 // The headless host (`svelte-gpui --web DIR`): what it serves, who may talk to it, and that a call
 // from the page reaches the same Rust the window's calls do. It needs the built host, which
@@ -18,14 +19,9 @@ let origin: string;
 let token: string;
 let port: number;
 
-/** A call as the host reads it: a length, the header, the bytes. */
-function call(op: string, id: number, args: unknown = {}, bytes?: Uint8Array): Uint8Array {
-  const header = new TextEncoder().encode(JSON.stringify({ op, call: id, args }));
-  const message = new Uint8Array(4 + header.length + (bytes?.length ?? 0));
-  new DataView(message.buffer).setUint32(0, header.length);
-  message.set(header, 4);
-  message.set(bytes ?? [], 4 + header.length);
-  return message;
+/** A call as the page sends it, by the page's own code. */
+function call(op: string, id: number, args: unknown = {}, bytes?: Uint8Array): ArrayBuffer {
+  return encodeCall(op, id, JSON.stringify(args), bytes === undefined ? undefined : (bytes.slice().buffer as ArrayBuffer));
 }
 
 /** What the server writes back for a request written as it is given, without a client tidying it. */
@@ -46,13 +42,10 @@ async function raw(request: string): Promise<string> {
   return text;
 }
 
-/** What the host answered: the header, and the bytes after it. */
-function answer(data: ArrayBuffer): { header: any; bytes: Uint8Array } {
-  const length = new DataView(data).getUint32(0);
-  return {
-    header: JSON.parse(new TextDecoder().decode(new Uint8Array(data, 4, length))),
-    bytes: new Uint8Array(data, 4 + length),
-  };
+/** What the host answered, as the page reads it. */
+function answer(data: ArrayBuffer): { header: { call: number; settle: string; json: any }; bytes: Uint8Array } {
+  const reply = decodeReply(data);
+  return { header: reply, bytes: new Uint8Array(reply.bytes ?? new ArrayBuffer(0)) };
 }
 
 /** Opens the page's WebSocket, and says how it ended up: `"open"`, or `"refused"` with the HTTP status when known. */
