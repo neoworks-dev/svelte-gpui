@@ -1,10 +1,24 @@
 import { cp } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { build } from "../../build.mjs";
+import { build, buildWeb } from "../../build.mjs";
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 const watch = process.argv.includes("--watch");
+
+// `--web` builds the same app for a browser instead of the native window: bun build.mjs --web, then
+// svelte-gpui --web dist/web, which prints the address to open.
+if (process.argv.includes("--web")) {
+  const outdir = here("./dist/web");
+  await buildWeb({ entry: here("./src/main.ts"), outdir, title: "svelte-gpui demo", watch });
+  // Images the app shows by path are resolved next to the page.
+  await cp(here("./assets"), here("./dist/web/assets"), { recursive: true });
+  console.log(`built for the browser; serve it with: svelte-gpui --web ${outdir}`);
+  if (!watch) {
+    process.exit(0);
+  }
+  await new Promise(() => {});
+}
 
 const outfile = here("./dist/demo.js");
 
