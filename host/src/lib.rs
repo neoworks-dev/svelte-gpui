@@ -19,6 +19,7 @@ mod io;
 mod launch;
 mod render;
 mod runtime;
+mod serve;
 mod sourcemap;
 mod style;
 mod tree;
@@ -33,3 +34,5 @@ pub use gpui;
 pub use io::{CommandError, Commands, Emitter, Output};
 pub use launch::{Options, run};
 pub use runtime::compile;
+/// The browser target: the same host without a window, serving a web app and its `host.io` calls.
+pub use serve::{ServeOptions, Server, run_web, serve};

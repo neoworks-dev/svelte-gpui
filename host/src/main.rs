@@ -9,8 +9,12 @@ fn main() {
         compile_only(&arguments[position + 1..]);
         return;
     }
+    if let Some(options) = svelte_gpui::ServeOptions::from_command_line() {
+        svelte_gpui::run_web(options);
+        return;
+    }
     let Some(options) = svelte_gpui::Options::from_command_line() else {
-        eprintln!("usage: svelte-gpui --bundle app.js [--width N --height N]");
+        eprintln!("usage: svelte-gpui --bundle app.js [--width N --height N]\n       svelte-gpui --web DIR [--port N]");
         std::process::exit(2);
     };
     svelte_gpui::run(options);
