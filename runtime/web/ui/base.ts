@@ -26,7 +26,7 @@ body{position:relative;overflow:auto}
 .g-button{flex-direction:row;align-items:center;appearance:none;border:0;margin:0;padding:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer;user-select:none}
 .g-button[aria-disabled=true]{cursor:default}
 .g-text{display:block;position:relative;white-space:normal}
-.g-text .g-text{display:inline}
+.g-text .g-text{display:inline;white-space:inherit}
 .g-text > :not(.g-text){display:inline-flex;vertical-align:baseline}
 .g-scroll{overflow-x:hidden;overflow-y:auto;overflow-anchor:none;scrollbar-width:thin;scrollbar-color:#52525b transparent}
 .g-scroll[data-horizontal]{flex-direction:row;overflow-x:auto;overflow-y:hidden}
