@@ -34,6 +34,8 @@ export interface Interaction {
   readonly focused: boolean;
   /** Whether the element needs the pointer for itself: no text selecting, no touch panning. */
   readonly grabbing: boolean;
+  /** Whether it has anything that listens for the pointer, which is what lets it take presses at all. */
+  readonly listening: boolean;
   /** Wires the element up; use it as `{@attach interaction.attach}`. */
   attach(node: HTMLElement): () => void;
   focus(node: HTMLElement | undefined): void;
@@ -104,6 +106,21 @@ export function interaction(read: () => Interactive): Interaction {
     },
   };
   const grabbing = $derived(wantsDown || wantsMove);
+  const wantsFocusable = $derived(read().focusable === true);
+  // As in the host, where only an element with a handler takes the pointer: one without lets presses, hovers
+  // and the wheel through to what is behind it, such as a label laid over a canvas.
+  const listening = $derived(
+    wantsPress ||
+      wantsHover ||
+      wantsActive ||
+      wantsDown ||
+      wantsMove ||
+      wantsWheel ||
+      wantsFiles ||
+      wantsFocus ||
+      wantsFocusable ||
+      wantsKeepFocus,
+  );
 
   function attach(node: HTMLElement): () => void {
     const stops: (() => void)[] = [];
@@ -329,6 +346,9 @@ export function interaction(read: () => Interactive): Interaction {
     },
     get grabbing() {
       return grabbing;
+    },
+    get listening() {
+      return listening;
     },
     attach,
     focus: (node) => node?.focus(),

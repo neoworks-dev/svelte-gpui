@@ -6,7 +6,16 @@
 -->
 <script lang="ts">
   import { files, FileError } from "@neoworks/svelte-gpui";
-  import { Draggable, DropTarget, Icon, Text, View, type DragInfo, type FileDragEvent } from "@neoworks/svelte-gpui/ui";
+  import {
+    Draggable,
+    DropTarget,
+    Icon,
+    Text,
+    View,
+    type DragInfo,
+    type DroppedFile,
+    type FileDragEvent,
+  } from "@neoworks/svelte-gpui/ui";
   import Card from "../components/Card.svelte";
   import { caption, colors, mono } from "../theme";
 
@@ -41,11 +50,18 @@
     return { path, kind: stat.kind, size: stat.size, start };
   }
 
+  /** A browser hands over the file itself, since it knows no path to it. */
+  async function read(file: DroppedFile): Promise<Dropped> {
+    const start = file.size < 200_000 ? (await file.text()).slice(0, 120).replace(/\s+/g, " ") : "";
+    return { path: file.name, kind: "file", size: file.size, start };
+  }
+
   async function drop(event: FileDragEvent): Promise<void> {
     hovering = 0;
     problem = "";
     try {
-      dropped = await Promise.all(event.paths.map(inspect));
+      // In the native window the files are paths the host reads; in a browser they are `File`s.
+      dropped = event.files !== undefined ? await Promise.all(event.files.map(read)) : await Promise.all(event.paths.map(inspect));
     } catch (error) {
       problem = (error as Error).message;
     }

@@ -32,6 +32,7 @@
   bind:this={element}
   class="g-view"
   class:g-pointer={ix.grabbing}
+  class:g-listening={ix.listening}
   style={css}
   tabindex={props.focusable ? 0 : undefined}
   {@attach ix.attach}

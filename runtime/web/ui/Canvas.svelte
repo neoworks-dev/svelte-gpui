@@ -159,6 +159,7 @@
 <div
   class="g-canvas"
   class:g-pointer={ix.grabbing}
+  class:g-listening={ix.listening}
   style={css}
   {@attach ix.attach}
   {@attach (node) => {

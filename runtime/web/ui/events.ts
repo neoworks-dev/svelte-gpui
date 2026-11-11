@@ -68,11 +68,24 @@ interface KeyFields extends HasModifiers {
   key: string;
   code: string;
   repeat: boolean;
+  target?: unknown;
   preventDefault(): void;
   stopPropagation(): void;
 }
 
-/** A key, which can stop what the page would do with it and stop it reaching what is around. */
+/** The keys a page scrolls with, which the host does not. */
+const SCROLLING = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "]);
+
+const typesText = (target: unknown): boolean => {
+  const tag = (target as { tagName?: string } | null | undefined)?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+};
+
+/**
+ * A key, which can stop what the page would do with it and stop it reaching what is around. A key a handler
+ * has taken, by stopping it, does not also scroll the page, as it would not scroll anything in the host; in a
+ * field it keeps moving the cursor unless the handler prevents that.
+ */
 export function keyEventOf(event: KeyFields): KeyEvent {
   return {
     key: event.key,
@@ -80,7 +93,12 @@ export function keyEventOf(event: KeyFields): KeyEvent {
     repeat: event.repeat,
     ...modifiersOf(event),
     preventDefault: () => event.preventDefault(),
-    stopPropagation: () => event.stopPropagation(),
+    stopPropagation: () => {
+      event.stopPropagation();
+      if (SCROLLING.has(event.key) && !typesText(event.target)) {
+        event.preventDefault();
+      }
+    },
   };
 }
 

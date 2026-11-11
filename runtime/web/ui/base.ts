@@ -2,7 +2,7 @@
 // container, positioned and border-box, the host's colours and fonts, and the layer overlays are
 // drawn in. Installed by `start`, and by the first primitive that needs it.
 
-import { MONO, SANS } from "./css";
+import { SANS } from "./css";
 
 /** Where `buildWeb` puts the host's fonts, relative to the page. */
 const FONTS = "fonts";
@@ -23,25 +23,26 @@ body{position:relative;overflow:auto}
 .g-view,.g-button,.g-scroll,.g-overlay,.g-canvas,.g-icon,.g-image,.g-input,.g-text{box-sizing:border-box}
 .g-view,.g-button,.g-scroll,.g-overlay,.g-canvas{position:relative;display:flex;flex-direction:column;flex-shrink:1}
 .g-view:focus,.g-button:focus,.g-overlay:focus,.g-input:focus{outline:none}
-.g-button{flex-direction:row;appearance:none;border:0;margin:0;padding:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer;user-select:none}
+.g-button{flex-direction:row;align-items:center;appearance:none;border:0;margin:0;padding:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer;user-select:none}
 .g-button[aria-disabled=true]{cursor:default}
 .g-text{display:block;position:relative;white-space:normal}
 .g-text .g-text{display:inline}
 .g-text > :not(.g-text){display:inline-flex;vertical-align:baseline}
-.g-scroll{overflow:auto;overflow-anchor:none;scrollbar-width:thin;scrollbar-color:#52525b transparent}
-.g-scroll[data-horizontal]{flex-direction:row}
+.g-scroll{overflow-x:hidden;overflow-y:auto;overflow-anchor:none;scrollbar-width:thin;scrollbar-color:#52525b transparent}
+.g-scroll[data-horizontal]{flex-direction:row;overflow-x:auto;overflow-y:hidden}
 .g-pointer{user-select:none;-webkit-user-select:none;touch-action:none}
-.g-canvas{overflow:hidden}
+.g-view,.g-canvas,.g-image,.g-icon{pointer-events:none}
+.g-text,.g-button,.g-scroll,.g-input,.g-overlay,.g-listening{pointer-events:auto}
+.g-canvas{overflow:hidden;flex-shrink:0}
 .g-canvas > canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
 .g-icon{display:inline-flex;position:relative;width:1em;height:1em;flex-shrink:0;align-items:center;justify-content:center}
-.g-icon > svg{display:block;width:100%;height:100%}
-.g-image{display:block;position:relative;max-width:none;flex-shrink:1}
-.g-input{appearance:none;background:transparent;border:0;margin:0;padding:0;color:inherit;font:inherit;line-height:inherit;min-width:0;resize:none;display:block;position:relative;flex-shrink:1;text-align:inherit}
+.g-image{display:block;position:relative;max-width:none;flex-shrink:0}
+.g-input{appearance:none;background:transparent;border:0;margin:0;padding:0;color:inherit;font:inherit;line-height:inherit;min-width:0;resize:none;display:block;position:relative;flex-shrink:1;text-align:inherit;cursor:text}
 .g-input::placeholder{color:currentColor;opacity:.4}
 textarea.g-input{overflow:auto;scrollbar-width:thin;scrollbar-color:#52525b transparent}
 #gpui-layer{position:fixed;top:0;left:0;width:0;height:0;z-index:2147483000;pointer-events:none}
 .g-overlay{position:fixed;top:0;left:0;pointer-events:auto;flex-shrink:0}
-.g-overlay[data-passthrough]{pointer-events:none}
+.g-overlay[data-passthrough],.g-overlay[data-passthrough] *{pointer-events:none!important}
 .g-overlay:empty{display:none}
 `;
 
@@ -91,6 +92,3 @@ export function layerElement(): HTMLElement {
   }
   return layer;
 }
-
-/** The font stacks, for the code that draws text itself. */
-export const fonts = { sans: SANS, mono: MONO };

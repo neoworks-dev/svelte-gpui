@@ -92,6 +92,13 @@ export function toCss(style: Style | null | undefined): Css {
   if (finite(style.grow)) {
     set("flex-grow", String(style.grow));
   }
+  if ((finite(style.flex) && style.flex > 0) || (finite(style.grow) && style.grow > 0)) {
+    // A child that takes what is left may be smaller than its content, as in the host: CSS would size a
+    // column of such panels, with a scroller inside, to the scroller's whole content, and overflow the window.
+    // An explicit `minWidth` or `minHeight` below still wins.
+    set("min-width", "0");
+    set("min-height", "0");
+  }
   if (finite(style.shrink)) {
     set("flex-shrink", String(style.shrink));
   }
