@@ -109,8 +109,8 @@ Every call returns a promise and runs on a thread.
 | `rename(from, to)`, `copy(from, to)` | `copy` copies directories recursively. `rename` does not work across file systems. |
 | `watch(path, callback, { recursive?, onerror? })` | Calls `callback({ kind, path })` with `kind` `"create"`, `"modify"` or `"remove"`, as changes happen. Returns a function that stops the watch. |
 | `paths()` | `{ home, config, data, cache, temp, bundle, cwd }`: the system's directories (XDG on Linux), the bundle's directory, and the working directory. |
-| `pickFiles({ multiple?, directories?, prompt? })` | The system's open dialog. Resolves with `string[]`, or `null` if cancelled. |
-| `pickSavePath({ directory?, name? })` | The system's save dialog. Resolves with a `string`, or `null`. |
+| `pickFiles({ multiple?, directories?, prompt?, filters? })` | The system's open dialog. Resolves with `string[]`, or `null` if cancelled. `filters` (`[{ name?, extensions }]`) is honoured in a browser's host only. |
+| `pickSavePath({ directory?, name?, filters? })` | The system's save dialog. Resolves with a `string`, or `null`. |
 
 Paths:
 - `~` at the start of a path means the home directory.
@@ -176,8 +176,9 @@ Bytes travel as `ArrayBuffer`s, and everything else as JSON.
 
 In a browser the same calls take the same path, with a WebSocket between the page and the host
 in place of QuickJS's `host.io`: everything here works unchanged, and runs on the machine the
-host runs on. Only the dialogs, `pickFiles` and `pickSavePath`, reject there, since the host has
-no window to show one. See [Targets](browser.md#how-it-works).
+host runs on. The dialogs, `pickFiles` and `pickSavePath`, have no window to appear in there, so
+the host asks the desktop's file chooser to show them. See [Targets](browser.md#how-it-works) and
+[File dialogs](browser.md#file-dialogs).
 
 Calls into your own Rust code (`invoke`, `listen`) take the same path: see
 [Calling Rust](rust.md#under-the-hood).

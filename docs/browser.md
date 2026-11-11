@@ -141,7 +141,7 @@ An app that runs on both needs to know these.
 |---|---|---|
 | Which target | `target === "native"` | `target === "browser"`, both from `@neoworks/svelte-gpui` |
 | Files dropped on a `View` | `event.paths`, absolute paths the host reads | `event.paths` is empty. `event.files` holds the `File`s on `ondrop`, to read with `text()` and `arrayBuffer()`. A browser tells the page no path. On `ondragenter` and `ondragover` only `count` is known. |
-| `files.pickFiles()`, `pickSavePath()` | The system's dialogs | Reject with a message that says so: the host has no window to show one. Take files from a drop instead, or from an `<input type="file">` of your own. |
+| `files.pickFiles()`, `pickSavePath()` | The system's dialogs, shown by the window | The desktop's own file chooser, shown by the host without a window, with real paths as natively. `filters` work here only. See [File dialogs](#file-dialogs). |
 | `files.paths()`, `files.*` on paths | The machine the host runs on | The same, since it is the same host. |
 | `clipboard` | The system's, through the host | The browser's: it needs the tab focused and the user's permission. `readImage()` hands the image to the host to write into the temporary directory, and answers with that path, or `null` if the app's file limit does not allow that directory. |
 | `window.setTitle`, `options.window.title` | The title bar | `document.title` |
@@ -177,11 +177,12 @@ A few places differ in how they are drawn, and the apps notice them only at the 
 
 ## Writing one app for both
 
-Put what only one target can do behind `target`:
+Dropped files are the one thing to handle both ways. Anything else that only one target can do goes behind
+`target`, which is `"native"` or `"browser"`:
 
 ```svelte
 <script lang="ts">
-  import { files, target } from "@neoworks/svelte-gpui";
+  import { files } from "@neoworks/svelte-gpui";
   import { View, Text, type FileDragEvent } from "@neoworks/svelte-gpui/ui";
 
   async function drop(event: FileDragEvent): Promise<void> {
@@ -195,13 +196,35 @@ Put what only one target can do behind `target`:
 
 <View ondrop={drop}><Text>Drop files here</Text></View>
 
-{#if target === "native"}
-  <Button onpress={() => files.pickFiles()}><Text>Choose files…</Text></Button>
-{/if}
+<Button onpress={() => files.pickFiles({ multiple: true })}><Text>Choose files…</Text></Button>
 ```
+
+The dialogs work on both, with the same paths. Only a drop differs.
 
 `examples/demo` builds for both: `bun examples/demo/build.mjs` for the window, and with `--web`
 for the browser.
+
+## File dialogs
+
+`files.pickFiles()` and `files.pickSavePath()` work in a browser as they do in the window: they open a dialog
+and resolve with real paths on the machine the host runs on, or with `null` if the user cancels, and what is
+chosen may be read from then on, whatever the app's file limit says. The window shows them with GPUI. The headless
+host has no window, so it asks the desktop to show its own file chooser: on Linux the `FileChooser` of
+xdg-desktop-portal, over D-Bus, which the portal's backend (GTK, KDE, …) draws. The call runs on a thread and
+answers like any other, so nothing waits for the user.
+
+- `pickFiles({ multiple?, directories?, prompt?, filters? })`: `directories` chooses folders, `multiple` more than
+  one, `prompt` is the button's text.
+- `pickSavePath({ directory?, name?, filters? })`: `directory` is where it starts, `name` the file name it
+  suggests.
+- `filters` is `[{ name?, extensions: ["png", ".jpg", "*.gif"] }]`, which groups the files the dialog offers. The
+  window's dialog does not take filters, so they only apply here, and an app that needs one on both checks the
+  extension of what it is given.
+
+The dialog is the desktop's, so it appears where the desktop shows dialogs, which is on the machine that runs the
+host. That is the machine of a browser tab served from `127.0.0.1`. Without a portal, or with no session bus (a
+service, a container), the call rejects with an `Error` that says there is no file chooser, with the code `Other`.
+Other systems than Linux have none yet, and reject the same way.
 
 ## Development
 

@@ -21,7 +21,8 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Error, Message, WebSocket};
 
 use super::Shared;
-use crate::io::{Completion, Io, Sink};
+use super::dialogs;
+use crate::io::{Completion, Io};
 
 /// The largest message the page may send: a file it writes, or bytes it hands a command.
 const MAX_MESSAGE: usize = 256 * 1024 * 1024;
@@ -156,7 +157,8 @@ fn pump(
                 Ok(Message::Binary(message)) => match parse_call(&message) {
                     Some(call) => {
                         io.request(&call.op, call.call, call.args, call.bytes);
-                        refuse_windowed_work(io);
+                        // The dialogs the window would show, which the desktop shows here (see `dialogs`).
+                        dialogs::run(io);
                     }
                     None => eprintln!("svelte-gpui: the page sent a message that is not a call"),
                 },
@@ -177,26 +179,6 @@ fn pump(
         if waited.is_err() {
             return;
         }
-    }
-}
-
-/// Answers what the window would have shown a dialog for. There is no window here.
-fn refuse_windowed_work(io: &Io) {
-    let jobs = std::mem::take(&mut *io.main_jobs.borrow_mut());
-    if jobs.is_empty() {
-        return;
-    }
-    let sink: Sink = io.sink();
-    for job in jobs {
-        sink.reject_with_code(
-            job.call,
-            "Other",
-            format!(
-                "{} needs a window to show a dialog, and a web app runs on a host without one. \
-                 Take the path from a drop, or ask for it in the app.",
-                job.op.replace("fs.", "files.")
-            ),
-        );
     }
 }
 

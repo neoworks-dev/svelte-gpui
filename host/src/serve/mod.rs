@@ -24,9 +24,10 @@
 //! A page has one session at a time: a new connection ends the one before it, so a reload or a
 //! second tab takes over the app's events instead of splitting them.
 //!
-//! Work that needs a window, such as the file dialogs of `files.pickFiles`, is answered with an
-//! error: there is no GPUI here to show one.
+//! The file dialogs of `files.pickFiles` and `files.pickSavePath`, which the window shows with GPUI, are shown by
+//! the desktop's file chooser instead (see [`dialogs`]), and give real paths as they do there.
 
+mod dialogs;
 mod http;
 mod session;
 

@@ -243,8 +243,9 @@ What an app must know to run on both:
 - `import { target } from "@neoworks/svelte-gpui"` is `"native"` or `"browser"`.
 - **Dropped files:** `event.paths` is empty in a browser. `event.files` (`DroppedFile[]`: `name`, `size`, `type`,
   `text()`, `arrayBuffer()`) is there on `ondrop` instead. Read `event.files ?? event.paths`.
-- **`files.pickFiles()` and `pickSavePath()` reject in a browser:** the host has no window to show a dialog. Keep
-  them behind `target === "native"`, or take files from a drop.
+- **`files.pickFiles()` and `pickSavePath()` work in a browser** and give real paths: the headless host asks the
+  desktop's file chooser (xdg-desktop-portal on Linux) to show the dialog. `filters: [{ name?, extensions }]` is
+  honoured there only. With no portal or session bus they reject with a message saying so.
 - **`clipboard`** is the browser's (it needs focus and permission). `window.maximize()` and the like do nothing
   there, `maximized` is `false`, and `options.window` width and height are ignored.
 - **`element(name)`** (a GPUI view from Rust) draws a notice in a browser, and its methods reject.

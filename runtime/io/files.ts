@@ -86,6 +86,8 @@ export interface PickFilesOptions {
   directories?: boolean;
   /** Text for the dialog's confirm button. */
   prompt?: string;
+  /** Which files the dialog offers, such as `[{ name: "Images", extensions: ["png", "jpg"] }]`. Only the headless host (a browser target) honours it; the window's dialog shows everything. */
+  filters?: FileFilter[];
 }
 
 export interface PickSavePathOptions {
@@ -93,6 +95,14 @@ export interface PickSavePathOptions {
   directory?: string;
   /** The file name it suggests. */
   name?: string;
+  /** Which files the dialog offers, as for `PickFilesOptions`. */
+  filters?: FileFilter[];
+}
+
+/** A group of files a dialog offers to show: a label, and the extensions in it, written `png`, `.png` or `*.png`. */
+export interface FileFilter {
+  name?: string;
+  extensions: string[];
 }
 
 /**

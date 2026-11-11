@@ -21,6 +21,7 @@ export type { CommandMap, EventMap, InvokeBytes, InvokeResult } from "../io/invo
 export type {
   FileEntry,
   FileErrorCode,
+  FileFilter,
   FileKind,
   FilePaths,
   FileStat,

@@ -10,7 +10,7 @@ on both still uses only the primitives, style objects and the events on this pag
 leaves `document`, `localStorage` and HTML elements alone: everything below that "does not
 exist" is something to keep out of an app that targets both. The browser target changes few
 of the rows: it draws `View`, `Text` and the rest as elements, files dragged in arrive as
-`File`s in `event.files` rather than as paths, and `files.pickFiles()` is not available. The
+`File`s in `event.files` rather than as paths. The file dialogs still give real paths. The
 list is in [What differs](browser.md#what-differs).
 
 ## The same as the web

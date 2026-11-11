@@ -87,7 +87,7 @@ target/release/svelte-gpui --web examples/demo/dist/web      # prints the addres
 
 An app builds with `buildWeb({ entry, outdir })` from `build.mjs`, and an app with its own Rust
 crate serves with `svelte_gpui::serve(ServeOptions::new(dir).commands(commands))`. What differs
-between the targets, such as file drops arriving as `File`s and no file dialogs, is in
+between the targets, such as file drops arriving as `File`s, is in
 [docs/browser.md](docs/browser.md).
 
 ## Packaging
