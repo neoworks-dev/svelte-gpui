@@ -125,3 +125,12 @@ pretending:
 - **Making the window not resizable.** GPUI's `is_resizable` option is ignored on Linux.
 
 Several windows, native menus, notifications and a tray icon are separate features.
+
+## In a browser
+
+`window` is the tab. `size`, `scale` and `focused` are the page's, and reactive. `setTitle` and
+`options.window.title` set `document.title`, `minWidth` and `minHeight` are the least size the page
+lays out at, and fullscreen works. A page cannot minimize or maximize itself, so those requests do
+nothing and `maximized` is always `false`; the opening `width` and `height` are the browser's. `close()`
+closes the tab when the browser allows it, and `onCloseRequested` hooks the browser's own prompt when
+the page is left, which a handler answering `false` at once triggers. See [Targets](browser.md#what-differs).

@@ -178,8 +178,14 @@ interface FileDragEvent {
   windowX: number; windowY: number;  // inside the window
   paths: string[];                   // absolute paths
   count: number;
+  files?: DroppedFile[];             // in a browser, on ondrop: the files themselves
 }
 ```
+
+**In a browser** a page is never told the path of a dropped file. `paths` is empty, `count` says how many files
+are over the element, and on `ondrop` `files` holds them as `File`s (`name`, `size`, `type`, `lastModified`,
+`text()`, `arrayBuffer()`). An app that runs on both reads `event.files` when it is there and `event.paths`
+otherwise; see [Targets](browser.md#writing-one-app-for-both).
 
 The names avoid the ones Svelte delegates, so each handler sits on its own element. Only `ondrop` makes the paths
 usable: **the host allows the dropped paths through the [file limit](io.md#limiting-file-access)** from then on, as it

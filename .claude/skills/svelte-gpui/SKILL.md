@@ -1,6 +1,6 @@
 ---
 name: svelte-gpui
-description: Write, change or debug apps built with svelte-gpui (Svelte 5 components drawn natively by GPUI, no DOM or CSS). Use when editing .svelte files that import @neoworks/svelte-gpui, building UI from View/Text/Button/Input/Scroll/List/Image/Icon/Canvas/Presence, styling with style objects, or testing such an app headless.
+description: Write, change or debug apps built with svelte-gpui (Svelte 5 components drawn natively by GPUI, no DOM or CSS). Use when editing .svelte files that import @neoworks/svelte-gpui, building UI from View/Text/Button/Input/Scroll/List/Image/Icon/Canvas/Presence, styling with style objects, building the same app for a browser tab (buildWeb, svelte-gpui --web), or testing such an app headless.
 ---
 
 svelte-gpui runs Svelte 5 in QuickJS inside a Rust host that draws with GPUI. Runes,
@@ -220,6 +220,42 @@ show in an overlay, with stacks mapped to source files through a source map. Esc
 and the next good build clears it. Without `--dev`, errors go to
 `~/.cache/svelte-gpui/<app>/errors.log` and nothing is drawn. Pass `--dev` when testing
 with `scripts/shot.sh`, so an error shows up in the screenshot.
+
+## Two targets: the window and a browser
+
+The same source builds for the native window and for a browser tab (`docs/browser.md`). Write the app as
+above, with only the primitives, style objects and host events, and it runs on both. In a browser the
+primitives are DOM elements (`runtime/web/`), and the same Rust host runs headless: it serves the build and
+answers `invoke`, `files`, `fetch` and `WebSocket` over a WebSocket, so those behave as in the window.
+
+```
+bun build.mjs --web                  # the app's build calls buildWeb({ entry, outdir }) from "@neoworks/svelte-gpui/build"
+svelte-gpui --web dist/web           # prints http://127.0.0.1:PORT/#token=…, which is the only address that works
+```
+
+`buildWeb({ entry, outdir, alias?, watch?, title? })` writes `index.html`, `app.js`, `app.css` (if any) and
+`fonts/` to `outdir`, and works for an app outside the repo. An app with its own crate serves with
+`svelte_gpui::serve(ServeOptions::new(dir).commands(commands))`. The host listens on `127.0.0.1`, and the WebSocket
+needs the token and the server's own origin.
+
+What an app must know to run on both:
+
+- `import { target } from "@neoworks/svelte-gpui"` is `"native"` or `"browser"`.
+- **Dropped files:** `event.paths` is empty in a browser. `event.files` (`DroppedFile[]`: `name`, `size`, `type`,
+  `text()`, `arrayBuffer()`) is there on `ondrop` instead. Read `event.files ?? event.paths`.
+- **`files.pickFiles()` and `pickSavePath()` reject in a browser:** the host has no window to show a dialog. Keep
+  them behind `target === "native"`, or take files from a drop.
+- **`clipboard`** is the browser's (it needs focus and permission). `window.maximize()` and the like do nothing
+  there, `maximized` is `false`, and `options.window` width and height are ignored.
+- **`element(name)`** (a GPUI view from Rust) draws a notice in a browser, and its methods reject.
+- **Do not use** `document`, HTML elements, `class` or `<style>` blocks, even though a DOM exists there: they would
+  not draw natively. Overlays do not inherit text colour from their parent in a browser, so set it in their `style`.
+- `bun run typecheck` checks both: `tsconfig.web.json` types the same source against the DOM versions
+  (`customConditions: ["browser"]`), and `runtime/web/parity.ts` fails it when the two targets' exports differ.
+- When you change a primitive, a style property or an event, change `runtime/web/ui/` too: `toCss` in `css.ts`
+  (its `PROPERTIES` table fails to compile until a new `Style` key is added), `interact.svelte.ts` for events. Props
+  types live once, in `runtime/ui/props.ts`. Check it in a browser with `bun examples/demo/build.mjs --web`, the host's
+  `--web`, and a headless chromium; never open a window on the real desktop.
 
 ## The window
 

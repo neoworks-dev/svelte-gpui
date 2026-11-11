@@ -218,3 +218,5 @@ resolve it.
 - [The window](window.md) sets its title and size, and asks before it closes.
 - [Calling Rust](rust.md) adds your own commands and events.
 - [Packaging](packaging.md) turns the app into one executable.
+- [Targets](browser.md) builds the same app for a browser with `buildWeb`, and serves it with
+  `svelte-gpui --web`.

@@ -174,5 +174,10 @@ The three APIs share one path:
 
 Bytes travel as `ArrayBuffer`s, and everything else as JSON.
 
+In a browser the same calls take the same path, with a WebSocket between the page and the host
+in place of QuickJS's `host.io`: everything here works unchanged, and runs on the machine the
+host runs on. Only the dialogs, `pickFiles` and `pickSavePath`, reject there, since the host has
+no window to show one. See [Targets](browser.md#how-it-works).
+
 Calls into your own Rust code (`invoke`, `listen`) take the same path: see
 [Calling Rust](rust.md#under-the-hood).

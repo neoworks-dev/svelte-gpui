@@ -4,6 +4,15 @@ svelte-gpui runs the real Svelte 5 compiler and runtime. Components, runes and t
 syntax behave as you know them. The difference is underneath: there is no browser, so
 nothing the browser provides exists.
 
+This page is about the native window. The same app can also be built for a browser tab
+([Targets](browser.md)), where a DOM exists underneath the primitives. An app that is to run
+on both still uses only the primitives, style objects and the events on this page, and
+leaves `document`, `localStorage` and HTML elements alone: everything below that "does not
+exist" is something to keep out of an app that targets both. The browser target changes few
+of the rows: it draws `View`, `Text` and the rest as elements, files dragged in arrive as
+`File`s in `event.files` rather than as paths, and `files.pickFiles()` is not available. The
+list is in [What differs](browser.md#what-differs).
+
 ## The same as the web
 
 - Runes: `$state`, `$derived`, `$effect`, `$props`, `$bindable`, `$inspect`.

@@ -4,7 +4,9 @@ svelte-gpui turns Svelte 5 components into native desktop apps drawn by
 [GPUI](https://www.gpui.rs/), the UI framework behind Zed. You write ordinary Svelte:
 runes, snippets, `{#each}`, transitions, `svelte/motion`. Instead of HTML elements you
 use a small set of primitives, and instead of CSS you pass style objects, the way
-React Native works. There is no webview and no DOM.
+React Native works. There is no webview and no DOM. The same app also builds for a
+browser tab, where the primitives are DOM elements and the same host runs without a window
+([Targets](browser.md)).
 
 ```svelte
 <script lang="ts">
@@ -43,6 +45,8 @@ React Native works. There is no webview and no DOM.
 11. [Coming from Svelte on the web](web-differences.md): what works the same, what does
     not, and why.
 12. [Testing](testing.md): running an app headless and scripting input.
+13. [Targets: the native window and the browser](browser.md): building the same app for a
+    browser tab, the host that serves it, who may talk to it, and what differs between targets.
 
 [Getting started](getting-started.md#development-hot-reload-and-errors) also covers
 developing with hot reload and the error overlay.

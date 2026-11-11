@@ -74,6 +74,22 @@ bun examples/rust-commands/build.mjs
 cargo run --release --manifest-path examples/rust-commands/Cargo.toml -- --bundle examples/rust-commands/dist/rust-commands.js
 ```
 
+## In a browser
+
+The same source builds for a browser tab. The primitives are DOM elements there, and the same host
+runs without a window: it serves the build and answers its `invoke`, `files`, `fetch` and `WebSocket`
+calls over a WebSocket, only for the page that has the token in its address, on `127.0.0.1`.
+
+```
+bun examples/demo/build.mjs --web
+target/release/svelte-gpui --web examples/demo/dist/web      # prints the address to open
+```
+
+An app builds with `buildWeb({ entry, outdir })` from `build.mjs`, and an app with its own Rust
+crate serves with `svelte_gpui::serve(ServeOptions::new(dir).commands(commands))`. What differs
+between the targets, such as file drops arriving as `File`s and no file dialogs, is in
+[docs/browser.md](docs/browser.md).
+
 ## Packaging
 
 `bun scripts/package.mjs --app examples/demo` builds one executable with the bundle

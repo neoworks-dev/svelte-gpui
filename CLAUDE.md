@@ -9,6 +9,14 @@ See README.md. svelte-gpui is its own project; Grove is one app that may use it.
   Svelte puts `<text>` and `<image>` in the SVG namespace.
 - Styles are typed objects (`runtime/ui/style.ts`) sent as JSON in the `look`
   attribute; `host/src/style/parse.rs` reads the same property names. Keep the two in step.
+- There is a second target, the browser (`docs/browser.md`): `runtime/web/` has DOM versions of the primitives and
+  of the root package's exports, which package.json resolves under the `browser` condition, and `host/src/serve/`
+  is the host without a window, serving the build and the page's `host.io` calls over a WebSocket. Props types are
+  shared in `runtime/ui/props.ts`; the composed components (`List`, `Popover`, …) are one implementation that imports
+  `#primitives`. A primitive, style property or event change needs the DOM side too: `toCss` in
+  `runtime/web/ui/css.ts` (its `PROPERTIES` table fails to compile until a new `Style` key is added) and
+  `runtime/web/ui/interact.svelte.ts`. `bun run typecheck` checks both targets. Test the browser in a headless
+  chromium, never a window on the desktop.
 - Operation codes live only in `protocol.json`; `host/build.rs` generates the Rust
   constants and `runtime/host/bridge.ts` imports the file.
 - Host event names (`press`, `edit`, `key`, `down`, …) avoid the ones Svelte
