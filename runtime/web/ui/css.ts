@@ -14,7 +14,26 @@ export type Css = Record<string, string>;
 export const SANS = `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
 export const MONO = `"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace`;
 
-const WEIGHTS = { normal: "400", medium: "500", semibold: "600", bold: "700" } as const;
+/**
+ * Every property of a style. A property added to `Style` has to be added here, which fails to compile until it
+ * is, and then to `toCss`, which a test checks says something for each of these.
+ */
+export const PROPERTIES: Record<keyof Style, true> = {
+  display: true, direction: true, wrap: true, flex: true, grow: true, shrink: true, basis: true, align: true,
+  alignSelf: true, justify: true, gap: true, rowGap: true, columnGap: true, padding: true, paddingX: true,
+  paddingY: true, paddingTop: true, paddingRight: true, paddingBottom: true, paddingLeft: true, margin: true,
+  marginX: true, marginY: true, marginTop: true, marginRight: true, marginBottom: true, marginLeft: true,
+  width: true, height: true, size: true, minWidth: true, minHeight: true, maxWidth: true, maxHeight: true,
+  aspectRatio: true, position: true, inset: true, top: true, right: true, bottom: true, left: true,
+  overflow: true, translate: true, zoom: true, background: true, opacity: true, borderWidth: true,
+  borderTopWidth: true, borderRightWidth: true, borderBottomWidth: true, borderLeftWidth: true,
+  borderColor: true, radius: true, shadow: true, cursor: true, transition: true, color: true, fontSize: true,
+  fontWeight: true, fontFamily: true, lineHeight: true, italic: true, underline: true, strikethrough: true,
+  textAlign: true, nowrap: true, overflowWrap: true, truncate: true, maxLines: true, uppercase: true,
+  verticalAlign: true,
+};
+
+const WEIGHTS ={ normal: "400", medium: "500", semibold: "600", bold: "700" } as const;
 
 const px = (value: number): string => `${value}px`;
 
