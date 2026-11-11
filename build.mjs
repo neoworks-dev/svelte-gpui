@@ -324,8 +324,8 @@ function pageFor({ title, js, css }) {
  *
  * Options: `entry` (an absolute path) and `outdir`; `alias`, `define`, `loader` and `plugins`, which are
  * esbuild's; `title`, for the page until the app sets its own with `start(…, { window: { title } })`;
- * `sourcemap` (`"linked"` when watching) and `minify` (on unless watching); and `watch: true` to rebuild
- * whenever a source file changes.
+ * `sourcemap` (`"linked"` when watching) and `minify` (on unless watching); `logLevel`, which is esbuild's;
+ * and `watch: true` to rebuild whenever a source file changes.
  *
  * Resolves to `{ outdir, html, js, css, stop }`. `css` is `null` without a stylesheet, and `stop` ends the
  * watching, when there is any.
@@ -399,7 +399,7 @@ export async function buildWeb(options) {
       ...(options.plugins ?? []),
       writePage,
     ],
-    logLevel: "info",
+    logLevel: options.logLevel ?? "info",
   };
 
   if (watch) {

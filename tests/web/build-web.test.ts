@@ -23,7 +23,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "svelte-gpui-app-"));
   app = copyOfApp("app");
   outdir = join(app, "out");
-  built = await buildWeb({ entry: join(app, "main.ts"), outdir, title: "Fixture <app>" });
+  built = await buildWeb({ entry: join(app, "main.ts"), outdir, title: "Fixture <app>", logLevel: "silent" });
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -65,7 +65,7 @@ describe("buildWeb", () => {
     const plain = copyOfApp("plain");
     const entry = join(plain, "plain.ts");
     await Bun.write(entry, `import { start } from "@neoworks/svelte-gpui";\nstart(class {} as never);\n`);
-    const result = await buildWeb({ entry, outdir: join(plain, "dist") });
+    const result = await buildWeb({ entry, outdir: join(plain, "dist"), logLevel: "silent" });
     expect(result.css).toBeNull();
     expect(readFileSync(result.html, "utf8")).not.toContain("stylesheet");
   });
@@ -75,7 +75,12 @@ describe("buildWeb", () => {
     await Bun.write(join(aliased, "answer.ts"), `export const answer = "forty-two";\n`);
     const entry = join(aliased, "aliased.ts");
     await Bun.write(entry, `import { answer } from "the-answer";\nconsole.log(answer);\n`);
-    const result = await buildWeb({ entry, outdir: join(aliased, "dist"), alias: { "the-answer": join(aliased, "answer.ts") } });
+    const result = await buildWeb({
+      entry,
+      outdir: join(aliased, "dist"),
+      alias: { "the-answer": join(aliased, "answer.ts") },
+      logLevel: "silent",
+    });
     expect(readFileSync(result.js, "utf8")).toContain("forty-two");
   });
 
@@ -84,6 +89,6 @@ describe("buildWeb", () => {
     await Bun.write(join(broken, "Broken.svelte"), `<View>{#if}</View>\n`);
     const entry = join(broken, "broken.ts");
     await Bun.write(entry, `import Broken from "./Broken.svelte";\nconsole.log(Broken);\n`);
-    await expect(buildWeb({ entry, outdir: join(broken, "dist") })).rejects.toThrow();
+    await expect(buildWeb({ entry, outdir: join(broken, "dist"), logLevel: "silent" })).rejects.toThrow();
   });
 });
