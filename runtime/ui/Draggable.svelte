@@ -8,6 +8,12 @@
       <Text>{card.title}</Text>
     </Draggable>
 
+  With `files`, the drag can also leave the window: once the pointer crosses the window's edge,
+  the system's drag and drop takes over, carrying those paths to other programs such as a file
+  manager or a mail draft, and `onend` hears the operation the program that took them chose.
+
+    <Draggable data={{ paths }} files={paths} onend={({ operation }) => operation === "move" && reload()}>
+
   Presses on what is inside still work, because the drag only starts once the pointer has moved.
   Only the left button picks it up. A right or middle press passes through to what is around it,
   such as a `ContextMenu` or a view with `ondown`.
@@ -19,10 +25,13 @@
   import { beginDrag, dragging, endDrag, moveDrag } from "./dnd.svelte";
   import type { Layout, PointerEvent } from "./events";
   import type { Style } from "./style";
+  import { window as appWindow, type ExternalDropOperation } from "../window.svelte";
 
   interface Props {
     /** What a target is given when this is dropped on it. */
     data: T;
+    /** Paths other programs are handed when the drag leaves the window. Without them it stays inside. */
+    files?: string[];
     disabled?: boolean;
     /** How far the pointer moves, in pixels, before the drag starts. The default is 4. */
     threshold?: number;
@@ -35,13 +44,17 @@
     /** Laid over the preview's wrapper, which is as wide as the original. */
     previewStyle?: Style;
     onstart?: (data: T) => void;
-    /** The drag ended, dropped on a target or not. */
-    onend?: (result: { data: T; dropped: boolean }) => void;
+    /**
+     * The drag ended, dropped on a target or not. `operation` is there when it left the window
+     * with `files`: what the program that took them did, or `"none"`.
+     */
+    onend?: (result: { data: T; dropped: boolean; operation?: ExternalDropOperation }) => void;
     children?: Snippet;
   }
 
   let {
     data,
+    files,
     disabled = false,
     threshold = 4,
     style,
@@ -80,7 +93,27 @@
       onstart?.(data);
       return;
     }
+    if (files !== undefined && files.length > 0 && isOutsideWindow(event)) {
+      handOff(files);
+      return;
+    }
     moveDrag(event.windowX, event.windowY);
+  }
+
+  function isOutsideWindow(event: PointerEvent): boolean {
+    const { width, height } = appWindow.size;
+    return event.windowX < 0 || event.windowY < 0 || event.windowX >= width || event.windowY >= height;
+  }
+
+  // The drag inside the window ends without a drop, and the system's carries the files on.
+  function handOff(paths: string[]): void {
+    held = false;
+    pressed = null;
+    endDrag(false);
+    appWindow.startDrag(paths).then(
+      ({ operation }) => onend?.({ data, dropped: operation !== "none", operation }),
+      () => onend?.({ data, dropped: false, operation: "none" }),
+    );
   }
 
   function finish(drop: boolean): void {
