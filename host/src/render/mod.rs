@@ -26,9 +26,8 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, AnyView, Bounds, Context, DragMoveEvent, Entity, ExternalPaths, FocusHandle, IntoElement,
-    MouseMoveEvent, MouseUpEvent, Render, Rgba, ScrollHandle, WeakEntity, Window, canvas, div, prelude::*, px,
-    relative,
+    AnyElement, AnyView, Bounds, Context, DragMoveEvent, Entity, ExternalPaths, FocusHandle, IntoElement, Render, Rgba,
+    ScrollHandle, WeakEntity, Window, canvas, div, prelude::*, px, relative,
 };
 
 use crate::elements::Instances;
@@ -45,7 +44,7 @@ pub use field::{caret_visible, next_blink};
 use file_drop::external_drag_ended;
 use media::icon_content;
 use motion::Animation;
-use press::press_ends_focus;
+use press::{captured_pointer, press_ends_focus};
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
@@ -263,12 +262,6 @@ impl<'a> Painter<'a> {
             .on_key_up(cx.listener(|workbench, event, window, cx| {
                 workbench.key_up(event, window, cx);
             }))
-            .capture_any_mouse_up(cx.listener(|workbench, event: &MouseUpEvent, _window, cx| {
-                workbench.release_pointer(event, cx);
-            }))
-            .on_mouse_move(cx.listener(|workbench, event: &MouseMoveEvent, _window, cx| {
-                workbench.captured_motion(event, cx);
-            }))
             .on_drag_move(cx.listener(|workbench, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
                 let paths = event.drag(cx).paths().to_vec();
                 workbench.external_drag_over(event.event.position, paths, cx);
@@ -277,7 +270,8 @@ impl<'a> Painter<'a> {
                 workbench.external_drop(window.mouse_position(), dropped.paths().to_vec(), cx);
             }))
             .child(external_drag_ended(cx))
-            .child(press_ends_focus(cx));
+            .child(press_ends_focus(cx))
+            .child(captured_pointer(cx));
         let inherited = Inherited::root();
         for child in self.children(ROOT, &inherited, false, cx) {
             element = element.child(child);
