@@ -695,7 +695,7 @@ pub(super) unsafe fn read_fd(mut fd: filedescriptor::FileDescriptor) -> Result<V
 
 /// What a drag out of the window carries, in the forms other applications ask for.
 #[cfg(any(feature = "wayland", feature = "x11"))]
-pub(super) struct DraggedFiles {
+pub(crate) struct DraggedFiles {
     /// `text/uri-list`: one `file://` URL per line, each line ended by CRLF.
     pub uri_list: Vec<u8>,
     /// Plain text: the paths, one per line, for a target that only takes text.
