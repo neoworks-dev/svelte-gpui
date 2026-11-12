@@ -860,6 +860,127 @@ impl PlatformWindow for WindowsWindow {
     fn update_ime_position(&self, _bounds: Bounds<Pixels>) {
         // There is no such thing on Windows.
     }
+
+    fn start_external_drag(&self, paths: Vec<PathBuf>) -> Option<Receiver<ExternalDragOutcome>> {
+        let (ended, receiver) = oneshot::channel();
+        let window = self.0.clone();
+        // SHDoDragDrop runs its own message loop until the drop, which draws and dispatches
+        // input, so it must not run inside the dispatch that asked for it.
+        self.0
+            .executor
+            .spawn(async move {
+                let outcome = unsafe { run_external_drag(window.hwnd, &paths) }
+                    .log_err()
+                    .unwrap_or(ExternalDragOutcome::Cancelled);
+                ended.send(outcome).ok();
+                window.release_after_external_drag();
+            })
+            .detach();
+        Some(receiver)
+    }
+}
+
+impl WindowsWindowInner {
+    /// The drag loop kept the button's release, so the window is handed one where the
+    /// pointer is now.
+    fn release_after_external_drag(&self) {
+        let mut cursor = POINT::default();
+        unsafe {
+            GetCursorPos(&mut cursor).log_err();
+            ScreenToClient(self.hwnd, &mut cursor).ok().log_err();
+        }
+        let mut lock = self.state.borrow_mut();
+        let scale_factor = lock.scale_factor;
+        let Some(mut input) = lock.callbacks.input.take() else {
+            return;
+        };
+        drop(lock);
+        input(PlatformInput::MouseUp(MouseUpEvent {
+            button: MouseButton::Left,
+            position: point(
+                px(cursor.x as f32 / scale_factor),
+                px(cursor.y as f32 / scale_factor),
+            ),
+            modifiers: Modifiers::default(),
+            click_count: 1,
+        }));
+        self.state.borrow_mut().callbacks.input = Some(input);
+    }
+}
+
+/// Item ID lists the shell allocated, freed together.
+struct ItemIdLists(Vec<*mut Common::ITEMIDLIST>);
+
+impl Drop for ItemIdLists {
+    fn drop(&mut self) {
+        for list in &self.0 {
+            unsafe { ILFree(Some(*list as *const _)) };
+        }
+    }
+}
+
+/// Runs the shell's drag and drop with `paths` until the drop, and says what the target did.
+/// The shell draws the drag image and supplies the drop source.
+unsafe fn run_external_drag(hwnd: HWND, paths: &[PathBuf]) -> Result<ExternalDragOutcome> {
+    let mut lists = ItemIdLists(Vec::with_capacity(paths.len()));
+    for path in paths {
+        let mut list = std::ptr::null_mut();
+        let name = HSTRING::from(path.to_string_lossy().as_ref());
+        unsafe { SHParseDisplayName(&name, None, &mut list, 0, None) }
+            .with_context(|| format!("the shell cannot name {path:?}"))?;
+        lists.0.push(list);
+    }
+    let absolute: Vec<*const Common::ITEMIDLIST> =
+        lists.0.iter().map(|list| *list as *const _).collect();
+    let data: IDataObject = unsafe { SHCreateDataObject(None, Some(absolute.as_slice()), None) }?;
+    let allowed = DROPEFFECT(DROPEFFECT_COPY.0 | DROPEFFECT_MOVE.0 | DROPEFFECT_LINK.0);
+    let mut effect = unsafe { SHDoDragDrop(Some(hwnd), &data, None, allowed) }?;
+    // A target that moved the files itself, as Explorer does on one volume, reports no
+    // effect and leaves what it did on the data object.
+    if effect == DROPEFFECT_NONE {
+        effect = unsafe { performed_drop_effect(&data) };
+    }
+    Ok(outcome_of(effect))
+}
+
+unsafe fn performed_drop_effect(data: &IDataObject) -> DROPEFFECT {
+    let format = unsafe {
+        windows::Win32::System::DataExchange::RegisterClipboardFormatW(w!("Performed DropEffect"))
+    };
+    let request = FORMATETC {
+        cfFormat: format as u16,
+        ptd: std::ptr::null_mut(),
+        dwAspect: DVASPECT_CONTENT.0,
+        lindex: -1,
+        tymed: TYMED_HGLOBAL.0 as u32,
+    };
+    let Ok(mut medium) = (unsafe { data.GetData(&request) }) else {
+        return DROPEFFECT_NONE;
+    };
+    let mut effect = DROPEFFECT_NONE;
+    unsafe {
+        let global = medium.u.hGlobal;
+        let value = windows::Win32::System::Memory::GlobalLock(global) as *const u32;
+        if !value.is_null() {
+            effect = DROPEFFECT(*value);
+            let _ = windows::Win32::System::Memory::GlobalUnlock(global);
+        }
+        ReleaseStgMedium(&mut medium);
+    }
+    effect
+}
+
+fn outcome_of(effect: DROPEFFECT) -> ExternalDragOutcome {
+    if effect.0 & DROPEFFECT_MOVE.0 != 0 {
+        return ExternalDragOutcome::Moved;
+    }
+    if effect.0 & DROPEFFECT_LINK.0 != 0 {
+        return ExternalDragOutcome::Linked;
+    }
+    if effect.0 & DROPEFFECT_COPY.0 != 0 {
+        return ExternalDragOutcome::Copied;
+    }
+    ExternalDragOutcome::Cancelled
 }
 
 #[implement(IDropTarget)]
