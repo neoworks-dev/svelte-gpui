@@ -44,6 +44,7 @@ use super::{
     ButtonOrScroll, ScrollDirection, X11Display, X11WindowStatePtr, XcbAtoms, XimCallbackEvent,
     XimHandler, button_or_scroll_from_event_detail, check_reply,
     clipboard::{self, Clipboard},
+    drag_source::{OutgoingXdnd, Progress},
     get_reply, get_valuator_axis_index, handle_connection_error, modifiers_from_state,
     pressed_button_from_mask,
 };
@@ -52,18 +53,19 @@ use crate::platform::{
     LinuxCommon, PlatformWindow,
     blade::BladeContext,
     linux::{
-        DEFAULT_CURSOR_ICON_NAME, LinuxClient, get_xkb_compose_state, is_within_click_distance,
-        log_cursor_icon_warning, open_uri_internal,
+        DEFAULT_CURSOR_ICON_NAME, DraggedFiles, LinuxClient, get_xkb_compose_state,
+        is_within_click_distance, log_cursor_icon_warning, open_uri_internal,
         platform::{DOUBLE_CLICK_INTERVAL, SCROLL_LINES},
         reveal_path_internal,
         xdg_desktop_portal::{Event as XDPEvent, XDPEventSource},
     },
 };
 use crate::{
-    AnyWindowHandle, Bounds, ClipboardItem, CursorStyle, DisplayId, FileDropEvent, Keystroke,
-    LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton, Pixels, Platform,
-    PlatformDisplay, PlatformInput, PlatformKeyboardLayout, Point, RequestFrameOptions,
-    ScrollDelta, Size, TouchPhase, WindowParams, X11Window, modifiers_from_xinput_info, point, px,
+    AnyWindowHandle, Bounds, ClipboardItem, CursorStyle, DisplayId, ExternalDragOutcome,
+    FileDropEvent, Keystroke, LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton,
+    Pixels, Platform, PlatformDisplay, PlatformInput, PlatformKeyboardLayout, Point,
+    RequestFrameOptions, ScrollDelta, Size, TouchPhase, WindowParams, X11Window,
+    modifiers_from_xinput_info, point, px,
 };
 
 /// Value for DeviceId parameters which selects all devices.
@@ -216,6 +218,7 @@ pub struct X11ClientState {
     pub(crate) clipboard: Clipboard,
     pub(crate) clipboard_item: Option<ClipboardItem>,
     pub(crate) xdnd_state: Xdnd,
+    pub(crate) outgoing_drag: Option<OutgoingXdnd>,
 }
 
 #[derive(Clone)]
@@ -250,6 +253,43 @@ impl X11ClientStatePtr {
         if state.windows.is_empty() {
             state.common.signal.stop();
         }
+    }
+
+    /// Starts carrying `paths` from `x_window` to other windows with XDND. The button held
+    /// now keeps the pointer grabbed, so its moves and release still reach this client.
+    pub fn start_external_drag(
+        &self,
+        x_window: xproto::Window,
+        paths: &[PathBuf],
+    ) -> Option<futures::channel::oneshot::Receiver<ExternalDragOutcome>> {
+        let files = DraggedFiles::new(paths)?;
+        let client = self.get_client()?;
+        let mut state = client.0.borrow_mut();
+        let (ended, receiver) = futures::channel::oneshot::channel();
+        let drag =
+            OutgoingXdnd::start(&state.xcb_connection, &state.atoms, x_window, files, ended)?;
+        if let Some(previous) = state.outgoing_drag.replace(drag) {
+            previous.end(ExternalDragOutcome::Cancelled);
+        }
+        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+        let pointer = get_reply(
+            || "Failed to query the pointer",
+            state.xcb_connection.query_pointer(root),
+        )
+        .log_err();
+        if let Some(pointer) = pointer {
+            let state = &mut *state;
+            let drag = state.outgoing_drag.as_mut().expect("set above");
+            let position = (pointer.root_x, pointer.root_y);
+            drag.moved(
+                &state.xcb_connection,
+                &state.atoms,
+                root,
+                position,
+                x11rb::CURRENT_TIME,
+            );
+        }
+        Some(receiver)
     }
 
     pub fn update_ime_position(&self, bounds: Bounds<Pixels>) {
@@ -514,6 +554,7 @@ impl X11Client {
             clipboard,
             clipboard_item: None,
             xdnd_state: Xdnd::default(),
+            outgoing_drag: None,
         }))))
     }
 
@@ -735,7 +776,82 @@ impl X11Client {
             .map(|window_reference| window_reference.window.clone())
     }
 
+    /// Passes the events a drag out of the window needs to it. Answers whether the event was
+    /// the drag's alone; moves and the release also go on to the window.
+    fn drive_outgoing_drag(&self, event: &Event) -> bool {
+        let mut state = self.0.borrow_mut();
+        let state = &mut *state;
+        let Some(drag) = state.outgoing_drag.as_mut() else {
+            return false;
+        };
+        let connection = &state.xcb_connection;
+        let atoms = &state.atoms;
+        let progress = match event {
+            Event::XinputMotion(motion) => {
+                let root = connection.setup().roots[state.x_root_index].root;
+                let position = ((motion.root_x >> 16) as i16, (motion.root_y >> 16) as i16);
+                drag.moved(connection, atoms, root, position, motion.time);
+                return false;
+            }
+            Event::XinputButtonRelease(_) => {
+                let drag_id = drag.id();
+                let progress = drag.released(connection, atoms);
+                self.expire_unfinished_drop(state, drag_id);
+                progress
+            }
+            Event::ClientMessage(message) if message.type_ == atoms.XdndStatus => {
+                drag.status(connection, atoms, message.data.as_data32())
+            }
+            Event::ClientMessage(message) if message.type_ == atoms.XdndFinished => {
+                drag.finished(atoms, message.data.as_data32())
+            }
+            Event::SelectionRequest(request) if request.selection == atoms.XdndSelection => {
+                drag.answer(connection, atoms, request);
+                return true;
+            }
+            Event::KeyPress(key)
+                if state.xkb.key_get_one_sym(key.detail.into()) == xkbc::Keysym::Escape =>
+            {
+                drag.cancel(connection, atoms);
+                Progress::Ended(ExternalDragOutcome::Cancelled)
+            }
+            _ => return false,
+        };
+        if let Progress::Ended(outcome) = progress {
+            let drag = state.outgoing_drag.take().expect("matched above");
+            drag.end(outcome);
+        }
+        !matches!(event, Event::XinputButtonRelease(_))
+    }
+
+    /// A target that took the drop has a few seconds to say it finished, after which the drag
+    /// ends as cancelled, so a target that never answers does not keep it open.
+    fn expire_unfinished_drop(&self, state: &X11ClientState, drag_id: u64) {
+        const PATIENCE: Duration = Duration::from_secs(5);
+        state
+            .loop_handle
+            .insert_source(
+                calloop::timer::Timer::from_duration(PATIENCE),
+                move |_, _, client| {
+                    let mut state = client.0.borrow_mut();
+                    let still_waiting = state
+                        .outgoing_drag
+                        .as_ref()
+                        .is_some_and(|drag| drag.id() == drag_id);
+                    if still_waiting {
+                        let drag = state.outgoing_drag.take().expect("checked above");
+                        drag.end(ExternalDragOutcome::Cancelled);
+                    }
+                    calloop::timer::TimeoutAction::Drop
+                },
+            )
+            .log_err();
+    }
+
     fn handle_event(&self, event: Event) -> Option<()> {
+        if self.drive_outgoing_drag(&event) {
+            return Some(());
+        }
         match event {
             Event::UnmapNotify(event) => {
                 let mut state = self.0.borrow_mut();
