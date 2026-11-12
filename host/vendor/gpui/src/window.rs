@@ -1754,6 +1754,20 @@ impl Window {
         self.platform_window.start_window_move()
     }
 
+    /// Starts a drag that other applications can take, carrying `paths`, from the pointer
+    /// button that is held down now. The system owns the pointer until the drag ends, and the
+    /// window is sent a mouse up for the held button once it has. The receiver answers how it
+    /// ended; `None` when the platform could not start one.
+    pub fn start_external_drag(
+        &self,
+        paths: Vec<std::path::PathBuf>,
+    ) -> Option<futures::channel::oneshot::Receiver<crate::ExternalDragOutcome>> {
+        if paths.is_empty() {
+            return None;
+        }
+        self.platform_window.start_external_drag(paths)
+    }
+
     /// When using client side decorations, set this to the width of the invisible decorations (Wayland and X11)
     pub fn set_client_inset(&mut self, inset: Pixels) {
         self.client_inset = Some(inset);

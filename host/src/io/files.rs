@@ -167,6 +167,12 @@ impl Files {
         if self.limit().permits(&target) { Ok(target) } else { Err(FileError::not_allowed(raw)) }
     }
 
+    /// The absolute path for one the app wants to hand to another program, such as by
+    /// dragging it out of the window, or why the limit does not allow that.
+    pub fn shareable(&self, raw: &str) -> Result<PathBuf, String> {
+        self.check(raw, false).map_err(|error| error.message)
+    }
+
     fn declare_limit(&self, args: &Value) -> Outcome {
         let mut roots = Vec::new();
         for entry in array(args, "allow")? {

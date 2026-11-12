@@ -100,6 +100,26 @@
   }
 
   const size = (bytes: number): string => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
+
+  // Files the demo writes into its own data directory, so it may hand them to other programs.
+  let outgoing = $state<string[]>([]);
+  let handedOver = $state("");
+
+  async function writeOutgoing(): Promise<void> {
+    const directory = `${(await files.paths()).data}/svelte-gpui-demo`;
+    await files.mkdir(directory, { recursive: true });
+    const written: string[] = [];
+    for (const name of ["notes.txt", "list.txt"]) {
+      const path = `${directory}/${name}`;
+      await files.writeText(path, `Dragged out of the svelte-gpui demo: ${name}\n`);
+      written.push(path);
+    }
+    outgoing = written;
+  }
+
+  $effect(() => {
+    writeOutgoing().catch((error) => (problem = (error as Error).message));
+  });
 </script>
 
 <View style={{ gap: 16 }}>
@@ -137,6 +157,24 @@
         <Text style={{ ...mono, color: colors.faint }}>{entry.kind === "directory" ? "folder" : size(entry.size)}</Text>
       </View>
     {/each}
+  </Card>
+
+  <Card title="Files to other programs" note="Drag a file out of the window, onto a file manager, a mail draft or the desktop. Inside the window it is an ordinary drag; past the window's edge the system carries the files on.">
+    <View style={{ direction: "row", gap: 8 }}>
+      {#each outgoing as path (path)}
+        <Draggable
+          data={{ paths: [path] }}
+          files={[path]}
+          onend={({ operation }) => (handedOver = operation === undefined ? "" : `${nameOf(path)}: ${operation}`)}
+          style={{ direction: "row", align: "center", gap: 8, padding: 10, radius: 6, background: colors.raised, borderWidth: 1, borderColor: colors.strongBorder, cursor: "grab" }}
+          hover={{ background: colors.hover }}
+        >
+          <Icon svg={file} size={16} color={colors.dim} />
+          <Text>{nameOf(path)}</Text>
+        </Draggable>
+      {/each}
+    </View>
+    {#if handedOver}<Text style={{ ...mono, color: colors.dim }}>{handedOver}</Text>{/if}
   </Card>
 
   <Card title="Moving things around" note="Press a card and drag. A copy follows the pointer, and a line shows where it would land. Release over a column to drop it; Escape cancels.">
