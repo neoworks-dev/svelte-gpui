@@ -47,6 +47,9 @@ x11rb::atom_manager! {
         XdndFinished,
         XdndTypeList,
         XdndActionCopy,
+        XdndActionMove,
+        XdndActionLink,
+        TARGETS,
         TextUriList: b"text/uri-list",
         UTF8_STRING,
         TEXT,
@@ -1523,6 +1526,14 @@ impl PlatformWindow for X11Window {
 
     fn start_window_resize(&self, edge: ResizeEdge) {
         self.send_moveresize(edge.to_moveresize()).log_err();
+    }
+
+    fn start_external_drag(
+        &self,
+        paths: Vec<std::path::PathBuf>,
+    ) -> Option<futures::channel::oneshot::Receiver<crate::ExternalDragOutcome>> {
+        let client = self.0.state.borrow().client.clone();
+        client.start_external_drag(self.0.x_window, &paths)
     }
 
     fn window_decorations(&self) -> crate::Decorations {

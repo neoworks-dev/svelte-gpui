@@ -42,6 +42,12 @@ pub enum WindowCommand {
     ToggleFullscreen,
     /// Closes the window without asking the app's close handlers.
     Destroy,
+    /// Hands the held pointer to the system's drag and drop, carrying `paths` to other
+    /// programs. How it ended settles `call`.
+    StartDrag {
+        call: u64,
+        paths: Vec<String>,
+    },
 }
 
 impl WindowCommand {
@@ -56,6 +62,14 @@ impl WindowCommand {
             "fullscreen" => WindowCommand::SetFullscreen(arguments["on"].as_bool()?),
             "toggleFullscreen" => WindowCommand::ToggleFullscreen,
             "destroy" => WindowCommand::Destroy,
+            "startDrag" => WindowCommand::StartDrag {
+                call: arguments["call"].as_u64()?,
+                paths: arguments["paths"]
+                    .as_array()?
+                    .iter()
+                    .map(|path| path.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>()?,
+            },
             _ => return None,
         })
     }
@@ -96,5 +110,15 @@ mod tests {
             Some(WindowCommand::SetFullscreen(true))
         );
         assert_eq!(WindowCommand::parse("nonsense", &Value::Null), None);
+    }
+
+    #[test]
+    fn a_drag_out_needs_a_call_and_only_paths() {
+        assert_eq!(
+            WindowCommand::parse("startDrag", &json!({ "call": 3, "paths": ["/a", "/b"] })),
+            Some(WindowCommand::StartDrag { call: 3, paths: vec!["/a".into(), "/b".into()] })
+        );
+        assert_eq!(WindowCommand::parse("startDrag", &json!({ "paths": ["/a"] })), None);
+        assert_eq!(WindowCommand::parse("startDrag", &json!({ "call": 3, "paths": ["/a", 4] })), None);
     }
 }

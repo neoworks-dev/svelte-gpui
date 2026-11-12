@@ -2,7 +2,12 @@
 // host, which carries them out on its next tick; what the window is like comes back through
 // `receive`, which the host calls when anything changed.
 
+import { expect } from "./io/channel";
+
 declare const console: { error(...args: unknown[]): void };
+
+/** What the program that took a drag out of the window did with it. */
+export type ExternalDropOperation = "copy" | "move" | "link" | "none";
 
 /** How the window opens, in `start(App, props, { window })`. The host's `--width` and `--height` override the size. */
 export interface WindowOptions {
@@ -180,6 +185,19 @@ export const window = {
   /** Closes the window without asking the handlers, which ends the app. */
   destroy(): void {
     request("destroy");
+  },
+  /**
+   * Hands the pointer button held down now to the system's drag and drop, carrying `paths`
+   * to other programs: a file manager, a mail draft, the desktop. The system owns the pointer
+   * until the drop. Resolves with the operation the program that took the drop chose, or
+   * `"none"` when nothing took it; a `"move"` is carried out by that program. Rejects when
+   * no button is held or a path is outside the file limit. `Draggable` calls this when its
+   * `files` are dragged out of the window.
+   */
+  async startDrag(paths: string[]): Promise<{ operation: ExternalDropOperation }> {
+    const { call, reply } = expect();
+    request("startDrag", { call, paths });
+    return (await reply).json;
   },
   /**
    * Calls `handler` whenever the window is asked to close, by the close button, the window
