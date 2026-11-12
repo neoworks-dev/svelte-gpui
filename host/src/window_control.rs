@@ -18,7 +18,12 @@ pub struct WindowSettings {
 impl WindowSettings {
     /// Reads the object the app passed; fields of the wrong type are left out.
     pub fn from_json(value: &Value) -> Self {
-        let number = |name: &str| value[name].as_f64().filter(|found| *found > 0.0).map(|found| found as f32);
+        let number = |name: &str| {
+            value[name]
+                .as_f64()
+                .filter(|found| *found > 0.0)
+                .map(|found| found as f32)
+        };
         WindowSettings {
             title: value["title"].as_str().map(str::to_string),
             width: number("width"),
@@ -80,8 +85,9 @@ mod tests {
 
     #[test]
     fn settings_ignore_the_wrong_types() {
-        let settings =
-            WindowSettings::from_json(&json!({ "title": "A", "width": 800, "height": "tall", "minWidth": -1 }));
+        let settings = WindowSettings::from_json(
+            &json!({ "title": "A", "width": 800, "height": "tall", "minWidth": -1 }),
+        );
         assert_eq!(settings.title.as_deref(), Some("A"));
         assert_eq!(settings.width, Some(800.0));
         assert_eq!(settings.height, None);

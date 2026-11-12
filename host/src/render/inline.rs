@@ -6,8 +6,9 @@ use std::panic::Location;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, ShapedLine, SharedString, Size, TextRun, Window, point, px, size,
+    AnyElement, App, AvailableSpace, Bounds, Element, ElementId, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Size, TextRun,
+    Window, point, px, size,
 };
 
 /// An element inside a paragraph, at byte `at` of its text, with the size it was given.
@@ -79,10 +80,18 @@ pub(super) fn break_lines(atoms: &[Atom], wrap: Option<f32>, above: f32, below: 
     let mut lines = Vec::with_capacity(extents.len());
     let mut top = 0.0;
     for (line_above, line_below, width) in extents {
-        lines.push(Line { top, baseline: top + line_above, width });
+        lines.push(Line {
+            top,
+            baseline: top + line_above,
+            width,
+        });
         top += line_above + line_below;
     }
-    Lines { lines, placed, height: top }
+    Lines {
+        lines,
+        placed,
+        height: top,
+    }
 }
 
 /// A paragraph's text cut into words, each with the spaces after it, and the boxes between
@@ -95,7 +104,11 @@ fn pieces(text: &str, boxes: &[usize]) -> Vec<Piece> {
     for (index, character) in text.char_indices() {
         while next_box < boxes.len() && boxes[next_box] <= index {
             if start < index {
-                out.push(Piece::Text { start, end: index, breaks: false });
+                out.push(Piece::Text {
+                    start,
+                    end: index,
+                    breaks: false,
+                });
             }
             out.push(Piece::Box(next_box));
             next_box += 1;
@@ -103,20 +116,32 @@ fn pieces(text: &str, boxes: &[usize]) -> Vec<Piece> {
             in_spaces = false;
         }
         if character == '\n' {
-            out.push(Piece::Text { start, end: index, breaks: true });
+            out.push(Piece::Text {
+                start,
+                end: index,
+                breaks: true,
+            });
             start = index + 1;
             in_spaces = false;
             continue;
         }
         let space = character == ' ';
         if in_spaces && !space && start < index {
-            out.push(Piece::Text { start, end: index, breaks: false });
+            out.push(Piece::Text {
+                start,
+                end: index,
+                breaks: false,
+            });
             start = index;
         }
         in_spaces = space;
     }
     if start < text.len() {
-        out.push(Piece::Text { start, end: text.len(), breaks: false });
+        out.push(Piece::Text {
+            start,
+            end: text.len(),
+            breaks: false,
+        });
     }
     while next_box < boxes.len() {
         out.push(Piece::Box(next_box));
@@ -127,7 +152,11 @@ fn pieces(text: &str, boxes: &[usize]) -> Vec<Piece> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Piece {
-    Text { start: usize, end: usize, breaks: bool },
+    Text {
+        start: usize,
+        end: usize,
+        breaks: bool,
+    },
     Box(usize),
 }
 
@@ -140,7 +169,10 @@ fn runs_within(runs: &[TextRun], start: usize, end: usize) -> Vec<TextRun> {
         let to = (offset + run.len).min(end);
         offset += run.len;
         if to > from {
-            out.push(TextRun { len: to - from, ..run.clone() });
+            out.push(TextRun {
+                len: to - from,
+                ..run.clone()
+            });
         }
     }
     out
@@ -167,7 +199,12 @@ pub(super) struct InlineFlow {
 
 impl InlineFlow {
     pub(super) fn new(text: String, runs: Vec<TextRun>, boxes: Vec<InlineBox>) -> Self {
-        InlineFlow { text: SharedString::from(text), runs, boxes, layout: Rc::default() }
+        InlineFlow {
+            text: SharedString::from(text),
+            runs,
+            boxes,
+            layout: Rc::default(),
+        }
     }
 }
 
@@ -242,11 +279,16 @@ impl Element for InlineFlow {
     ) -> (LayoutId, ()) {
         let text_style = window.text_style();
         let font_size = text_style.font_size.to_pixels(window.rem_size());
-        let line_height = text_style.line_height.to_pixels(font_size.into(), window.rem_size());
+        let line_height = text_style
+            .line_height
+            .to_pixels(font_size.into(), window.rem_size());
         let text = self.text.clone();
         let runs = self.runs.clone();
-        let boxes: Vec<(usize, Size<Pixels>, f32)> =
-            self.boxes.iter().map(|inline| (inline.at, inline.size, inline.raise)).collect();
+        let boxes: Vec<(usize, Size<Pixels>, f32)> = self
+            .boxes
+            .iter()
+            .map(|inline| (inline.at, inline.size, inline.raise))
+            .collect();
         // A line of plain text, which every line is at least: GPUI centres the font's ascent and
         // descent in the line height.
         let font_id = window.text_system().resolve_font(&text_style.font());
@@ -255,20 +297,35 @@ impl Element for InlineFlow {
         let above = f32::from((line_height - ascent - descent) / 2. + ascent);
         let below = f32::from(line_height) - above;
         let state = self.layout.clone();
-        let layout_id = window.request_measured_layout(Default::default(), move |known, available, window, _cx| {
-            let wrap = known.width.or(match available.width {
-                AvailableSpace::Definite(width) => Some(width),
-                _ => None,
-            });
-            let mut state = state.borrow_mut();
-            let layout = state.get_or_insert_with(|| {
-                let (shaped, atoms) = shape(&text, &runs, &boxes, font_size, line_height, window);
-                Layout { shaped, atoms, broken: Lines::default(), line_height }
-            });
-            layout.broken = break_lines(&layout.atoms, wrap.map(f32::from), above, below);
-            let width = layout.broken.lines.iter().map(|line| line.width).fold(0.0, f32::max).ceil();
-            size(px(width), px(layout.broken.height))
-        });
+        let layout_id = window.request_measured_layout(
+            Default::default(),
+            move |known, available, window, _cx| {
+                let wrap = known.width.or(match available.width {
+                    AvailableSpace::Definite(width) => Some(width),
+                    _ => None,
+                });
+                let mut state = state.borrow_mut();
+                let layout = state.get_or_insert_with(|| {
+                    let (shaped, atoms) =
+                        shape(&text, &runs, &boxes, font_size, line_height, window);
+                    Layout {
+                        shaped,
+                        atoms,
+                        broken: Lines::default(),
+                        line_height,
+                    }
+                });
+                layout.broken = break_lines(&layout.atoms, wrap.map(f32::from), above, below);
+                let width = layout
+                    .broken
+                    .lines
+                    .iter()
+                    .map(|line| line.width)
+                    .fold(0.0, f32::max)
+                    .ceil();
+                size(px(width), px(layout.broken.height))
+            },
+        );
         (layout_id, ())
     }
 
@@ -293,7 +350,9 @@ impl Element for InlineFlow {
             let baseline = layout.broken.lines[*line].baseline;
             let top = baseline - f32::from(inline.size.height) - inline.raise;
             let origin = bounds.origin + point(px(*x), px(top));
-            inline.element.layout_as_root(inline.size.map(AvailableSpace::Definite), window, cx);
+            inline
+                .element
+                .layout_as_root(inline.size.map(AvailableSpace::Definite), window, cx);
             inline.element.prepaint_at(origin, window, cx);
         }
     }
@@ -312,12 +371,18 @@ impl Element for InlineFlow {
         let Some(layout) = state.as_ref() else {
             return;
         };
-        for ((shaped, (line, x)), atom) in layout.shaped.iter().zip(&layout.broken.placed).zip(&layout.atoms) {
+        for ((shaped, (line, x)), atom) in layout
+            .shaped
+            .iter()
+            .zip(&layout.broken.placed)
+            .zip(&layout.atoms)
+        {
             match shaped {
                 Shaped::Text(text) => {
                     let top = layout.broken.lines[*line].baseline - atom.above;
                     let origin = bounds.origin + point(px(*x), px(top));
-                    text.paint_background(origin, layout.line_height, window, cx).ok();
+                    text.paint_background(origin, layout.line_height, window, cx)
+                        .ok();
                     text.paint(origin, layout.line_height, window, cx).ok();
                 }
                 Shaped::Box(index) => self.boxes[*index].element.paint(window, cx),
@@ -339,7 +404,13 @@ mod tests {
     use super::*;
 
     fn word(width: f32) -> Atom {
-        Atom { advance: width + 4.0, fit: width, above: 14.0, below: 6.0, breaks: false }
+        Atom {
+            advance: width + 4.0,
+            fit: width,
+            above: 14.0,
+            below: 6.0,
+            breaks: false,
+        }
     }
 
     #[test]
@@ -349,15 +420,45 @@ mod tests {
         assert_eq!(
             cut,
             [
-                Piece::Text { start: 0, end: 2, breaks: false },
-                Piece::Text { start: 2, end: 4, breaks: false },
+                Piece::Text {
+                    start: 0,
+                    end: 2,
+                    breaks: false
+                },
+                Piece::Text {
+                    start: 2,
+                    end: 4,
+                    breaks: false
+                },
                 Piece::Box(0),
-                Piece::Text { start: 4, end: 6, breaks: false },
-                Piece::Text { start: 6, end: 7, breaks: true },
-                Piece::Text { start: 8, end: 9, breaks: false },
+                Piece::Text {
+                    start: 4,
+                    end: 6,
+                    breaks: false
+                },
+                Piece::Text {
+                    start: 6,
+                    end: 7,
+                    breaks: true
+                },
+                Piece::Text {
+                    start: 8,
+                    end: 9,
+                    breaks: false
+                },
             ]
         );
-        assert_eq!(pieces("ab", &[2]), [Piece::Text { start: 0, end: 2, breaks: false }, Piece::Box(0)]);
+        assert_eq!(
+            pieces("ab", &[2]),
+            [
+                Piece::Text {
+                    start: 0,
+                    end: 2,
+                    breaks: false
+                },
+                Piece::Box(0)
+            ]
+        );
     }
 
     #[test]
@@ -379,7 +480,13 @@ mod tests {
     #[test]
     fn a_tall_box_makes_its_line_taller_above_and_below_the_baseline() {
         // 30 high, lowered by 8: it reaches 22 above the baseline and 8 below.
-        let formula = Atom { advance: 50.0, fit: 50.0, above: 22.0, below: 8.0, breaks: false };
+        let formula = Atom {
+            advance: 50.0,
+            fit: 50.0,
+            above: 22.0,
+            below: 8.0,
+            breaks: false,
+        };
         let broken = break_lines(&[word(20.0), formula, word(20.0)], Some(90.0), 14.0, 6.0);
         assert_eq!(broken.placed, [(0, 0.0), (0, 24.0), (1, 0.0)]);
         assert_eq!(broken.lines[0].baseline, 22.0);
@@ -390,7 +497,17 @@ mod tests {
 
     #[test]
     fn a_newline_breaks_the_line_and_an_empty_line_keeps_its_height() {
-        let atoms = [Atom { breaks: true, ..word(10.0) }, Atom { breaks: true, ..word(0.0) }, word(10.0)];
+        let atoms = [
+            Atom {
+                breaks: true,
+                ..word(10.0)
+            },
+            Atom {
+                breaks: true,
+                ..word(0.0)
+            },
+            word(10.0),
+        ];
         let broken = break_lines(&atoms, None, 14.0, 6.0);
         assert_eq!(broken.placed, [(0, 0.0), (1, 0.0), (2, 0.0)]);
         assert_eq!(broken.height, 60.0);

@@ -4,7 +4,9 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use gpui::{AnyElement, Context, FontWeight, IntoElement, Rgba, Window, div, prelude::*, px, rgb, rgba};
+use gpui::{
+    AnyElement, Context, FontWeight, IntoElement, Rgba, Window, div, prelude::*, px, rgb, rgba,
+};
 
 use super::Workbench;
 use crate::errors::{AppError, CodeLine, ErrorKind, Frame, Report};
@@ -59,8 +61,16 @@ impl Workbench {
     /// Shows why the build failed. The app keeps running under it, as it was.
     pub(super) fn show_build_error(&mut self, text: String, cx: &mut Context<Self>) {
         eprintln!("svelte-gpui: the build failed:\n{text}");
-        let report = Report { message: text.trim_end().to_string(), stack: String::new() };
-        self.build_error = Some(AppError::explain(ErrorKind::Build, report, None, std::path::Path::new("")));
+        let report = Report {
+            message: text.trim_end().to_string(),
+            stack: String::new(),
+        };
+        self.build_error = Some(AppError::explain(
+            ErrorKind::Build,
+            report,
+            None,
+            std::path::Path::new(""),
+        ));
         self.errors_dismissed = false;
         cx.notify();
     }
@@ -79,7 +89,9 @@ impl Workbench {
 
     /// Whether the overlay is on screen.
     pub(super) fn errors_visible(&self) -> bool {
-        self.error_output == ErrorOutput::Overlay && !self.errors_dismissed && !self.listed_errors().is_empty()
+        self.error_output == ErrorOutput::Overlay
+            && !self.errors_dismissed
+            && !self.listed_errors().is_empty()
     }
 
     /// Hides the overlay until another error happens.
@@ -89,7 +101,11 @@ impl Workbench {
     }
 
     /// The overlay, when there are errors to show.
-    pub(super) fn error_overlay(&self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn error_overlay(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.errors_visible() {
             return None;
         }
@@ -100,20 +116,33 @@ impl Workbench {
             (1, times) => format!("1 error, {times} times"),
             (count, _) => format!("{count} errors"),
         };
-        let copied = errors.iter().map(AppError::text).collect::<Vec<_>>().join("\n");
+        let copied = errors
+            .iter()
+            .map(AppError::text)
+            .collect::<Vec<_>>()
+            .join("\n");
         let header = div()
             .flex()
             .items_center()
             .gap(px(8.0))
             .child(
-                div().flex_1().text_size(px(16.0)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(RED)).child(title),
+                div()
+                    .flex_1()
+                    .text_size(px(16.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(RED))
+                    .child(title),
             )
-            .child(button("copy-errors", "Copy").on_click(cx.listener(move |workbench, _, _, cx| {
-                workbench.write_clipboard(copied.clone(), cx);
-            })))
-            .child(button("dismiss-errors", "Dismiss").on_click(cx.listener(|workbench, _, _, cx| {
-                workbench.dismiss_errors(cx);
-            })));
+            .child(button("copy-errors", "Copy").on_click(cx.listener(
+                move |workbench, _, _, cx| {
+                    workbench.write_clipboard(copied.clone(), cx);
+                },
+            )))
+            .child(button("dismiss-errors", "Dismiss").on_click(cx.listener(
+                |workbench, _, _, cx| {
+                    workbench.dismiss_errors(cx);
+                },
+            )));
         let mut panel = div()
             .id("errors")
             .w_full()
@@ -141,8 +170,22 @@ impl Workbench {
             .text_size(px(12.0))
             .text_color(rgb(DIM))
             .child("Esc dismisses. A good build clears this by itself.");
-        let backdrop = div().absolute().inset_0().occlude().p(px(24.0)).flex().flex_col().items_center().gap(px(10.0));
-        Some(backdrop.bg(rgba(BACKDROP)).child(panel).child(hint).into_any_element())
+        let backdrop = div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .p(px(24.0))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(10.0));
+        Some(
+            backdrop
+                .bg(rgba(BACKDROP))
+                .child(panel)
+                .child(hint)
+                .into_any_element(),
+        )
     }
 }
 
@@ -161,7 +204,12 @@ fn button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
 
 /// One error: what kind, the message, where it came from, the code, and the stack.
 fn error_card(error: &AppError) -> gpui::Div {
-    let mut heading = div().flex().items_center().gap(px(8.0)).text_size(px(12.0)).text_color(rgb(DIM));
+    let mut heading = div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .text_size(px(12.0))
+        .text_color(rgb(DIM));
     heading = heading.child(error.kind.label());
     if error.count > 1 {
         heading = heading.child(
@@ -175,12 +223,28 @@ fn error_card(error: &AppError) -> gpui::Div {
     }
     // The build's report is a page of text; an app error is one line that stands out.
     let message = match error.kind {
-        ErrorKind::Build => div().font_family(MONO).text_size(px(12.0)).child(error.message.clone()),
-        _ => div().font_family(MONO).text_size(px(14.0)).font_weight(FontWeight::SEMIBOLD).child(error.message.clone()),
+        ErrorKind::Build => div()
+            .font_family(MONO)
+            .text_size(px(12.0))
+            .child(error.message.clone()),
+        _ => div()
+            .font_family(MONO)
+            .text_size(px(14.0))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(error.message.clone()),
     };
-    let mut card = div().flex().flex_col().gap(px(8.0)).child(heading).child(message);
+    let mut card = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(heading)
+        .child(message);
     if let Some(component) = &error.component {
-        card = card.child(div().text_color(rgb(0xc4b5fd)).child(format!("in {component}")));
+        card = card.child(
+            div()
+                .text_color(rgb(0xc4b5fd))
+                .child(format!("in {component}")),
+        );
     }
     if !error.code.is_empty() {
         card = card.child(code_block(&error.code));
@@ -200,16 +264,27 @@ fn error_card(error: &AppError) -> gpui::Div {
 
 /// The source lines around where the error was thrown, with the throwing line marked.
 fn code_block(lines: &[CodeLine]) -> gpui::Div {
-    let mut block =
-        div().flex().flex_col().p(px(8.0)).rounded(px(6.0)).bg(rgb(0x120a0c)).font_family(MONO).text_size(px(12.0));
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .p(px(8.0))
+        .rounded(px(6.0))
+        .bg(rgb(0x120a0c))
+        .font_family(MONO)
+        .text_size(px(12.0));
     for line in lines {
         let colour: Rgba = if line.current { rgb(TEXT) } else { rgb(DIM) };
         let mut row = div().flex().gap(px(10.0)).text_color(colour);
         if line.current {
             row = row.bg(rgba(0x7f1d1d99));
         }
-        let number = div().w(px(34.0)).flex_shrink_0().child(format!("{}", line.number));
-        row = row.child(number).child(div().child(line.text.replace('\t', "  ")));
+        let number = div()
+            .w(px(34.0))
+            .flex_shrink_0()
+            .child(format!("{}", line.number));
+        row = row
+            .child(number)
+            .child(div().child(line.text.replace('\t', "  ")));
         block = block.child(row);
     }
     block
@@ -218,12 +293,24 @@ fn code_block(lines: &[CodeLine]) -> gpui::Div {
 /// The stack, one frame to a line. The library's and Svelte's own frames are dimmed, and a long
 /// run of them is folded into one line.
 fn stack(frames: &[Frame]) -> gpui::Div {
-    let mut list = div().flex().flex_col().gap(px(2.0)).font_family(MONO).text_size(px(12.0));
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .font_family(MONO)
+        .text_size(px(12.0));
     let mut index = 0;
     while index < frames.len() {
-        let run = frames[index..].iter().take_while(|frame| !frame.in_app).count();
+        let run = frames[index..]
+            .iter()
+            .take_while(|frame| !frame.in_app)
+            .count();
         if run >= FOLDED_RUN {
-            list = list.child(div().text_color(rgb(DIM)).child(format!("... {run} frames in Svelte and the runtime")));
+            list = list.child(
+                div()
+                    .text_color(rgb(DIM))
+                    .child(format!("... {run} frames in Svelte and the runtime")),
+            );
             index += run;
             continue;
         }
@@ -255,13 +342,24 @@ fn append_to_log(path: &PathBuf, errors: &[AppError]) {
     let written = path
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|_| std::fs::OpenOptions::new().create(true).append(true).open(path))
+        .and_then(|_| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+        })
         .and_then(|mut file| {
-            let stamp =
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |time| time.as_secs());
-            errors.iter().try_for_each(|error| write!(file, "[unix time {stamp}] {}\n", error.text()))
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |time| time.as_secs());
+            errors
+                .iter()
+                .try_for_each(|error| write!(file, "[unix time {stamp}] {}\n", error.text()))
         });
     if let Err(problem) = written {
-        eprintln!("svelte-gpui: cannot write the error log {}: {problem}", path.display());
+        eprintln!(
+            "svelte-gpui: cannot write the error log {}: {problem}",
+            path.display()
+        );
     }
 }

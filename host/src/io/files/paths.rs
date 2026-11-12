@@ -28,7 +28,15 @@ impl Directories {
             .and_then(|path| path.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| cwd.clone());
         let (config, data, cache) = application_directories(&home);
-        Directories { home, config, data, cache, temp: std::env::temp_dir(), bundle, cwd }
+        Directories {
+            home,
+            config,
+            data,
+            cache,
+            temp: std::env::temp_dir(),
+            bundle,
+            cwd,
+        }
     }
 
     /// What `files.paths()` answers with.
@@ -92,12 +100,18 @@ fn text(path: &Path) -> String {
 }
 
 fn absolute(path: &Path, cwd: &Path) -> PathBuf {
-    if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) }
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
 }
 
 fn home_directory() -> PathBuf {
     let variable = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(variable).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 /// The directories for settings, data and caches, by each system's convention: the XDG
@@ -108,13 +122,21 @@ fn application_directories(home: &Path) -> (PathBuf, PathBuf, PathBuf) {
         return (support.clone(), support, home.join("Library/Caches"));
     }
     if cfg!(windows) {
-        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Local"));
-        let roaming = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Roaming"));
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData/Local"));
+        let roaming = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData/Roaming"));
         return (roaming, local.clone(), local.join("cache"));
     }
     let xdg = |variable: &str, fallback: &str| match std::env::var_os(variable).map(PathBuf::from) {
         Some(path) if path.is_absolute() => path,
         _ => home.join(fallback),
     };
-    (xdg("XDG_CONFIG_HOME", ".config"), xdg("XDG_DATA_HOME", ".local/share"), xdg("XDG_CACHE_HOME", ".cache"))
+    (
+        xdg("XDG_CONFIG_HOME", ".config"),
+        xdg("XDG_DATA_HOME", ".local/share"),
+        xdg("XDG_CACHE_HOME", ".cache"),
+    )
 }

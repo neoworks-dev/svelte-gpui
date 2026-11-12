@@ -17,8 +17,8 @@ use std::panic::Location;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels,
-    ScrollHandle, Window, point, px,
+    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
+    LayoutId, Pixels, ScrollHandle, Window, point, px,
 };
 
 use crate::tree::NodeId;
@@ -66,7 +66,10 @@ pub fn anchor_at(children: &[(Option<NodeId>, f32, f32)], window_top: f32) -> Op
     for (node, top, bottom) in children {
         if let Some(node) = node {
             if *bottom > window_top + AT_END {
-                return Some(Anchor { node: *node, top: *top });
+                return Some(Anchor {
+                    node: *node,
+                    top: *top,
+                });
             }
         }
     }
@@ -98,14 +101,22 @@ pub struct ScrollAnchor {
 
 impl ScrollAnchor {
     /// Where each child sits in this frame's layout, as its node, its top and its bottom, counted from the top of the scroller.
-    fn children(&self, bounds: Bounds<Pixels>, window: &mut Window) -> Vec<(Option<NodeId>, f32, f32)> {
+    fn children(
+        &self,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) -> Vec<(Option<NodeId>, f32, f32)> {
         let mut found = Vec::with_capacity(self.slots.len());
         for (node, slot) in &self.slots {
             let Some(layout) = slot.get() else {
                 continue;
             };
             let child = window.layout_bounds(layout);
-            found.push((*node, f32::from(child.top() - bounds.top()), f32::from(child.bottom() - bounds.top())));
+            found.push((
+                *node,
+                f32::from(child.top() - bounds.top()),
+                f32::from(child.bottom() - bounds.top()),
+            ));
         }
         found
     }
@@ -119,15 +130,20 @@ impl ScrollAnchor {
         let scrolled = -f32::from(offset.y);
         // Where it stood at the end of the last frame, so a scroller moved back to its end by the user or
         // the app is pinned again, and one the content grew under is still at the end it was at.
-        state.pinned = self.anchoring == Anchoring::End && (!state.started || is_at_end(scrolled, state.furthest));
+        state.pinned = self.anchoring == Anchoring::End
+            && (!state.started || is_at_end(scrolled, state.furthest));
         if state.pinned {
             self.handle.scroll_to_bottom();
             return;
         }
-        let tops: Vec<(Option<NodeId>, f32)> = children.iter().map(|(node, top, _)| (*node, *top)).collect();
+        let tops: Vec<(Option<NodeId>, f32)> = children
+            .iter()
+            .map(|(node, top, _)| (*node, *top))
+            .collect();
         let shift = shift_for(state.anchor, &tops);
         if shift.abs() > 0.01 {
-            self.handle.set_offset(point(offset.x, offset.y - px(shift)));
+            self.handle
+                .set_offset(point(offset.x, offset.y - px(shift)));
         }
     }
 
@@ -140,7 +156,11 @@ impl ScrollAnchor {
         state.started = true;
         state.furthest = furthest;
         state.pinned = self.anchoring == Anchoring::End && is_at_end(scrolled, furthest);
-        state.anchor = if state.pinned { None } else { anchor_at(&children, scrolled) };
+        state.anchor = if state.pinned {
+            None
+        } else {
+            anchor_at(&children, scrolled)
+        };
     }
 }
 
@@ -276,23 +296,45 @@ mod tests {
 
     #[test]
     fn a_child_that_moved_down_moves_the_offset_down_with_it() {
-        let anchor = Some(Anchor { node: 7, top: 300.0 });
+        let anchor = Some(Anchor {
+            node: 7,
+            top: 300.0,
+        });
         let children = [(Some(6), 100.0), (Some(7), 340.0)];
         assert_eq!(shift_for(anchor, &children), 40.0);
     }
 
     #[test]
     fn an_anchor_that_is_gone_moves_nothing() {
-        let anchor = Some(Anchor { node: 7, top: 300.0 });
+        let anchor = Some(Anchor {
+            node: 7,
+            top: 300.0,
+        });
         assert_eq!(shift_for(anchor, &[(Some(8), 10.0)]), 0.0);
         assert_eq!(shift_for(None, &[(Some(8), 10.0)]), 0.0);
     }
 
     #[test]
     fn the_anchor_is_the_first_child_reaching_into_the_window() {
-        let children = [(Some(1), 0.0, 100.0), (Some(2), 100.0, 250.0), (Some(3), 250.0, 400.0)];
-        assert_eq!(anchor_at(&children, 120.0), Some(Anchor { node: 2, top: 100.0 }));
-        assert_eq!(anchor_at(&children, 250.0), Some(Anchor { node: 3, top: 250.0 }));
+        let children = [
+            (Some(1), 0.0, 100.0),
+            (Some(2), 100.0, 250.0),
+            (Some(3), 250.0, 400.0),
+        ];
+        assert_eq!(
+            anchor_at(&children, 120.0),
+            Some(Anchor {
+                node: 2,
+                top: 100.0
+            })
+        );
+        assert_eq!(
+            anchor_at(&children, 250.0),
+            Some(Anchor {
+                node: 3,
+                top: 250.0
+            })
+        );
         assert_eq!(anchor_at(&children, 900.0), None);
     }
 

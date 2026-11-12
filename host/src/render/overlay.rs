@@ -18,9 +18,9 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AlignItems, AnyElement, App, Bounds, Context, Display, Edges, Element, ElementId, GlobalElementId,
-    InspectorElementId, IntoElement, JustifyContent, LayoutId, Length, MouseDownEvent, Pixels, Point, Position, Window,
-    div, px, relative,
+    AlignItems, AnyElement, App, Bounds, Context, Display, Edges, Element, ElementId,
+    GlobalElementId, InspectorElementId, IntoElement, JustifyContent, LayoutId, Length,
+    MouseDownEvent, Pixels, Point, Position, Window, div, px, relative,
 };
 
 use super::events::button_number;
@@ -127,12 +127,21 @@ pub struct Placement {
 
 /// The top left corner of an overlay of size `size` placed against `anchor` in a window of
 /// size `window`, and the side it ended up on.
-pub fn place(anchor: Rect, size: (f32, f32), window: (f32, f32), wanted: &Placement) -> (f32, f32, Side) {
+pub fn place(
+    anchor: Rect,
+    size: (f32, f32),
+    window: (f32, f32),
+    wanted: &Placement,
+) -> (f32, f32, Side) {
     let side = chosen_side(anchor, size, window, wanted);
     let mut alignment = wanted.alignment;
     if wanted.flip && wanted.at_point {
         let (x, y) = corner(anchor, size, wanted, side, alignment);
-        let (start, end, limit) = if side.vertical() { (x, x + size.0, window.0) } else { (y, y + size.1, window.1) };
+        let (start, end, limit) = if side.vertical() {
+            (x, x + size.0, window.0)
+        } else {
+            (y, y + size.1, window.1)
+        };
         if start < wanted.margin || end > limit - wanted.margin {
             alignment = alignment.opposite();
         }
@@ -156,24 +165,50 @@ fn chosen_side(anchor: Rect, size: (f32, f32), window: (f32, f32), wanted: &Plac
         Side::Right => window.0 - wanted.margin - anchor.right() - wanted.offset,
         Side::Left => anchor.x - wanted.offset - wanted.margin,
     };
-    let needed = if wanted.side.vertical() { size.1 } else { size.0 };
+    let needed = if wanted.side.vertical() {
+        size.1
+    } else {
+        size.0
+    };
     let preferred = room(wanted.side);
     let other = room(wanted.side.opposite());
-    if preferred < needed && other > preferred { wanted.side.opposite() } else { wanted.side }
+    if preferred < needed && other > preferred {
+        wanted.side.opposite()
+    } else {
+        wanted.side
+    }
 }
 
 /// Where the overlay's top left corner goes for a side and an alignment, before keeping it in the window.
-fn corner(anchor: Rect, size: (f32, f32), wanted: &Placement, side: Side, alignment: Alignment) -> (f32, f32) {
+fn corner(
+    anchor: Rect,
+    size: (f32, f32),
+    wanted: &Placement,
+    side: Side,
+    alignment: Alignment,
+) -> (f32, f32) {
     let along = |start: f32, length: f32, overlay: f32| match alignment {
         Alignment::Start => start + wanted.cross_offset,
         Alignment::Center => start + (length - overlay) / 2.0 + wanted.cross_offset,
         Alignment::End => start + length - overlay - wanted.cross_offset,
     };
     match side {
-        Side::Bottom => (along(anchor.x, anchor.width, size.0), anchor.bottom() + wanted.offset),
-        Side::Top => (along(anchor.x, anchor.width, size.0), anchor.y - wanted.offset - size.1),
-        Side::Right => (anchor.right() + wanted.offset, along(anchor.y, anchor.height, size.1)),
-        Side::Left => (anchor.x - wanted.offset - size.0, along(anchor.y, anchor.height, size.1)),
+        Side::Bottom => (
+            along(anchor.x, anchor.width, size.0),
+            anchor.bottom() + wanted.offset,
+        ),
+        Side::Top => (
+            along(anchor.x, anchor.width, size.0),
+            anchor.y - wanted.offset - size.1,
+        ),
+        Side::Right => (
+            anchor.right() + wanted.offset,
+            along(anchor.y, anchor.height, size.1),
+        ),
+        Side::Left => (
+            anchor.x - wanted.offset - size.0,
+            along(anchor.y, anchor.height, size.1),
+        ),
     }
 }
 
@@ -237,8 +272,14 @@ impl Element for Placed {
         let window_size = (f32::from(viewport.width), f32::from(viewport.height));
         let size = (f32::from(bounds.size.width), f32::from(bounds.size.height));
         let (x, y, _) = place(anchor, size, window_size, &self.placement);
-        let offset = Point { x: px(x - f32::from(bounds.origin.x)), y: px(y - f32::from(bounds.origin.y)) };
-        let offset = Point { x: offset.x.round(), y: offset.y.round() };
+        let offset = Point {
+            x: px(x - f32::from(bounds.origin.x)),
+            y: px(y - f32::from(bounds.origin.y)),
+        };
+        let offset = Point {
+            x: offset.x.round(),
+            y: offset.y.round(),
+        };
         window.with_element_offset(offset, |window| self.content.prepaint(window, cx));
     }
 
@@ -289,8 +330,19 @@ impl Overlay {
         at: Option<(f32, f32)>,
         layer: usize,
     ) -> Self {
-        let placed = Placed { content, placement, anchor: anchor.clone() }.into_any_element();
-        Overlay { id, placed: Some(placed), anchor, at, layer }
+        let placed = Placed {
+            content,
+            placement,
+            anchor: anchor.clone(),
+        }
+        .into_any_element();
+        Overlay {
+            id,
+            placed: Some(placed),
+            anchor,
+            at,
+            layer,
+        }
     }
 }
 
@@ -315,19 +367,30 @@ impl Element for Overlay {
     ) -> (LayoutId, OverlayLayout) {
         let nested = DEPTH.with(|depth| depth.get()) > 0;
         DEPTH.with(|depth| depth.set(depth.get() + 1));
-        let content = self.placed.as_mut().map(|placed| placed.request_layout(window, cx));
+        let content = self
+            .placed
+            .as_mut()
+            .map(|placed| placed.request_layout(window, cx));
         DEPTH.with(|depth| depth.set(depth.get() - 1));
         // The box of the parent, with the content free to hang out of it at the top left.
         let zero: Length = px(0.).into();
         let style = gpui::Style {
             position: Position::Absolute,
             display: Display::Flex,
-            inset: Edges { top: zero, right: zero, bottom: zero, left: zero },
+            inset: Edges {
+                top: zero,
+                right: zero,
+                bottom: zero,
+                left: zero,
+            },
             align_items: Some(AlignItems::FlexStart),
             justify_content: Some(JustifyContent::FlexStart),
             ..gpui::Style::default()
         };
-        (window.request_layout(style, content, cx), OverlayLayout { nested })
+        (
+            window.request_layout(style, content, cx),
+            OverlayLayout { nested },
+        )
     }
 
     fn prepaint(
@@ -340,7 +403,12 @@ impl Element for Overlay {
         cx: &mut App,
     ) {
         let anchor = match self.at {
-            Some((x, y)) => Rect { x, y, width: 0.0, height: 0.0 },
+            Some((x, y)) => Rect {
+                x,
+                y,
+                width: 0.0,
+                height: 0.0,
+            },
             None => bounds.into(),
         };
         self.anchor.set(Some(anchor));
@@ -388,7 +456,10 @@ impl IntoElement for Overlay {
 }
 
 fn number(node: &Node, name: &str, default: f32) -> f32 {
-    node.attributes.get(name).and_then(|value| value.parse().ok()).unwrap_or(default)
+    node.attributes
+        .get(name)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
 }
 
 fn switch(node: &Node, name: &str, default: bool) -> bool {
@@ -450,7 +521,11 @@ impl Painter<'_> {
         }
         let at = point_of(node);
         let anchor = Rc::new(Cell::new(None));
-        let content = zoom_text(style::apply(div().flex().flex_none(), style), style, &inherited);
+        let content = zoom_text(
+            style::apply(div().flex().flex_none(), style),
+            style,
+            &inherited,
+        );
         let mut content = content.children(children).child(self.measure(id));
         if node.attributes.contains_key("match-width") {
             content = content.min_w(relative(1.0));
@@ -459,14 +534,32 @@ impl Painter<'_> {
             content = content.occlude();
         }
         if node.listeners.contains("outside") {
-            content = content.on_mouse_down_out(cx.listener(move |workbench, event: &MouseDownEvent, _window, cx| {
-                let button = button_number(event.button);
-                workbench.pressed_outside_overlay(id, event.position, event.modifiers, button, cx);
-            }));
+            content = content.on_mouse_down_out(cx.listener(
+                move |workbench, event: &MouseDownEvent, _window, cx| {
+                    let button = button_number(event.button);
+                    workbench.pressed_outside_overlay(
+                        id,
+                        event.position,
+                        event.modifiers,
+                        button,
+                        cx,
+                    );
+                },
+            ));
         }
         let content = self.interactive(content, id, node, Primitive::View, computed, false, cx);
         let layer = number(node, "layer", 0.0).max(0.0) as usize;
-        Some(Overlay::new(id, content, placement_of(node, at.is_some()), anchor, at, layer).into_any_element())
+        Some(
+            Overlay::new(
+                id,
+                content,
+                placement_of(node, at.is_some()),
+                anchor,
+                at,
+                layer,
+            )
+            .into_any_element(),
+        )
     }
 }
 
@@ -497,16 +590,24 @@ impl Workbench {
 
     /// What a real press does before the app hears of it, for scripted presses: every overlay
     /// that listens for outside presses and does not contain the point is told.
-    pub(crate) fn simulate_press_outside(&mut self, position: Point<Pixels>, button: i32, cx: &mut Context<Self>) {
+    pub(crate) fn simulate_press_outside(
+        &mut self,
+        position: Point<Pixels>,
+        button: i32,
+        cx: &mut Context<Self>,
+    ) {
         let outside: Vec<NodeId> = {
             let tree = self.svelte.tree.borrow();
             let bounds = self.interaction.bounds.borrow();
             let mut found: Vec<NodeId> = tree
                 .nodes
                 .iter()
-                .filter(|(_, node)| matches!(&node.kind, Kind::Element { tag } if tag == "g-overlay"))
+                .filter(
+                    |(_, node)| matches!(&node.kind, Kind::Element { tag } if tag == "g-overlay"),
+                )
                 .filter(|(id, node)| {
-                    node.listeners.contains("outside") && !bounds.get(id).is_some_and(|b| b.contains(&position))
+                    node.listeners.contains("outside")
+                        && !bounds.get(id).is_some_and(|b| b.contains(&position))
                 })
                 .map(|(id, _)| *id)
                 .collect();
@@ -522,7 +623,11 @@ impl Workbench {
     fn inside_nested_overlay(&self, id: NodeId, x: f32, y: f32) -> bool {
         let tree = self.svelte.tree.borrow();
         let bounds = self.interaction.bounds.borrow();
-        let mut pending: Vec<NodeId> = tree.nodes.get(&id).map(|node| node.children.clone()).unwrap_or_default();
+        let mut pending: Vec<NodeId> = tree
+            .nodes
+            .get(&id)
+            .map(|node| node.children.clone())
+            .unwrap_or_default();
         while let Some(next) = pending.pop() {
             let Some(node) = tree.nodes.get(&next) else {
                 continue;
@@ -530,7 +635,11 @@ impl Workbench {
             let Kind::Element { tag } = &node.kind else {
                 continue;
             };
-            if tag == "g-overlay" && bounds.get(&next).is_some_and(|found| Rect::from(*found).contains(x, y)) {
+            if tag == "g-overlay"
+                && bounds
+                    .get(&next)
+                    .is_some_and(|found| Rect::from(*found).contains(x, y))
+            {
                 return true;
             }
             pending.extend(node.children.iter().copied());
@@ -559,50 +668,95 @@ mod tests {
     }
 
     fn button(x: f32, y: f32) -> Rect {
-        Rect { x, y, width: 100.0, height: 30.0 }
+        Rect {
+            x,
+            y,
+            width: 100.0,
+            height: 30.0,
+        }
     }
 
     #[test]
     fn sits_below_the_anchor_with_a_gap() {
-        let (x, y, side) = place(button(200.0, 100.0), (150.0, 200.0), WINDOW, &wanted(Side::Bottom, Alignment::Start));
+        let (x, y, side) = place(
+            button(200.0, 100.0),
+            (150.0, 200.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::Start),
+        );
         assert_eq!((x, y, side), (200.0, 134.0, Side::Bottom));
     }
 
     #[test]
     fn centres_and_ends_along_the_edge() {
-        let (x, _, _) = place(button(200.0, 100.0), (200.0, 50.0), WINDOW, &wanted(Side::Bottom, Alignment::Center));
+        let (x, _, _) = place(
+            button(200.0, 100.0),
+            (200.0, 50.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::Center),
+        );
         assert_eq!(x, 150.0);
-        let (x, _, _) = place(button(200.0, 100.0), (200.0, 50.0), WINDOW, &wanted(Side::Bottom, Alignment::End));
+        let (x, _, _) = place(
+            button(200.0, 100.0),
+            (200.0, 50.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::End),
+        );
         assert_eq!(x, 100.0);
     }
 
     #[test]
     fn flips_above_near_the_bottom_edge() {
-        let (_, y, side) = place(button(200.0, 700.0), (150.0, 200.0), WINDOW, &wanted(Side::Bottom, Alignment::Start));
+        let (_, y, side) = place(
+            button(200.0, 700.0),
+            (150.0, 200.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::Start),
+        );
         assert_eq!((y, side), (496.0, Side::Top));
     }
 
     #[test]
     fn stays_put_when_neither_side_fits_better() {
-        let (_, _, side) = place(button(200.0, 100.0), (150.0, 900.0), WINDOW, &wanted(Side::Bottom, Alignment::Start));
+        let (_, _, side) = place(
+            button(200.0, 100.0),
+            (150.0, 900.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::Start),
+        );
         assert_eq!(side, Side::Bottom);
     }
 
     #[test]
     fn shifts_back_inside_at_the_right_edge() {
-        let (x, _, _) = place(button(950.0, 100.0), (150.0, 100.0), WINDOW, &wanted(Side::Bottom, Alignment::Start));
+        let (x, _, _) = place(
+            button(950.0, 100.0),
+            (150.0, 100.0),
+            WINDOW,
+            &wanted(Side::Bottom, Alignment::Start),
+        );
         assert_eq!(x, 1000.0 - 8.0 - 150.0);
     }
 
     #[test]
     fn side_placements_flip_horizontally() {
-        let (x, _, side) = place(button(900.0, 100.0), (150.0, 100.0), WINDOW, &wanted(Side::Right, Alignment::Start));
+        let (x, _, side) = place(
+            button(900.0, 100.0),
+            (150.0, 100.0),
+            WINDOW,
+            &wanted(Side::Right, Alignment::Start),
+        );
         assert_eq!((x, side), (900.0 - 4.0 - 150.0, Side::Left));
     }
 
     #[test]
     fn a_point_flips_its_alignment_too() {
-        let point = Rect { x: 950.0, y: 750.0, width: 0.0, height: 0.0 };
+        let point = Rect {
+            x: 950.0,
+            y: 750.0,
+            width: 0.0,
+            height: 0.0,
+        };
         let mut at = wanted(Side::Bottom, Alignment::Start);
         at.at_point = true;
         at.offset = 0.0;

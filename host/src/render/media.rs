@@ -55,7 +55,13 @@ impl Painter<'_> {
 
     /// An image draws its file once the source has resolved to one, and only while it is
     /// near the window, decoded no larger than it is shown.
-    pub(super) fn image_content(&self, mut element: Div, id: NodeId, node: &Node, style: &Style) -> Div {
+    pub(super) fn image_content(
+        &self,
+        mut element: Div,
+        id: NodeId,
+        node: &Node,
+        style: &Style,
+    ) -> Div {
         let source = attribute(node, "src");
         if source.is_empty() {
             return element;
@@ -67,12 +73,15 @@ impl Painter<'_> {
         element = element.child(self.measure(id));
 
         // Until it is drawn the box takes the image's own proportions, so the page does not jump.
-        if let (Some((natural_width, natural_height)), None) = (images.dimensions(&path), style.width) {
+        if let (Some((natural_width, natural_height)), None) =
+            (images.dimensions(&path), style.width)
+        {
             if style.height.is_none() {
                 element = element.w(px(natural_width as f32)).max_w_full();
             }
             if style.aspect_ratio.is_none() {
-                element.style().aspect_ratio = Some(natural_width as f32 / natural_height.max(1) as f32);
+                element.style().aspect_ratio =
+                    Some(natural_width as f32 / natural_height.max(1) as f32);
             }
         }
 
@@ -84,7 +93,13 @@ impl Painter<'_> {
         // A zoom changes the drawn size on every step: the copy drawn so far stays on screen until
         // a copy of the new size is ready, and GPUI has loaded it.
         let wanted = (f32::from(placed.size.width) * self.interaction.scale.get()).ceil() as u32;
-        let drawn = self.interaction.drawn_images.borrow().get(&id).filter(|drawn| drawn.source == path).cloned();
+        let drawn = self
+            .interaction
+            .drawn_images
+            .borrow()
+            .get(&id)
+            .filter(|drawn| drawn.source == path)
+            .cloned();
         let width = copy_width(drawn.as_ref().map(|drawn| drawn.width), wanted);
         let file = match images.scaled(&path, width) {
             ImageState::Ready(file) => file,
@@ -96,10 +111,23 @@ impl Painter<'_> {
         let fit = attribute(node, "fit").to_string();
         let radius = style.radius;
         let mut picture = picture_of(file.clone(), &fit, radius);
-        if let Some(previous) = drawn.as_ref().map(|drawn| drawn.file.clone()).filter(|previous| *previous != file) {
-            picture = picture.with_loading(move || picture_of(previous.clone(), &fit, radius).into_any_element());
+        if let Some(previous) = drawn
+            .as_ref()
+            .map(|drawn| drawn.file.clone())
+            .filter(|previous| *previous != file)
+        {
+            picture = picture.with_loading(move || {
+                picture_of(previous.clone(), &fit, radius).into_any_element()
+            });
         }
-        self.interaction.drawn_images.borrow_mut().insert(id, Drawn { source: path, width, file });
+        self.interaction.drawn_images.borrow_mut().insert(
+            id,
+            Drawn {
+                source: path,
+                width,
+                file,
+            },
+        );
         element.child(picture)
     }
 }
@@ -122,7 +150,12 @@ fn picture_of(file: PathBuf, fit: &str, radius: [Option<f32>; 4]) -> Img {
 }
 
 /// An icon: SVG markup the app passed, or a file, tinted with the text colour.
-pub(super) fn icon_content(mut element: Div, node: &Node, style: &Style, inherited: &Inherited) -> Div {
+pub(super) fn icon_content(
+    mut element: Div,
+    node: &Node,
+    style: &Style,
+    inherited: &Inherited,
+) -> Div {
     let path = match (node.attributes.get("svg"), node.attributes.get("src")) {
         (Some(markup), _) => register_svg(markup.clone()),
         (None, Some(source)) => source.clone(),
@@ -135,5 +168,10 @@ pub(super) fn icon_content(mut element: Div, node: &Node, style: &Style, inherit
     if style.height.is_none() {
         element = element.h(px(side));
     }
-    element.child(svg().path(SharedString::from(path)).size_full().text_color(inherited.colour))
+    element.child(
+        svg()
+            .path(SharedString::from(path))
+            .size_full()
+            .text_color(inherited.colour),
+    )
 }

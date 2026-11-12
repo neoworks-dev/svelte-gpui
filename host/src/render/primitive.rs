@@ -112,5 +112,11 @@ pub(super) fn compute(node: &Node) -> Computed {
     for (name, value) in &node.style {
         style.apply_inline(name, value);
     }
-    Computed { style, hover: patch("hover"), active: patch("active"), focus: patch("focus"), zoom: 1.0 }
+    Computed {
+        style,
+        hover: patch("hover"),
+        active: patch("active"),
+        focus: patch("focus"),
+        zoom: 1.0,
+    }
 }

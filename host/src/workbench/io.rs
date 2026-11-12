@@ -33,7 +33,10 @@ impl Workbench {
             match job.op.as_str() {
                 "fs.pickFiles" => self.pick_files(job.call, &job.args, sink.clone(), cx),
                 "fs.pickSavePath" => self.pick_save_path(job.call, &job.args, sink.clone(), cx),
-                _ => sink.reject(job.call, format!("svelte-gpui: unknown operation {}", job.op)),
+                _ => sink.reject(
+                    job.call,
+                    format!("svelte-gpui: unknown operation {}", job.op),
+                ),
             }
         }
     }
@@ -47,7 +50,9 @@ impl Workbench {
             files: !directories,
             directories,
             multiple: args["multiple"].as_bool().unwrap_or(false),
-            prompt: args["prompt"].as_str().map(|prompt| prompt.to_string().into()),
+            prompt: args["prompt"]
+                .as_str()
+                .map(|prompt| prompt.to_string().into()),
         };
         let files = self.svelte.io.files.clone();
         let receiver = cx.prompt_for_paths(options);
@@ -58,7 +63,9 @@ impl Workbench {
                 sink.resolve(call, json!({ "paths": paths }));
             }
             Ok(Ok(None)) => sink.resolve(call, json!({ "paths": null })),
-            Ok(Err(error)) => sink.reject_with_code(call, "Other", &format!("cannot open the dialog: {error}")),
+            Ok(Err(error)) => {
+                sink.reject_with_code(call, "Other", &format!("cannot open the dialog: {error}"))
+            }
             Err(_) => sink.reject_with_code(call, "Other", "the dialog went away"),
         })
         .detach();
@@ -81,7 +88,9 @@ impl Workbench {
                 sink.resolve(call, json!({ "path": path.to_string_lossy() }));
             }
             Ok(Ok(None)) => sink.resolve(call, json!({ "path": null })),
-            Ok(Err(error)) => sink.reject_with_code(call, "Other", &format!("cannot open the dialog: {error}")),
+            Ok(Err(error)) => {
+                sink.reject_with_code(call, "Other", &format!("cannot open the dialog: {error}"))
+            }
             Err(_) => sink.reject_with_code(call, "Other", "the dialog went away"),
         })
         .detach();

@@ -91,7 +91,11 @@ impl Painter<'_> {
         };
         let now = Instant::now();
         let mut animations = self.interaction.animations.borrow_mut();
-        let animation = animations.entry(id).or_insert(Animation { from: target, to: target, start: None });
+        let animation = animations.entry(id).or_insert(Animation {
+            from: target,
+            to: target,
+            start: None,
+        });
         if animation.to != target {
             let (current, _) = animation.value_at(now, &transition);
             animation.from = current;

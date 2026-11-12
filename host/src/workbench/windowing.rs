@@ -63,9 +63,13 @@ impl Workbench {
     pub(super) fn watch_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let this = cx.weak_entity();
         window.on_window_should_close(cx, move |_window, cx| {
-            this.update(cx, |workbench, cx| workbench.close_requested(cx)).unwrap_or(true)
+            this.update(cx, |workbench, cx| workbench.close_requested(cx))
+                .unwrap_or(true)
         });
-        cx.observe_window_activation(window, |workbench, window, cx| workbench.tick(false, window, cx)).detach();
+        cx.observe_window_activation(window, |workbench, window, cx| {
+            workbench.tick(false, window, cx)
+        })
+        .detach();
     }
 
     /// Whether the window may close now. The app's handlers decide; one that answers later

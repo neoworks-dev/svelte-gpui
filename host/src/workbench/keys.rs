@@ -20,7 +20,11 @@ pub(super) enum Pressed {
 /// What a press on `id` does to focus: the nearest element at or above it that takes focus gets it,
 /// and when there is none, nothing has focus. An element with `keepfocus` ends the search first and
 /// leaves focus where it is, even if it could take focus itself.
-pub(super) fn press_outcome(tree: &Tree, takes_focus: impl Fn(NodeId) -> bool, id: NodeId) -> Pressed {
+pub(super) fn press_outcome(
+    tree: &Tree,
+    takes_focus: impl Fn(NodeId) -> bool,
+    id: NodeId,
+) -> Pressed {
     let mut current = Some(id);
     while let Some(candidate) = current {
         let node = tree.nodes.get(&candidate);
@@ -60,7 +64,11 @@ impl Workbench {
     pub fn press_focus(&self, id: NodeId, window: &mut Window) {
         let outcome = {
             let handles = self.interaction.focus.borrow();
-            press_outcome(&self.svelte.tree.borrow(), |candidate| handles.contains_key(&candidate), id)
+            press_outcome(
+                &self.svelte.tree.borrow(),
+                |candidate| handles.contains_key(&candidate),
+                id,
+            )
         };
         match outcome {
             Pressed::Keep => {}
@@ -82,7 +90,12 @@ impl Workbench {
 
     /// A key press: first to the app, up from whatever has focus, and then, unless the
     /// app cancelled it, to the field that has focus or the clipboard shortcut it spells.
-    pub(crate) fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if self.errors_visible() && event.keystroke.key == "escape" {
             self.dismiss_errors(cx);
             return true;
@@ -145,7 +158,12 @@ impl Workbench {
         }
     }
 
-    pub(crate) fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn key_up(
+        &mut self,
+        event: &KeyUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let target = self.focused_node(window).unwrap_or(0);
         let _ = target;
         let detail = key_detail(&event.keystroke, false);
@@ -175,12 +193,15 @@ fn dom_key(keystroke: &Keystroke) -> String {
     if let Some(name) = named {
         return name.to_string();
     }
-    if let Some(number) =
-        keystroke.key.strip_prefix('f').filter(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+    if let Some(number) = keystroke
+        .key
+        .strip_prefix('f')
+        .filter(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
     {
         return format!("F{number}");
     }
-    let held = keystroke.modifiers.control || keystroke.modifiers.alt || keystroke.modifiers.platform;
+    let held =
+        keystroke.modifiers.control || keystroke.modifiers.alt || keystroke.modifiers.platform;
     if let (Some(text), false) = (&keystroke.key_char, held) {
         return text.clone();
     }
@@ -209,7 +230,9 @@ fn dom_code(keystroke: &Keystroke) -> String {
 }
 
 fn key_detail(keystroke: &Keystroke, repeat: bool) -> String {
-    let key = dom_key(keystroke).replace('\\', "\\\\").replace('"', "\\\"");
+    let key = dom_key(keystroke)
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
     format!(
         "{{\"key\":\"{key}\",\"code\":\"{}\",\"repeat\":{repeat},\"ctrl\":{},\"shift\":{},\"alt\":{},\"meta\":{}}}",
         dom_code(keystroke),
@@ -228,7 +251,9 @@ mod tests {
     /// A tree of `g-view`s: 2 holds 3 and 4, and 3 holds 5. Node 3 keeps focus; 2 and 5 can take it.
     fn tree() -> Tree {
         let mut tree = Tree::new();
-        let mut batch: Vec<String> = (2..=5).map(|id| format!("[{CREATE_ELEMENT},{id},\"g-view\"]")).collect();
+        let mut batch: Vec<String> = (2..=5)
+            .map(|id| format!("[{CREATE_ELEMENT},{id},\"g-view\"]"))
+            .collect();
         for (parent, child) in [(ROOT, 2), (2, 3), (2, 4), (3, 5)] {
             batch.push(format!("[{INSERT},{parent},{child},0]"));
         }
@@ -244,7 +269,10 @@ mod tests {
 
     #[test]
     fn the_nearest_element_that_takes_focus_gets_it() {
-        assert_eq!(press_outcome(&tree(), |id| id == 2 || id == 4, 4), Pressed::Focus(4));
+        assert_eq!(
+            press_outcome(&tree(), |id| id == 2 || id == 4, 4),
+            Pressed::Focus(4)
+        );
         assert_eq!(press_outcome(&tree(), |id| id == 2, 4), Pressed::Focus(2));
     }
 
@@ -253,7 +281,10 @@ mod tests {
         assert_eq!(press_outcome(&tree(), |_| false, 3), Pressed::Keep);
         assert_eq!(press_outcome(&tree(), |_| false, 5), Pressed::Keep);
         // Even an element that could take focus, or has one around it, does not.
-        assert_eq!(press_outcome(&tree(), |id| id == 3 || id == 2, 5), Pressed::Keep);
+        assert_eq!(
+            press_outcome(&tree(), |id| id == 3 || id == 2, 5),
+            Pressed::Keep
+        );
     }
 
     #[test]

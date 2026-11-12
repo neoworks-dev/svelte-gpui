@@ -19,7 +19,12 @@ pub(super) struct ExternalDrag {
 impl Workbench {
     /// Files are being dragged over the window, now at `position`. The element they are over
     /// hears `dragover`, and `dragenter` and `dragleave` when that changes.
-    pub(crate) fn external_drag_over(&mut self, position: Point<Pixels>, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub(crate) fn external_drag_over(
+        &mut self,
+        position: Point<Pixels>,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         let target = self.drag_target_at(position);
         let previous = self.external_drag.target;
         if target != previous {
@@ -45,13 +50,23 @@ impl Workbench {
 
     /// The files were dropped at `position`. The element there that listens for `drop` hears the
     /// paths, which the app may read from then on.
-    pub(crate) fn external_drop(&mut self, position: Point<Pixels>, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub(crate) fn external_drop(
+        &mut self,
+        position: Point<Pixels>,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         self.external_drag_over(position, paths.clone(), cx);
         let Some(target) = self.external_drag.target.take() else {
             return;
         };
-        let takes_drop =
-            self.svelte.tree.borrow().nodes.get(&target).is_some_and(|node| node.listeners.contains("drop"));
+        let takes_drop = self
+            .svelte
+            .tree
+            .borrow()
+            .nodes
+            .get(&target)
+            .is_some_and(|node| node.listeners.contains("drop"));
         if !takes_drop {
             return;
         }
@@ -70,13 +85,22 @@ impl Workbench {
         paths: &[PathBuf],
         cx: &mut Context<Self>,
     ) {
-        let listens = self.svelte.tree.borrow().nodes.get(&id).is_some_and(|node| node.listeners.contains(kind));
+        let listens = self
+            .svelte
+            .tree
+            .borrow()
+            .nodes
+            .get(&id)
+            .is_some_and(|node| node.listeners.contains(kind));
         if !listens {
             return;
         }
         let mut detail = pointer_detail(id, position, Modifiers::default(), -1, 0, self);
         detail.pop();
-        let names: Vec<String> = paths.iter().map(|path| path.to_string_lossy().into_owned()).collect();
+        let names: Vec<String> = paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
         let names = serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string());
         detail.push_str(&format!(",\"paths\":{names},\"count\":{}}}", paths.len()));
         self.emit(id, kind, detail, cx);
@@ -98,7 +122,11 @@ impl Workbench {
             .borrow()
             .iter()
             .filter(|(id, bounds)| {
-                bounds.contains(&position) && tree.nodes.get(id).is_some_and(|node: &Node| listens_for_drag(node))
+                bounds.contains(&position)
+                    && tree
+                        .nodes
+                        .get(id)
+                        .is_some_and(|node: &Node| listens_for_drag(node))
             })
             .map(|(id, _)| (depth(*id), *id))
             .max()
@@ -108,10 +136,26 @@ impl Workbench {
     /// The scripted steps `dragover:TARGET:PATH,PATH` and `drop:TARGET:PATH,PATH`: files are dragged to
     /// the middle of the first element at or above the target that listens for `drop`, and for
     /// `drop` released there, through the same code a real drag takes.
-    pub(super) fn simulate_drag(&mut self, id: NodeId, paths: &str, release: bool, cx: &mut Context<Self>) {
+    pub(super) fn simulate_drag(
+        &mut self,
+        id: NodeId,
+        paths: &str,
+        release: bool,
+        cx: &mut Context<Self>,
+    ) {
         let target = self.drop_listener_at_or_above(id);
-        let center = self.interaction.bounds.borrow().get(&target).map(|bounds| bounds.center()).unwrap_or_default();
-        let paths: Vec<PathBuf> = paths.split(',').filter(|path| !path.is_empty()).map(PathBuf::from).collect();
+        let center = self
+            .interaction
+            .bounds
+            .borrow()
+            .get(&target)
+            .map(|bounds| bounds.center())
+            .unwrap_or_default();
+        let paths: Vec<PathBuf> = paths
+            .split(',')
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .collect();
         if release {
             self.external_drop(center, paths, cx);
         } else {

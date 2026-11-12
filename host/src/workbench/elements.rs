@@ -34,7 +34,12 @@ impl Workbench {
         let mut props: Vec<(String, String)> = node
             .attributes
             .iter()
-            .filter_map(|(attribute, json)| Some((attribute.strip_prefix(PROP_PREFIX)?.to_string(), json.clone())))
+            .filter_map(|(attribute, json)| {
+                Some((
+                    attribute.strip_prefix(PROP_PREFIX)?.to_string(),
+                    json.clone(),
+                ))
+            })
             .collect();
         props.sort();
         Some(Wanted { name, key, props })
@@ -46,7 +51,10 @@ impl Workbench {
     pub(super) fn sync_elements(&mut self, cx: &mut Context<Self>) {
         let (changed, dropped) = {
             let mut tree = self.svelte.tree.borrow_mut();
-            (std::mem::take(&mut tree.changed_elements), std::mem::take(&mut tree.dropped_elements))
+            (
+                std::mem::take(&mut tree.changed_elements),
+                std::mem::take(&mut tree.dropped_elements),
+            )
         };
         for id in dropped {
             self.interaction.instances.borrow_mut().remove(id);
@@ -81,13 +89,26 @@ impl Workbench {
             }
         };
         apply_props(&mut live, &wanted.props, cx);
-        self.interaction.instances.borrow_mut().live.insert(id, live);
+        self.interaction
+            .instances
+            .borrow_mut()
+            .live
+            .insert(id, live);
         self.touch(id, cx);
     }
 
     /// A view for node `id`: one kept from the last run of the app when the key matches, otherwise a new one.
-    fn bring_in_view(&mut self, id: NodeId, wanted: &Wanted, cx: &mut Context<Self>) -> Option<Live> {
-        let kept = self.interaction.instances.borrow_mut().claim(&wanted.name, &wanted.key);
+    fn bring_in_view(
+        &mut self,
+        id: NodeId,
+        wanted: &Wanted,
+        cx: &mut Context<Self>,
+    ) -> Option<Live> {
+        let kept = self
+            .interaction
+            .instances
+            .borrow_mut()
+            .claim(&wanted.name, &wanted.key);
         let live = match kept {
             Some(live) => live,
             None => match self.elements.create(&wanted.name, wanted.key.clone(), cx) {
@@ -126,13 +147,17 @@ impl Workbench {
         let ready: Vec<Command> = {
             let instances = self.interaction.instances.borrow();
             let mut ready = Vec::new();
-            self.svelte.tree.borrow_mut().commands.retain(|command| match command {
-                Command::Call { node, .. } if instances.live.contains_key(node) => {
-                    ready.push(command.clone());
-                    false
-                }
-                _ => true,
-            });
+            self.svelte
+                .tree
+                .borrow_mut()
+                .commands
+                .retain(|command| match command {
+                    Command::Call { node, .. } if instances.live.contains_key(node) => {
+                        ready.push(command.clone());
+                        false
+                    }
+                    _ => true,
+                });
             ready
         };
         for command in ready {
@@ -142,10 +167,22 @@ impl Workbench {
 
     /// Runs one method call, and settles the app's promise with the answer. False when the view is not there.
     pub(super) fn carry_out_call(&mut self, command: &Command, cx: &mut Context<Self>) -> bool {
-        let Command::Call { node, call, method, args } = command else {
+        let Command::Call {
+            node,
+            call,
+            method,
+            args,
+        } = command
+        else {
             return true;
         };
-        let handle = self.interaction.instances.borrow().live.get(node).map(|live| live.handle.clone());
+        let handle = self
+            .interaction
+            .instances
+            .borrow()
+            .live
+            .get(node)
+            .map(|live| live.handle.clone());
         let Some(handle) = handle else {
             return false;
         };
@@ -166,20 +203,30 @@ impl Workbench {
     pub(super) fn abandon_call(&mut self, command: &Command) {
         if let Command::Call { call, method, .. } = command {
             let message = format!("cannot call {method:?}: the element is not on screen");
-            self.svelte.io.sink().reject_with_code(*call, "NoElement", message);
+            self.svelte
+                .io
+                .sink()
+                .reject_with_code(*call, "NoElement", message);
         }
     }
 
     /// An app element's view emitted an event: hands it to the app when the component listens for it. The
     /// runtime listens under the name `app:` and the event's name, so none of the window's own events collide.
-    pub(super) fn deliver_element_event(&mut self, node: NodeId, payload: &Value, cx: &mut Context<Self>) {
+    pub(super) fn deliver_element_event(
+        &mut self,
+        node: NodeId,
+        payload: &Value,
+        cx: &mut Context<Self>,
+    ) {
         let Some(name) = payload["name"].as_str() else {
             return;
         };
         let event = format!("app:{name}");
         let listened = {
             let tree = self.svelte.tree.borrow();
-            tree.nodes.get(&node).is_some_and(|found| found.listeners.contains(&event))
+            tree.nodes
+                .get(&node)
+                .is_some_and(|found| found.listeners.contains(&event))
         };
         if !listened {
             return;
@@ -204,7 +251,12 @@ fn apply_props(live: &mut Live, wanted: &[(String, String)], cx: &mut gpui::App)
         live.handle.set_prop(name, value, cx);
         live.props.insert(name.clone(), json.clone());
     }
-    let gone: Vec<String> = live.props.keys().filter(|name| !seen.contains(name.as_str())).cloned().collect();
+    let gone: Vec<String> = live
+        .props
+        .keys()
+        .filter(|name| !seen.contains(name.as_str()))
+        .cloned()
+        .collect();
     for name in gone {
         live.handle.set_prop(&name, Value::Null, cx);
         live.props.remove(&name);

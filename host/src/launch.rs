@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size};
+use gpui::{
+    App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size,
+};
 
 use crate::assets;
 use crate::diagnostics::{heap_megabytes, memory_megabytes};
@@ -111,14 +113,22 @@ impl Options {
     fn read_command_line(embedded: Option<Embedded>) -> Option<Self> {
         let arguments: Vec<String> = std::env::args().collect();
         let all = |name: &str| -> Vec<String> {
-            let positions = arguments.iter().enumerate().filter(|(_, argument)| *argument == name);
-            positions.filter_map(|(index, _)| arguments.get(index + 1).cloned()).collect()
+            let positions = arguments
+                .iter()
+                .enumerate()
+                .filter(|(_, argument)| *argument == name);
+            positions
+                .filter_map(|(index, _)| arguments.get(index + 1).cloned())
+                .collect()
         };
         let one = |name: &str| all(name).into_iter().next();
         let number = |name: &str| one(name).and_then(|value| value.parse::<f32>().ok());
         let mut options = match (one("--bundle"), embedded) {
             (Some(bundle), _) => Options::new(bundle),
-            (None, Some(embedded)) => Options { embedded: Some(embedded), ..Options::new("") },
+            (None, Some(embedded)) => Options {
+                embedded: Some(embedded),
+                ..Options::new("")
+            },
             (None, None) => return None,
         };
         options.assets = one("--assets").map(PathBuf::from);
@@ -127,7 +137,11 @@ impl Options {
         options.app_id = one("--app-id");
         options.allow_files = all("--allow-files");
         options.steps = all("--do");
-        options.steps.extend(all("--click-text").into_iter().map(|text| format!("click:{text}")));
+        options.steps.extend(
+            all("--click-text")
+                .into_iter()
+                .map(|text| format!("click:{text}")),
+        );
         options.exit_after_ms = one("--exit-after-ms").and_then(|value| value.parse().ok());
         options.report = arguments.iter().any(|argument| argument == "--report");
         options.watch = arguments.iter().any(|argument| argument == "--watch");
@@ -143,8 +157,16 @@ pub fn run(options: Options) {
     let before = memory_megabytes();
     println!("malloc at start: {:.1} MB in use", heap_megabytes().0);
     let started = Instant::now();
-    let svelte = Svelte::start_with(&source.bundle_path, source.script, &options.allow_files, options.commands.clone());
-    println!("malloc after the bundle ran: {:.1} MB in use", heap_megabytes().0);
+    let svelte = Svelte::start_with(
+        &source.bundle_path,
+        source.script,
+        &options.allow_files,
+        options.commands.clone(),
+    );
+    println!(
+        "malloc after the bundle ran: {:.1} MB in use",
+        heap_megabytes().0
+    );
     println!(
         "mounted in {:.0} ms, {} nodes; memory {:.1} MB RSS before, {:.1} after",
         started.elapsed().as_secs_f64() * 1000.0,
@@ -166,59 +188,87 @@ pub fn run(options: Options) {
         false => ErrorOutput::Log(errors::log_path(&app_name(&options))),
     };
 
-    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
-        cx.text_system().add_fonts(assets::fonts()).expect("fonts load");
-        println!("malloc after the fonts: {:.1} MB in use", heap_megabytes().0);
-        let opening = open_options(&options, settings, cx);
-        let title = opening.titlebar.as_ref().and_then(|titlebar| titlebar.title.clone());
-        let window = cx.open_window(opening, |window, cx| {
-            cx.new(|cx| Workbench::new(svelte, images, options.elements.clone(), window, cx))
-        });
-        let window = window.unwrap();
-        window.update(cx, |workbench, _, _| workbench.send_errors_to(error_output)).ok();
-        // Wayland takes the title from the window, not from the options it opens with.
-        if let Some(title) = title {
-            window.update(cx, |_, window, _| window.set_window_title(&title)).ok();
-        }
-        cx.activate(true);
-        if options.watch && options.embedded.is_none() {
-            watch::reload_on_change(window, options.bundle.clone(), options.allow_files.clone(), cx);
-        }
-
-        // The app's clock runs on display frames and timers (see `Workbench::schedule`), and what finishes
-        // off the main thread wakes the window itself.
-
-        // Scripted clicks, one after another, for when nobody can click.
-        if !steps.is_empty() {
-            cx.spawn(async move |cx| {
-                for step in steps {
-                    cx.background_executor().timer(Duration::from_millis(900)).await;
-                    cx.update(|cx| {
-                        window.update(cx, |workbench, window, cx| workbench.run_step(&step, window, cx)).ok();
-                    })
+    Application::new()
+        .with_assets(assets::Assets)
+        .run(move |cx: &mut App| {
+            cx.text_system()
+                .add_fonts(assets::fonts())
+                .expect("fonts load");
+            println!(
+                "malloc after the fonts: {:.1} MB in use",
+                heap_megabytes().0
+            );
+            let opening = open_options(&options, settings, cx);
+            let title = opening
+                .titlebar
+                .as_ref()
+                .and_then(|titlebar| titlebar.title.clone());
+            let window = cx.open_window(opening, |window, cx| {
+                cx.new(|cx| Workbench::new(svelte, images, options.elements.clone(), window, cx))
+            });
+            let window = window.unwrap();
+            window
+                .update(cx, |workbench, _, _| workbench.send_errors_to(error_output))
+                .ok();
+            // Wayland takes the title from the window, not from the options it opens with.
+            if let Some(title) = title {
+                window
+                    .update(cx, |_, window, _| window.set_window_title(&title))
                     .ok();
-                }
-            })
-            .detach();
-        }
+            }
+            cx.activate(true);
+            if options.watch && options.embedded.is_none() {
+                watch::reload_on_change(
+                    window,
+                    options.bundle.clone(),
+                    options.allow_files.clone(),
+                    cx,
+                );
+            }
 
-        if let Some(milliseconds) = exit_after {
-            cx.spawn(async move |cx| {
-                cx.background_executor().timer(Duration::from_millis(milliseconds)).await;
-                cx.update(|cx| {
-                    window
-                        .update(cx, |workbench, _window, _cx| {
-                            workbench.print_summary(report, step_count);
-                            failed_in_run.store(workbench.steps_failed(step_count), Ordering::Relaxed);
+            // The app's clock runs on display frames and timers (see `Workbench::schedule`), and what finishes
+            // off the main thread wakes the window itself.
+
+            // Scripted clicks, one after another, for when nobody can click.
+            if !steps.is_empty() {
+                cx.spawn(async move |cx| {
+                    for step in steps {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(900))
+                            .await;
+                        cx.update(|cx| {
+                            window
+                                .update(cx, |workbench, window, cx| {
+                                    workbench.run_step(&step, window, cx)
+                                })
+                                .ok();
                         })
                         .ok();
+                    }
                 })
-                .ok();
-                cx.update(|cx| cx.quit()).ok();
-            })
-            .detach();
-        }
-    });
+                .detach();
+            }
+
+            if let Some(milliseconds) = exit_after {
+                cx.spawn(async move |cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(milliseconds))
+                        .await;
+                    cx.update(|cx| {
+                        window
+                            .update(cx, |workbench, _window, _cx| {
+                                workbench.print_summary(report, step_count);
+                                failed_in_run
+                                    .store(workbench.steps_failed(step_count), Ordering::Relaxed);
+                            })
+                            .ok();
+                    })
+                    .ok();
+                    cx.update(|cx| cx.quit()).ok();
+                })
+                .detach();
+            }
+        });
     // A run that quit on its own with a step that failed ends with a status a test can see.
     if steps_failed.load(Ordering::Relaxed) {
         std::process::exit(1);
@@ -240,7 +290,11 @@ impl Source {
         if let Some(embedded) = &options.embedded {
             let unpacked = embedded.unpack().unwrap_or_else(|error| panic!("{error}"));
             return Source {
-                bundle_path: unpacked.directory.join("bundle.js").to_string_lossy().to_string(),
+                bundle_path: unpacked
+                    .directory
+                    .join("bundle.js")
+                    .to_string_lossy()
+                    .to_string(),
                 assets_dir: options.assets.clone().unwrap_or(unpacked.directory),
                 script: unpacked.script,
             };
@@ -252,19 +306,36 @@ impl Source {
         // Image paths are relative to the bundle, unless `assets` names another directory.
         let assets_dir = match options.assets.clone() {
             Some(path) => path,
-            None => options.bundle.parent().map(PathBuf::from).unwrap_or_default(),
+            None => options
+                .bundle
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_default(),
         };
-        let script =
-            if options.dev { Script::Development(bundle_path.clone()) } else { Script::File(bundle_path.clone()) };
-        Source { script, bundle_path, assets_dir }
+        let script = if options.dev {
+            Script::Development(bundle_path.clone())
+        } else {
+            Script::File(bundle_path.clone())
+        };
+        Source {
+            script,
+            bundle_path,
+            assets_dir,
+        }
     }
 }
 
 /// What the app is called in the cache directory: the id of a packaged app, or the bundle's name.
 fn app_name(options: &Options) -> String {
-    let packaged = options.embedded.and_then(|embedded| embedded.metadata().ok()).map(|metadata| metadata.id);
+    let packaged = options
+        .embedded
+        .and_then(|embedded| embedded.metadata().ok())
+        .map(|metadata| metadata.id);
     packaged.unwrap_or_else(|| {
-        let stem = options.bundle.file_stem().map(|stem| stem.to_string_lossy().to_string());
+        let stem = options
+            .bundle
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string());
         stem.unwrap_or_else(|| "app".to_string())
     })
 }
@@ -274,23 +345,43 @@ fn open_options(options: &Options, settings: WindowSettings, cx: &mut App) -> Wi
     let width = options.width.or(settings.width).unwrap_or(DEFAULT_WIDTH);
     let height = options.height.or(settings.height).unwrap_or(DEFAULT_HEIGHT);
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
-    let mut opening = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+    let mut opening = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        ..Default::default()
+    };
     if let Some(title) = settings.title {
-        opening.titlebar = Some(TitlebarOptions { title: Some(title.into()), ..Default::default() });
+        opening.titlebar = Some(TitlebarOptions {
+            title: Some(title.into()),
+            ..Default::default()
+        });
     }
-    if let Some(metadata) = options.embedded.and_then(|embedded| embedded.metadata().ok()) {
+    if let Some(metadata) = options
+        .embedded
+        .and_then(|embedded| embedded.metadata().ok())
+    {
         // The id lets the desktop match the window to the app's `.desktop` file and icon.
         opening.app_id = Some(metadata.id);
-        if opening.titlebar.as_ref().and_then(|titlebar| titlebar.title.as_ref()).is_none() {
+        if opening
+            .titlebar
+            .as_ref()
+            .and_then(|titlebar| titlebar.title.as_ref())
+            .is_none()
+        {
             let title = metadata.title.unwrap_or(metadata.name);
-            opening.titlebar = Some(TitlebarOptions { title: Some(title.into()), ..Default::default() });
+            opening.titlebar = Some(TitlebarOptions {
+                title: Some(title.into()),
+                ..Default::default()
+            });
         }
     }
     if let Some(app_id) = &options.app_id {
         opening.app_id = Some(app_id.clone());
     }
     if settings.min_width.is_some() || settings.min_height.is_some() {
-        let minimum = size(px(settings.min_width.unwrap_or(0.0)), px(settings.min_height.unwrap_or(0.0)));
+        let minimum = size(
+            px(settings.min_width.unwrap_or(0.0)),
+            px(settings.min_height.unwrap_or(0.0)),
+        );
         opening.window_min_size = Some(minimum);
     }
     opening

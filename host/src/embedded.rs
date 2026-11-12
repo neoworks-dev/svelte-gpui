@@ -31,8 +31,16 @@ pub struct Embedded {
 
 impl std::fmt::Debug for Embedded {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = self.metadata().map(|metadata| metadata.name).unwrap_or_default();
-        write!(formatter, "Embedded({name:?}, script {} bytes, files {} bytes)", self.script.len(), self.files.len())
+        let name = self
+            .metadata()
+            .map(|metadata| metadata.name)
+            .unwrap_or_default();
+        write!(
+            formatter,
+            "Embedded({name:?}, script {} bytes, files {} bytes)",
+            self.script.len(),
+            self.files.len()
+        )
     }
 }
 
@@ -65,11 +73,16 @@ pub struct Unpacked {
 impl Embedded {
     /// Used by [`embed!`](crate::embed); the arguments are the packager's three files.
     pub const fn new(metadata: &'static str, script: &'static [u8], files: &'static [u8]) -> Self {
-        Embedded { metadata, script, files }
+        Embedded {
+            metadata,
+            script,
+            files,
+        }
     }
 
     pub fn metadata(&self) -> Result<Metadata, String> {
-        let json: Value = serde_json::from_str(self.metadata).map_err(|error| format!("bad metadata: {error}"))?;
+        let json: Value = serde_json::from_str(self.metadata)
+            .map_err(|error| format!("bad metadata: {error}"))?;
         let text = |key: &str| json[key].as_str().map(str::to_string);
         let name = text("name").ok_or("the metadata has no name")?;
         Ok(Metadata {
@@ -85,20 +98,38 @@ impl Embedded {
     /// Unpacks the files if this version has not been yet, and says where the app is.
     pub fn unpack(&self) -> Result<Unpacked, String> {
         let metadata = self.metadata()?;
-        let script = if metadata.bytecode { Script::Bytecode(self.script) } else { Script::Source(self.script) };
-        let directory = if self.files.is_empty() { executable_directory() } else { self.unpack_files(&metadata)? };
-        Ok(Unpacked { metadata, directory, script })
+        let script = if metadata.bytecode {
+            Script::Bytecode(self.script)
+        } else {
+            Script::Source(self.script)
+        };
+        let directory = if self.files.is_empty() {
+            executable_directory()
+        } else {
+            self.unpack_files(&metadata)?
+        };
+        Ok(Unpacked {
+            metadata,
+            directory,
+            script,
+        })
     }
 
     fn unpack_files(&self, metadata: &Metadata) -> Result<PathBuf, String> {
         let mut failures = Vec::new();
-        for parent in [cache_home().join(&metadata.id), std::env::temp_dir().join(&metadata.id)] {
+        for parent in [
+            cache_home().join(&metadata.id),
+            std::env::temp_dir().join(&metadata.id),
+        ] {
             match self.unpack_into(&parent, &metadata.hash) {
                 Ok(directory) => return Ok(directory),
                 Err(error) => failures.push(format!("{}: {error}", parent.display())),
             }
         }
-        Err(format!("cannot unpack the app's files ({})", failures.join("; ")))
+        Err(format!(
+            "cannot unpack the app's files ({})",
+            failures.join("; ")
+        ))
     }
 
     fn unpack_into(&self, parent: &Path, hash: &str) -> std::io::Result<PathBuf> {
@@ -111,7 +142,8 @@ impl Embedded {
         let staging = parent.join(format!(".unpack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(&staging)?;
-        let written = write_archive(self.files, &staging).and_then(|()| std::fs::write(staging.join(COMPLETE), hash));
+        let written = write_archive(self.files, &staging)
+            .and_then(|()| std::fs::write(staging.join(COMPLETE), hash));
         if let Err(error) = written {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(error);
@@ -120,7 +152,9 @@ impl Embedded {
             // Someone else finished first.
             let _ = std::fs::remove_dir_all(&staging);
             if !directory.join(COMPLETE).is_file() {
-                return Err(std::io::Error::other("the files could not be moved into place"));
+                return Err(std::io::Error::other(
+                    "the files could not be moved into place",
+                ));
             }
         }
         remove_other_versions(parent, &directory);
@@ -146,7 +180,10 @@ macro_rules! embed {
 }
 
 fn executable_directory() -> PathBuf {
-    std::env::current_exe().ok().and_then(|path| path.parent().map(Path::to_path_buf)).unwrap_or_default()
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .unwrap_or_default()
 }
 
 fn cache_home() -> PathBuf {
@@ -172,14 +209,21 @@ fn remove_other_versions(parent: &Path, keep: &Path) {
 
 /// Writes every file of an archive below `root`.
 fn write_archive(archive: &[u8], root: &Path) -> std::io::Result<()> {
-    let invalid = |reason: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, reason.to_string());
+    let invalid =
+        |reason: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, reason.to_string());
     let mut rest = archive;
     while !rest.is_empty() {
-        let (path, after) = take_chunk(rest, 4).ok_or_else(|| invalid("the archive is cut short"))?;
-        let (data, after) = take_chunk(after, 8).ok_or_else(|| invalid("the archive is cut short"))?;
+        let (path, after) =
+            take_chunk(rest, 4).ok_or_else(|| invalid("the archive is cut short"))?;
+        let (data, after) =
+            take_chunk(after, 8).ok_or_else(|| invalid("the archive is cut short"))?;
         rest = after;
-        let relative = Path::new(std::str::from_utf8(path).map_err(|_| invalid("a path is not UTF-8"))?);
-        if !relative.components().all(|part| matches!(part, Component::Normal(_))) {
+        let relative =
+            Path::new(std::str::from_utf8(path).map_err(|_| invalid("a path is not UTF-8"))?);
+        if !relative
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+        {
             return Err(invalid("a path leaves the directory"));
         }
         let target = root.join(relative);

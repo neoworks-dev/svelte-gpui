@@ -36,7 +36,10 @@ struct FileError {
 
 impl FileError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
-        FileError { code, message: message.into() }
+        FileError {
+            code,
+            message: message.into(),
+        }
     }
 
     /// An operating system error, as `cannot read /some/path: No such file (os error 2)`.
@@ -88,8 +91,12 @@ impl Files {
     /// limit the app declares; an empty list narrows nothing.
     pub fn new(bundle: Option<&str>, operator: &[String]) -> Self {
         let directories = Directories::find(bundle);
-        let operator = (!operator.is_empty())
-            .then(|| operator.iter().map(|path| canonical(&directories.expand(path), true)).collect());
+        let operator = (!operator.is_empty()).then(|| {
+            operator
+                .iter()
+                .map(|path| canonical(&directories.expand(path), true))
+                .collect()
+        });
         Files {
             directories: Arc::new(directories),
             limit: Arc::new(Mutex::new(Limit::new(operator))),
@@ -138,7 +145,11 @@ impl Files {
             "fs.paths" => sink.resolve(call, self.directories.to_json()),
             "fs.unwatch" => self.settle(sink, call, self.unwatch(&args)),
             "fs.pickFiles" | "fs.pickSavePath" => {
-                main_jobs.borrow_mut().push(MainJob { op: op.to_string(), call, args });
+                main_jobs.borrow_mut().push(MainJob {
+                    op: op.to_string(),
+                    call,
+                    args,
+                });
             }
             "fs.watch" => self.start_watch(sink, call, args),
             _ => {
@@ -164,17 +175,28 @@ impl Files {
     /// not followed, for the operations that act on the link itself.
     fn check(&self, raw: &str, follow_last: bool) -> Result<PathBuf, FileError> {
         let target = canonical(&self.directories.expand(raw), follow_last);
-        if self.limit().permits(&target) { Ok(target) } else { Err(FileError::not_allowed(raw)) }
+        if self.limit().permits(&target) {
+            Ok(target)
+        } else {
+            Err(FileError::not_allowed(raw))
+        }
     }
 
     fn declare_limit(&self, args: &Value) -> Outcome {
         let mut roots = Vec::new();
         for entry in array(args, "allow")? {
-            let raw = entry.as_str().ok_or_else(|| FileError::argument("allow holds only paths"))?;
-            let path = self.directories.expand_allowed(raw).map_err(FileError::argument)?;
+            let raw = entry
+                .as_str()
+                .ok_or_else(|| FileError::argument("allow holds only paths"))?;
+            let path = self
+                .directories
+                .expand_allowed(raw)
+                .map_err(FileError::argument)?;
             roots.push(canonical(&path, true));
         }
-        self.limit().declare(roots).map_err(|message| FileError::new("NotAllowed", message))?;
+        self.limit()
+            .declare(roots)
+            .map_err(|message| FileError::new("NotAllowed", message))?;
         Ok(Reply::Json(json!({})))
     }
 
@@ -183,7 +205,11 @@ impl Files {
             "fs.readText" => self.read_text(args),
             "fs.readBytes" => self.read_bytes(args),
             "fs.writeText" => self.write(args, string(args, "text")?.as_bytes(), false),
-            "fs.writeBytes" => self.write(args, &bytes.ok_or_else(|| FileError::argument("no bytes to write"))?, false),
+            "fs.writeBytes" => self.write(
+                args,
+                &bytes.ok_or_else(|| FileError::argument("no bytes to write"))?,
+                false,
+            ),
             "fs.appendText" => self.write(args, string(args, "text")?.as_bytes(), true),
             "fs.exists" => self.exists(args),
             "fs.stat" => self.stat(args),
@@ -192,21 +218,29 @@ impl Files {
             "fs.remove" => self.remove(args),
             "fs.rename" => self.rename(args),
             "fs.copy" => self.copy(args),
-            _ => Err(FileError::argument(format!("svelte-gpui: unknown operation {op}"))),
+            _ => Err(FileError::argument(format!(
+                "svelte-gpui: unknown operation {op}"
+            ))),
         }
     }
 
     fn read_text(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
-        let bytes = fs::read(self.check(raw, true)?).map_err(|error| FileError::system("read", raw, error))?;
-        let text = String::from_utf8(bytes)
-            .map_err(|_| FileError::new("InvalidData", format!("cannot read {raw}: it is not valid UTF-8 text")))?;
+        let bytes = fs::read(self.check(raw, true)?)
+            .map_err(|error| FileError::system("read", raw, error))?;
+        let text = String::from_utf8(bytes).map_err(|_| {
+            FileError::new(
+                "InvalidData",
+                format!("cannot read {raw}: it is not valid UTF-8 text"),
+            )
+        })?;
         Ok(Reply::Json(json!({ "text": text })))
     }
 
     fn read_bytes(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
-        let bytes = fs::read(self.check(raw, true)?).map_err(|error| FileError::system("read", raw, error))?;
+        let bytes = fs::read(self.check(raw, true)?)
+            .map_err(|error| FileError::system("read", raw, error))?;
         Ok(Reply::Bytes(json!({}), bytes))
     }
 
@@ -222,8 +256,11 @@ impl Files {
         } else {
             options.write(true).truncate(true);
         }
-        let mut file = options.open(target).map_err(|error| FileError::system("write", raw, error))?;
-        file.write_all(data).map_err(|error| FileError::system("write", raw, error))?;
+        let mut file = options
+            .open(target)
+            .map_err(|error| FileError::system("write", raw, error))?;
+        file.write_all(data)
+            .map_err(|error| FileError::system("write", raw, error))?;
         Ok(Reply::Json(json!({})))
     }
 
@@ -235,15 +272,16 @@ impl Files {
     /// Describes the path itself: a link is reported as a link, not as what it points to.
     fn stat(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
-        let metadata =
-            fs::symlink_metadata(self.check(raw, false)?).map_err(|error| FileError::system("stat", raw, error))?;
+        let metadata = fs::symlink_metadata(self.check(raw, false)?)
+            .map_err(|error| FileError::system("stat", raw, error))?;
         Ok(Reply::Json(describe(&metadata)))
     }
 
     fn list(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
         let shown = self.directories.expand(raw);
-        let entries = fs::read_dir(self.check(raw, true)?).map_err(|error| FileError::system("list", raw, error))?;
+        let entries = fs::read_dir(self.check(raw, true)?)
+            .map_err(|error| FileError::system("list", raw, error))?;
         let mut listed = Vec::new();
         for item in entries {
             let item = item.map_err(|error| FileError::system("list", raw, error))?;
@@ -263,7 +301,11 @@ impl Files {
     fn mkdir(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
         let target = self.check(raw, true)?;
-        let made = if flag(args, "recursive") { fs::create_dir_all(target) } else { fs::create_dir(target) };
+        let made = if flag(args, "recursive") {
+            fs::create_dir_all(target)
+        } else {
+            fs::create_dir(target)
+        };
         made.map_err(|error| FileError::system("create the directory", raw, error))?;
         Ok(Reply::Json(json!({})))
     }
@@ -272,7 +314,8 @@ impl Files {
     fn remove(&self, args: &Value) -> Outcome {
         let raw = string(args, "path")?;
         let target = self.check(raw, false)?;
-        let metadata = fs::symlink_metadata(&target).map_err(|error| FileError::system("remove", raw, error))?;
+        let metadata = fs::symlink_metadata(&target)
+            .map_err(|error| FileError::system("remove", raw, error))?;
         let removed = match (metadata.is_dir(), flag(args, "recursive")) {
             (true, true) => fs::remove_dir_all(&target),
             (true, false) => fs::remove_dir(&target),
@@ -299,7 +342,9 @@ impl Files {
         let failed = |error| FileError::system("copy", &format!("{from} to {to}"), error);
         if source.is_dir() {
             if destination.starts_with(&source) {
-                return Err(FileError::argument(format!("cannot copy {from} into itself ({to})")));
+                return Err(FileError::argument(format!(
+                    "cannot copy {from} into itself ({to})"
+                )));
             }
             copy_directory(&source, &destination).map_err(failed)?;
         } else {
@@ -316,7 +361,9 @@ impl Files {
         std::thread::spawn(move || {
             let raw = string(&args, "path");
             match raw.and_then(|raw| Ok((files.check(raw, true)?, files.directories.expand(raw)))) {
-                Ok((target, shown)) => watch::watch(&sink, call, target, shown, flag(&args, "recursive"), stop),
+                Ok((target, shown)) => {
+                    watch::watch(&sink, call, target, shown, flag(&args, "recursive"), stop)
+                }
                 Err(error) => reject(&sink, call, error),
             }
             files.watches().remove(&call);
@@ -324,7 +371,9 @@ impl Files {
     }
 
     fn unwatch(&self, args: &Value) -> Outcome {
-        let call = args["watch"].as_u64().ok_or_else(|| FileError::argument("no watch to stop"))?;
+        let call = args["watch"]
+            .as_u64()
+            .ok_or_else(|| FileError::argument("no watch to stop"))?;
         if let Some(stop) = self.watches().get(&call) {
             stop.store(true, Ordering::Relaxed);
         }
@@ -338,11 +387,15 @@ fn reject(sink: &Sink, call: u64, error: FileError) {
 }
 
 fn string<'a>(args: &'a Value, name: &str) -> Result<&'a str, FileError> {
-    args[name].as_str().ok_or_else(|| FileError::argument(format!("{name} must be a string")))
+    args[name]
+        .as_str()
+        .ok_or_else(|| FileError::argument(format!("{name} must be a string")))
 }
 
 fn array<'a>(args: &'a Value, name: &str) -> Result<&'a Vec<Value>, FileError> {
-    args[name].as_array().ok_or_else(|| FileError::argument(format!("{name} must be a list")))
+    args[name]
+        .as_array()
+        .ok_or_else(|| FileError::argument(format!("{name} must be a list")))
 }
 
 fn flag(args: &Value, name: &str) -> bool {
@@ -357,7 +410,9 @@ fn describe(metadata: &fs::Metadata) -> Value {
         _ => "file",
     };
     let milliseconds = |time: std::io::Result<SystemTime>| {
-        time.ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|elapsed| elapsed.as_millis() as u64)
+        time.ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|elapsed| elapsed.as_millis() as u64)
     };
     let mut described = json!({ "kind": kind, "size": metadata.len(), "modified": milliseconds(metadata.modified()) });
     if let Some(created) = milliseconds(metadata.created()) {

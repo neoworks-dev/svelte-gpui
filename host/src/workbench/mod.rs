@@ -122,7 +122,13 @@ impl Workbench {
     }
 
     /// Reports an event on a node to the app, then redraws.
-    pub(crate) fn emit(&mut self, id: NodeId, kind: &str, detail: String, cx: &mut Context<Self>) -> Outcome {
+    pub(crate) fn emit(
+        &mut self,
+        id: NodeId,
+        kind: &str,
+        detail: String,
+        cx: &mut Context<Self>,
+    ) -> Outcome {
         let started = Instant::now();
         let before = self.svelte.counters.borrow().operations;
         let outcome = self.svelte.event(id, kind, &detail);
@@ -149,13 +155,17 @@ impl Workbench {
     /// Wayland only accepts a clipboard write that follows a real input event.
     fn write_requested_clipboard(&mut self, cx: &mut Context<Self>) {
         let mut writes: Vec<String> = Vec::new();
-        self.svelte.tree.borrow_mut().commands.retain(|command| match command {
-            Command::WriteClipboard(text) => {
-                writes.push(text.clone());
-                false
-            }
-            _ => true,
-        });
+        self.svelte
+            .tree
+            .borrow_mut()
+            .commands
+            .retain(|command| match command {
+                Command::WriteClipboard(text) => {
+                    writes.push(text.clone());
+                    false
+                }
+                _ => true,
+            });
         for text in writes {
             self.write_clipboard(text, cx);
         }
@@ -232,7 +242,10 @@ impl Workbench {
         self.sync_elements(cx);
         let (dirty, deep) = {
             let mut tree = self.svelte.tree.borrow_mut();
-            (std::mem::take(&mut tree.dirty), std::mem::take(&mut tree.dirty_deep))
+            (
+                std::mem::take(&mut tree.dirty),
+                std::mem::take(&mut tree.dirty_deep),
+            )
         };
         if dirty.is_empty() && deep.is_empty() {
             return;
@@ -278,7 +291,12 @@ impl Workbench {
     }
 
     /// Whether the command could be carried out yet; the element may not have been drawn.
-    fn carry_out(&mut self, command: &Command, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    fn carry_out(
+        &mut self,
+        command: &Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         match command {
             Command::WriteClipboard(text) => {
                 self.write_clipboard(text.clone(), cx);
@@ -322,7 +340,9 @@ impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = Instant::now();
         let viewport = window.viewport_size();
-        self.interaction.viewport.set((f32::from(viewport.width), f32::from(viewport.height)));
+        self.interaction
+            .viewport
+            .set((f32::from(viewport.width), f32::from(viewport.height)));
         self.interaction.scale.set(window.scale_factor());
         let gone: Vec<_> = std::mem::take(&mut self.svelte.tree.borrow_mut().dropped_canvases);
         for surface in gone {
@@ -335,7 +355,12 @@ impl Render for Workbench {
         let painter = Painter::new(&tree, &self.interaction, None);
         let document = painter.document(cx);
         let document = match self.error_overlay(window, cx) {
-            Some(overlay) => div().size_full().relative().child(document).child(overlay).into_any_element(),
+            Some(overlay) => div()
+                .size_full()
+                .relative()
+                .child(document)
+                .child(overlay)
+                .into_any_element(),
             None => document,
         };
         let wanted = self.frame_target;

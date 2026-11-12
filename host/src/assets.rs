@@ -52,7 +52,11 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         if path.starts_with("svg/") {
-            let found = documents().lock().expect("svg documents").get(path).cloned();
+            let found = documents()
+                .lock()
+                .expect("svg documents")
+                .get(path)
+                .cloned();
             return Ok(found.map(|bytes| Cow::Owned(bytes.as_ref().clone())));
         }
         for (name, bytes) in FILES {
@@ -64,7 +68,10 @@ impl AssetSource for Assets {
     }
 
     fn list(&self, _path: &str) -> Result<Vec<SharedString>> {
-        Ok(FILES.iter().map(|(name, _)| SharedString::from(*name)).collect())
+        Ok(FILES
+            .iter()
+            .map(|(name, _)| SharedString::from(*name))
+            .collect())
     }
 }
 

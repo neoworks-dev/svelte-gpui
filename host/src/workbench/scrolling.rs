@@ -14,17 +14,21 @@ impl Workbench {
         let mut moved = Vec::new();
         {
             let handles = self.interaction.scroll.borrow();
-            self.svelte.tree.borrow_mut().commands.retain(|command| match command {
-                Command::ScrollTo(id, left, top) => match handles.get(id) {
-                    Some(handle) => {
-                        handle.set_offset(point(px(-left), px(-top)));
-                        moved.push(*id);
-                        false
-                    }
-                    None => true,
-                },
-                _ => true,
-            });
+            self.svelte
+                .tree
+                .borrow_mut()
+                .commands
+                .retain(|command| match command {
+                    Command::ScrollTo(id, left, top) => match handles.get(id) {
+                        Some(handle) => {
+                            handle.set_offset(point(px(-left), px(-top)));
+                            moved.push(*id);
+                            false
+                        }
+                        None => true,
+                    },
+                    _ => true,
+                });
         }
         for id in moved {
             self.touch(id, cx);

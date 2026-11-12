@@ -66,7 +66,9 @@ impl Easing {
             return time;
         }
         let Easing(x1, y1, x2, y2) = *self;
-        let curve = |a: f32, b: f32, t: f32| 3.0 * a * (1.0 - t).powi(2) * t + 3.0 * b * (1.0 - t) * t * t + t.powi(3);
+        let curve = |a: f32, b: f32, t: f32| {
+            3.0 * a * (1.0 - t).powi(2) * t + 3.0 * b * (1.0 - t) * t * t + t.powi(3)
+        };
         let mut t = time;
         for _ in 0..8 {
             let error = curve(x1, x2, t) - time;
@@ -298,7 +300,10 @@ impl Style {
             translate: self.translate.map(|(x, y)| (x * factor, y * factor)),
             border_width: self.border_width.map(length),
             radius: self.radius.map(length),
-            shadow: self.shadow.as_ref().map(|shadows| shadows.iter().map(shadow).collect()),
+            shadow: self
+                .shadow
+                .as_ref()
+                .map(|shadows| shadows.iter().map(shadow).collect()),
             font_size: length(self.font_size),
             line_height: length(self.line_height),
             vertical_align: length(self.vertical_align),
@@ -319,7 +324,13 @@ mod tests {
             padding: [Some(4.0), None, Some(8.0), None],
             font_size: Some(14.0),
             radius: [Some(6.0); 4],
-            shadow: Some(vec![Shadow { x: 0.0, y: 2.0, blur: 4.0, spread: 0.0, color: Default::default() }]),
+            shadow: Some(vec![Shadow {
+                x: 0.0,
+                y: 2.0,
+                blur: 4.0,
+                spread: 0.0,
+                color: Default::default(),
+            }]),
             opacity: Some(0.5),
             ..Style::default()
         };

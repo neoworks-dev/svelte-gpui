@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use rquickjs::{
-    ArrayBuffer, CaughtError, Coerced, Context, Function, Object, Runtime, function::Opt, function::Rest, qjs,
+    ArrayBuffer, CaughtError, Coerced, Context, Function, Object, Runtime, function::Opt,
+    function::Rest, qjs,
 };
 
 use crate::clipboard::ClipboardImage;
@@ -99,7 +100,10 @@ fn run_file(ctx: &rquickjs::Ctx<'_>, bundle_path: &str) -> rquickjs::Result<()> 
         return run_text(ctx, std::fs::read(bundle_path).expect("read the bundle"));
     }
     let cache_path = format!("{bundle_path}.qbc");
-    let fresh = match (std::fs::metadata(bundle_path), std::fs::metadata(&cache_path)) {
+    let fresh = match (
+        std::fs::metadata(bundle_path),
+        std::fs::metadata(&cache_path),
+    ) {
         (Ok(source), Ok(cache)) => match (source.modified(), cache.modified()) {
             (Ok(source), Ok(cache)) => cache >= source,
             _ => false,
@@ -143,14 +147,16 @@ fn compile_source(ctx: &rquickjs::Ctx<'_>, source: &str) -> Option<Vec<u8>> {
             source.as_ptr() as *const std::os::raw::c_char,
             source.len() as _,
             name.as_ptr(),
-            (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_STRICT | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32,
+            (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_STRICT | qjs::JS_EVAL_FLAG_COMPILE_ONLY)
+                as i32,
         )
     };
     let compiled = unsafe { rquickjs::Value::from_raw(ctx.clone(), function) };
     if compiled.is_exception() {
         return None;
     }
-    let flags = qjs::JS_WRITE_OBJ_BYTECODE | qjs::JS_WRITE_OBJ_STRIP_SOURCE | qjs::JS_WRITE_OBJ_STRIP_DEBUG;
+    let flags =
+        qjs::JS_WRITE_OBJ_BYTECODE | qjs::JS_WRITE_OBJ_STRIP_SOURCE | qjs::JS_WRITE_OBJ_STRIP_DEBUG;
     let mut length = 0;
     let written = unsafe { qjs::JS_WriteObject(raw, &mut length, compiled.as_raw(), flags as i32) };
     if written.is_null() {
@@ -172,14 +178,22 @@ fn load_bytecode(ctx: &rquickjs::Ctx<'_>, bytes: &[u8]) -> rquickjs::Result<()> 
 /// Compiles the bundle at `source` to the bytecode `Script::Bytecode` runs, and writes it to
 /// `output`. This is what packaging embeds; it needs no window.
 pub fn compile(source: &std::path::Path, output: &std::path::Path) -> Result<(), String> {
-    let text = std::fs::read_to_string(source).map_err(|error| format!("cannot read {}: {error}", source.display()))?;
+    let text = std::fs::read_to_string(source)
+        .map_err(|error| format!("cannot read {}: {error}", source.display()))?;
     let runtime = Runtime::new().map_err(|error| error.to_string())?;
     let context = Context::full(&runtime).map_err(|error| error.to_string())?;
     let bytes = context.with(|ctx| {
-        let failed = || format!("{} does not compile: {}", source.display(), pending_error(&ctx));
+        let failed = || {
+            format!(
+                "{} does not compile: {}",
+                source.display(),
+                pending_error(&ctx)
+            )
+        };
         compile_source(&ctx, &text).ok_or_else(failed)
     })?;
-    std::fs::write(output, bytes).map_err(|error| format!("cannot write {}: {error}", output.display()))
+    std::fs::write(output, bytes)
+        .map_err(|error| format!("cannot write {}: {error}", output.display()))
 }
 
 /// QuickJS's own limit, 256 KB, which is all the app gets where the thread's stack is unknown.
@@ -197,12 +211,21 @@ fn javascript_stack_size() -> usize {
     const MOST: usize = 64 * 1024 * 1024;
     #[cfg(unix)]
     {
-        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         if unsafe { libc::getrlimit(libc::RLIMIT_STACK, &mut limit) } != 0 {
             return DEFAULT_STACK_SIZE;
         }
-        let stack = if limit.rlim_cur == libc::RLIM_INFINITY { MOST } else { (limit.rlim_cur as usize).min(MOST) };
-        stack.saturating_sub(HOST_STACK_RESERVE).max(DEFAULT_STACK_SIZE)
+        let stack = if limit.rlim_cur == libc::RLIM_INFINITY {
+            MOST
+        } else {
+            (limit.rlim_cur as usize).min(MOST)
+        };
+        stack
+            .saturating_sub(HOST_STACK_RESERVE)
+            .max(DEFAULT_STACK_SIZE)
     }
     // Windows gives the main thread 1 MB, so QuickJS's default is already a quarter of it.
     #[cfg(not(unix))]
@@ -230,7 +253,12 @@ impl App {
     /// Evaluates the script, which mounts the component and sends its first batch.
     /// `bundle_path` is a file in the bundle's directory (the script's own, for a file).
     /// `commands` is what the app can call in Rust.
-    pub fn start_with(bundle_path: &str, script: Script, allow_files: &[String], commands: Commands) -> Self {
+    pub fn start_with(
+        bundle_path: &str,
+        script: Script,
+        allow_files: &[String],
+        commands: Commands,
+    ) -> Self {
         let runtime = Runtime::new().expect("quickjs runtime");
         runtime.set_max_stack_size(javascript_stack_size());
         // A promise nobody catches would otherwise fail without a word. QuickJS reports a
@@ -238,26 +266,30 @@ impl App {
         // later, so rejections are only reported once the microtasks have run (`report`).
         let rejections: Rc<RefCell<Vec<(usize, Report)>>> = Rc::new(RefCell::new(Vec::new()));
         let tracked = rejections.clone();
-        runtime.set_host_promise_rejection_tracker(Some(Box::new(move |_ctx, promise, reason, handled| {
-            let key = unsafe { qjs::JS_VALUE_GET_PTR(promise.as_raw()) } as usize;
-            if handled {
-                tracked.borrow_mut().retain(|(pending, _)| *pending != key);
-                return;
-            }
-            let message =
-                reason.get::<Coerced<String>>().map(|value| value.0).unwrap_or_else(|_| "an error".to_string());
-            let stack = reason
-                .as_exception()
-                .and_then(|exception| exception.stack())
-                .or_else(|| {
-                    reason
-                        .as_object()
-                        .and_then(|object| object.get::<_, Coerced<String>>("stack").ok())
-                        .map(|value| value.0)
-                })
-                .unwrap_or_default();
-            tracked.borrow_mut().push((key, Report { message, stack }));
-        })));
+        runtime.set_host_promise_rejection_tracker(Some(Box::new(
+            move |_ctx, promise, reason, handled| {
+                let key = unsafe { qjs::JS_VALUE_GET_PTR(promise.as_raw()) } as usize;
+                if handled {
+                    tracked.borrow_mut().retain(|(pending, _)| *pending != key);
+                    return;
+                }
+                let message = reason
+                    .get::<Coerced<String>>()
+                    .map(|value| value.0)
+                    .unwrap_or_else(|_| "an error".to_string());
+                let stack = reason
+                    .as_exception()
+                    .and_then(|exception| exception.stack())
+                    .or_else(|| {
+                        reason
+                            .as_object()
+                            .and_then(|object| object.get::<_, Coerced<String>>("stack").ok())
+                            .map(|value| value.0)
+                    })
+                    .unwrap_or_default();
+                tracked.borrow_mut().push((key, Report { message, stack }));
+            },
+        )));
         let context = Context::full(&runtime).expect("quickjs context");
         let tree = Rc::new(RefCell::new(Tree::new()));
         let counters = Rc::new(RefCell::new(Counters::default()));
@@ -307,29 +339,40 @@ impl App {
         let started = self.started;
         self.context.with(|ctx| {
             let host = Object::new(ctx.clone()).expect("host object");
-            let measure =
-                Function::new(ctx.clone(), |size: f64, text: String| -> Vec<f64> { measure_text(size as f32, &text) })
-                    .expect("measureText function");
+            let measure = Function::new(ctx.clone(), |size: f64, text: String| -> Vec<f64> {
+                measure_text(size as f32, &text)
+            })
+            .expect("measureText function");
             host.set("measureText", measure).expect("set measureText");
-            let now =
-                Function::new(ctx.clone(), move || started.elapsed().as_secs_f64() * 1000.0).expect("now function");
+            let now = Function::new(ctx.clone(), move || {
+                started.elapsed().as_secs_f64() * 1000.0
+            })
+            .expect("now function");
             host.set("now", now).expect("set now");
             let frames = self.frames.clone();
             let frame_stats = Function::new(ctx.clone(), move || -> Vec<f64> {
                 let mut frames = frames.borrow_mut();
                 let now = std::time::Instant::now();
-                while frames.front().is_some_and(|(at, _)| now.duration_since(*at).as_secs_f64() > 1.0) {
+                while frames
+                    .front()
+                    .is_some_and(|(at, _)| now.duration_since(*at).as_secs_f64() > 1.0)
+                {
                     frames.pop_front();
                 }
                 let count = frames.len() as f64;
-                let building = frames.iter().map(|(_, milliseconds)| milliseconds).sum::<f64>() / count.max(1.0);
+                let building = frames
+                    .iter()
+                    .map(|(_, milliseconds)| milliseconds)
+                    .sum::<f64>()
+                    / count.max(1.0);
                 vec![count, building]
             })
             .expect("frameStats function");
             host.set("frameStats", frame_stats).expect("set frameStats");
-            let read_clipboard =
-                Function::new(ctx.clone(), move || clipboard.borrow().clone()).expect("clipboard function");
-            host.set("clipboardText", read_clipboard).expect("set clipboardText");
+            let read_clipboard = Function::new(ctx.clone(), move || clipboard.borrow().clone())
+                .expect("clipboard function");
+            host.set("clipboardText", read_clipboard)
+                .expect("set clipboardText");
             let clipboard_image = self.clipboard_image.clone();
             let read_image = Function::new(ctx.clone(), move || -> Vec<String> {
                 match &*clipboard_image.borrow() {
@@ -338,7 +381,8 @@ impl App {
                 }
             })
             .expect("clipboardImage function");
-            host.set("clipboardImage", read_image).expect("set clipboardImage");
+            host.set("clipboardImage", read_image)
+                .expect("set clipboardImage");
             // A field's selection and where its cursor sits among the rows, as it is right now:
             // start, end, row and row count, or nothing for an element that is not a drawn field.
             let field_state = Function::new(ctx.clone(), move |id: f64| -> Vec<f64> {
@@ -349,7 +393,12 @@ impl App {
                     return Vec::new();
                 };
                 let (start, end) = field.selection_utf16();
-                vec![start as f64, end as f64, field.caret_row.0 as f64, field.caret_row.1 as f64]
+                vec![
+                    start as f64,
+                    end as f64,
+                    field.caret_row.0 as f64,
+                    field.caret_row.1 as f64,
+                ]
             })
             .expect("fieldState function");
             host.set("fieldState", field_state).expect("set fieldState");
@@ -366,8 +415,9 @@ impl App {
             .expect("apply function");
             host.set("apply", apply).expect("set apply");
             let io = self.io.clone();
-            let request =
-                Function::new(ctx.clone(), move |op: String, call: f64, args: String, bytes: Opt<rquickjs::Value>| {
+            let request = Function::new(
+                ctx.clone(),
+                move |op: String, call: f64, args: String, bytes: Opt<rquickjs::Value>| {
                     let args = serde_json::from_str(&args).unwrap_or(serde_json::Value::Null);
                     // Copied before any script runs again, which could detach the buffer.
                     let bytes = bytes
@@ -375,8 +425,9 @@ impl App {
                         .and_then(|value| ArrayBuffer::from_value(value))
                         .and_then(|buffer| unsafe { buffer.as_bytes().map(<[u8]>::to_vec) });
                     io.request(&op, call as u64, args, bytes);
-                })
-                .expect("io function");
+                },
+            )
+            .expect("io function");
             host.set("io", request).expect("set io");
             let settings = self.window_settings.clone();
             let window_options = Function::new(ctx.clone(), move |json: String| {
@@ -384,7 +435,8 @@ impl App {
                 *settings.borrow_mut() = Some(WindowSettings::from_json(&parsed));
             })
             .expect("windowOptions function");
-            host.set("windowOptions", window_options).expect("set windowOptions");
+            host.set("windowOptions", window_options)
+                .expect("set windowOptions");
             let commands = self.window_commands.clone();
             let window_command = Function::new(ctx.clone(), move |op: String, args: String| {
                 let parsed = serde_json::from_str(&args).unwrap_or(serde_json::Value::Null);
@@ -530,7 +582,12 @@ impl App {
                 },
                 None => rquickjs::Value::new_undefined(ctx.clone()),
             };
-            let arguments = (completion.call as f64, completion.settle.name(), completion.json, bytes);
+            let arguments = (
+                completion.call as f64,
+                completion.settle.name(),
+                completion.json,
+                bytes,
+            );
             function.call::<_, ()>(arguments)
         });
         self.after_call();
@@ -547,14 +604,18 @@ impl App {
             state.maximized,
             state.fullscreen,
         );
-        self.call_app(ErrorKind::Event, "__window", |function, _| function.call::<_, ()>(arguments));
+        self.call_app(ErrorKind::Event, "__window", |function, _| {
+            function.call::<_, ()>(arguments)
+        });
         self.after_call();
     }
 
     /// Asks the app whether the window may close now. `false` when a handler refused, or
     /// when one is still deciding: the app closes the window itself once it has said yes.
     pub fn close_requested(&self) -> bool {
-        let answer = self.call_app(ErrorKind::Window, "__closeRequested", |function, _| function.call::<_, bool>(()));
+        let answer = self.call_app(ErrorKind::Window, "__closeRequested", |function, _| {
+            function.call::<_, bool>(())
+        });
         self.after_call();
         answer.unwrap_or(true)
     }
@@ -562,8 +623,9 @@ impl App {
     /// Advances the app's clock, which runs due timers and, on a display frame, the
     /// animation frames. Says when the clock next has work.
     pub fn pump(&self, now_milliseconds: f64, frame: bool) -> Wake {
-        let answer =
-            self.call_app(ErrorKind::Timer, "__pump", |function, _| function.call::<_, f64>((now_milliseconds, frame)));
+        let answer = self.call_app(ErrorKind::Timer, "__pump", |function, _| {
+            function.call::<_, f64>((now_milliseconds, frame))
+        });
         self.after_call();
         Wake::from_milliseconds(answer.unwrap_or(-1.0))
     }
@@ -573,17 +635,37 @@ impl App {
 fn caught(ctx: &rquickjs::Ctx<'_>, error: rquickjs::Error) -> Report {
     match CaughtError::from_error(ctx, error) {
         CaughtError::Exception(exception) => {
-            let name = exception.as_object().get::<_, Option<String>>("name").ok().flatten();
+            let name = exception
+                .as_object()
+                .get::<_, Option<String>>("name")
+                .ok()
+                .flatten();
             let name = name.unwrap_or_else(|| "Error".to_string());
             let message = exception.message().unwrap_or_default();
-            let message = if message.is_empty() { name } else { format!("{name}: {message}") };
-            Report { message, stack: exception.stack().unwrap_or_default() }
+            let message = if message.is_empty() {
+                name
+            } else {
+                format!("{name}: {message}")
+            };
+            Report {
+                message,
+                stack: exception.stack().unwrap_or_default(),
+            }
         }
         CaughtError::Value(value) => {
-            let message = value.get::<Coerced<String>>().map(|text| text.0).unwrap_or_else(|_| "an error".to_string());
-            Report { message: format!("Uncaught {message}"), stack: String::new() }
+            let message = value
+                .get::<Coerced<String>>()
+                .map(|text| text.0)
+                .unwrap_or_else(|_| "an error".to_string());
+            Report {
+                message: format!("Uncaught {message}"),
+                stack: String::new(),
+            }
         }
-        CaughtError::Error(error) => Report { message: error.to_string(), stack: String::new() },
+        CaughtError::Error(error) => Report {
+            message: error.to_string(),
+            stack: String::new(),
+        },
     }
 }
 
@@ -614,7 +696,9 @@ fn parse_outcome(json: &str) -> Outcome {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
         return Outcome::default();
     };
-    Outcome { prevented: value["prevented"].as_bool().unwrap_or(false) }
+    Outcome {
+        prevented: value["prevented"].as_bool().unwrap_or(false),
+    }
 }
 
 /// Width, ascent and descent of some text in the bundled monospace font, for code that
@@ -622,13 +706,19 @@ fn parse_outcome(json: &str) -> Outcome {
 fn measure_text(size: f32, text: &str) -> Vec<f64> {
     let bytes: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
     let Ok(face) = ttf_parser::Face::parse(bytes, 0) else {
-        return vec![(size * 0.6 * text.chars().count() as f32) as f64, (size * 0.8) as f64, (size * 0.2) as f64];
+        return vec![
+            (size * 0.6 * text.chars().count() as f32) as f64,
+            (size * 0.8) as f64,
+            (size * 0.2) as f64,
+        ];
     };
     let units = face.units_per_em() as f32;
     let mut width = 0.0;
     for character in text.chars() {
-        let advance =
-            face.glyph_index(character).and_then(|glyph| face.glyph_hor_advance(glyph)).unwrap_or((units * 0.6) as u16);
+        let advance = face
+            .glyph_index(character)
+            .and_then(|glyph| face.glyph_hor_advance(glyph))
+            .unwrap_or((units * 0.6) as u16);
         width += advance as f32 / units * size;
     }
     let ascent = face.ascender() as f32 / units * size;

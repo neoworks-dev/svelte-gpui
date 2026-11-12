@@ -3,8 +3,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ScrollDelta,
-    ScrollHandle, ScrollWheelEvent, Window,
+    AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use super::{Computed, Painter, Primitive};
@@ -31,11 +31,13 @@ impl Painter<'_> {
         let listens = |name: &str| node.listeners.contains(name);
 
         if eased || listens("hover") {
-            element = element.on_hover(cx.listener(move |workbench, hovered: &bool, _window, cx| {
-                workbench.hover_changed(id, *hovered, cx);
-            }));
+            element =
+                element.on_hover(cx.listener(move |workbench, hovered: &bool, _window, cx| {
+                    workbench.hover_changed(id, *hovered, cx);
+                }));
         }
-        let focusable = (primitive.focusable() && !disabled) || node.attributes.contains_key("focusable");
+        let focusable =
+            (primitive.focusable() && !disabled) || node.attributes.contains_key("focusable");
         if focusable {
             let handle = self.interaction.focus_handle(id, cx);
             element = element.track_focus(&handle);
@@ -47,7 +49,11 @@ impl Painter<'_> {
             let handle = self.interaction.scroll_handle(id);
             let horizontal = node.attributes.contains_key("horizontal");
             element = element.track_scroll(&handle);
-            element = if horizontal { element.overflow_x_scroll() } else { element.overflow_y_scroll() };
+            element = if horizontal {
+                element.overflow_x_scroll()
+            } else {
+                element.overflow_y_scroll()
+            };
             // GPUI scrolls every container under the pointer. The innermost one that moved keeps
             // the wheel, so an outer one only scrolls once the inner one is at its end.
             element = element.on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
@@ -73,11 +79,20 @@ impl Painter<'_> {
             element = element.cursor_pointer();
         }
         if listens("press") {
-            element = element.on_click(cx.listener(move |workbench, event: &ClickEvent, _window, cx| {
-                let detail = pointer_detail(id, event.position(), event.modifiers(), 0, event.click_count(), workbench);
-                workbench.emit(id, "press", detail, cx);
-                cx.stop_propagation();
-            }));
+            element = element.on_click(cx.listener(
+                move |workbench, event: &ClickEvent, _window, cx| {
+                    let detail = pointer_detail(
+                        id,
+                        event.position(),
+                        event.modifiers(),
+                        0,
+                        event.click_count(),
+                        workbench,
+                    );
+                    workbench.emit(id, "press", detail, cx);
+                    cx.stop_propagation();
+                },
+            ));
         }
         if primitive == Primitive::Input {
             element = self.wire_field(element, id, cx);
@@ -121,24 +136,34 @@ impl Painter<'_> {
             }
         }
         if listens("move") {
-            element = element.on_mouse_move(cx.listener(move |workbench, event: &MouseMoveEvent, _window, cx| {
-                // While the pointer is held after a press here, the window reports the motion.
-                if workbench.captured() == Some(id) {
-                    return;
-                }
-                let detail = pointer_detail(id, event.position, event.modifiers, -1, 0, workbench);
-                workbench.emit(id, "move", detail, cx);
-            }));
+            element = element.on_mouse_move(cx.listener(
+                move |workbench, event: &MouseMoveEvent, _window, cx| {
+                    // While the pointer is held after a press here, the window reports the motion.
+                    if workbench.captured() == Some(id) {
+                        return;
+                    }
+                    let detail =
+                        pointer_detail(id, event.position, event.modifiers, -1, 0, workbench);
+                    workbench.emit(id, "move", detail, cx);
+                },
+            ));
         }
         if listens("wheel") {
-            element = element.on_scroll_wheel(cx.listener(move |workbench, event: &ScrollWheelEvent, _window, cx| {
-                let (dx, dy) = match event.delta {
-                    ScrollDelta::Pixels(delta) => (f32::from(delta.x), f32::from(delta.y)),
-                    ScrollDelta::Lines(delta) => (delta.x * 16.0, delta.y * 16.0),
-                };
-                let detail = format!("{{\"dx\":{},\"dy\":{}{}}}", -dx, -dy, modifier_fields(event.modifiers));
-                workbench.emit(id, "wheel", detail, cx);
-            }));
+            element = element.on_scroll_wheel(cx.listener(
+                move |workbench, event: &ScrollWheelEvent, _window, cx| {
+                    let (dx, dy) = match event.delta {
+                        ScrollDelta::Pixels(delta) => (f32::from(delta.x), f32::from(delta.y)),
+                        ScrollDelta::Lines(delta) => (delta.x * 16.0, delta.y * 16.0),
+                    };
+                    let detail = format!(
+                        "{{\"dx\":{},\"dy\":{}{}}}",
+                        -dx,
+                        -dy,
+                        modifier_fields(event.modifiers)
+                    );
+                    workbench.emit(id, "wheel", detail, cx);
+                },
+            ));
         }
         element.into_any_element()
     }
@@ -147,11 +172,24 @@ impl Painter<'_> {
 /// Whether the wheel event moved this container. GPUI's own scroll listener has already
 /// added the event's delta to the offset, unclamped, so the offset before it is the
 /// difference.
-fn scrolled_by(handle: &ScrollHandle, event: &ScrollWheelEvent, horizontal: bool, window: &Window) -> bool {
+fn scrolled_by(
+    handle: &ScrollHandle,
+    event: &ScrollWheelEvent,
+    horizontal: bool,
+    window: &Window,
+) -> bool {
     let delta = event.delta.pixel_delta(window.line_height());
-    let (along, across) = if horizontal { (delta.x, delta.y) } else { (delta.y, delta.x) };
+    let (along, across) = if horizontal {
+        (delta.x, delta.y)
+    } else {
+        (delta.y, delta.x)
+    };
     // A vertical wheel scrolls a horizontal container too, as GPUI does.
-    let applied = f32::from(if f32::from(along) != 0.0 { along } else { across });
+    let applied = f32::from(if f32::from(along) != 0.0 {
+        along
+    } else {
+        across
+    });
     let offset = handle.offset();
     let max_offset = handle.max_offset();
     let (now, furthest) = if horizontal {
@@ -181,7 +219,9 @@ pub(super) fn listens_for_pointer(node: &Node) -> bool {
 pub const DRAG_EVENTS: [&str; 4] = ["dragenter", "dragleave", "dragover", "drop"];
 
 pub fn listens_for_drag(node: &Node) -> bool {
-    DRAG_EVENTS.iter().any(|name| node.listeners.contains(*name))
+    DRAG_EVENTS
+        .iter()
+        .any(|name| node.listeners.contains(*name))
 }
 
 /// Whether the `down` listener on a node takes presses of this button (0 left, 1 middle, 2 right).

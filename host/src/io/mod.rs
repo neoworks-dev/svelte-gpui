@@ -68,7 +68,12 @@ pub struct Sink {
 
 impl Sink {
     pub fn send(&self, call: u64, settle: Settle, json: Value, bytes: Option<Vec<u8>>) {
-        let _ = self.sender.unbounded_send(Completion { call, settle, json: json.to_string(), bytes });
+        let _ = self.sender.unbounded_send(Completion {
+            call,
+            settle,
+            json: json.to_string(),
+            bytes,
+        });
     }
 
     pub fn resolve(&self, call: u64, json: Value) {
@@ -81,13 +86,23 @@ impl Sink {
 
     /// Fails the call; the promise rejects with an `Error` carrying `message`.
     pub fn reject(&self, call: u64, message: impl Into<String>) {
-        self.send(call, Settle::Reject, serde_json::json!({ "message": message.into() }), None);
+        self.send(
+            call,
+            Settle::Reject,
+            serde_json::json!({ "message": message.into() }),
+            None,
+        );
     }
 
     /// Fails the call with a code the app can tell apart, such as `NotFound`, which the
     /// rejected `Error` carries as `code`.
     pub fn reject_with_code(&self, call: u64, code: &str, message: impl Into<String>) {
-        self.send(call, Settle::Reject, serde_json::json!({ "message": message.into(), "code": code }), None);
+        self.send(
+            call,
+            Settle::Reject,
+            serde_json::json!({ "message": message.into(), "code": code }),
+            None,
+        );
     }
 
     pub fn event(&self, call: u64, json: Value, bytes: Option<Vec<u8>>) {
@@ -100,7 +115,12 @@ impl Sink {
 
     /// Reports an event from the view drawn in the element `node`.
     pub fn element_event(&self, node: u32, name: &str, detail: Value) {
-        self.send(node as u64, Settle::Element, serde_json::json!({ "name": name, "detail": detail }), None);
+        self.send(
+            node as u64,
+            Settle::Element,
+            serde_json::json!({ "name": name, "detail": detail }),
+            None,
+        );
     }
 }
 
@@ -153,9 +173,16 @@ impl Io {
         match op {
             "fetch" => fetch::fetch(&self.sink, call, args, bytes),
             op if op.starts_with("ws.") => self.sockets.request(&self.sink, op, call, args, bytes),
-            op if op.starts_with("fs.") => self.files.request(&self.sink, &self.main_jobs, op, call, args, bytes),
-            "invoke" | "events.listen" | "events.unlisten" => self.commands.request(&self.sink, op, call, args, bytes),
-            _ => self.sink.reject(call, format!("svelte-gpui: unknown operation {op}")),
+            op if op.starts_with("fs.") => {
+                self.files
+                    .request(&self.sink, &self.main_jobs, op, call, args, bytes)
+            }
+            "invoke" | "events.listen" | "events.unlisten" => {
+                self.commands.request(&self.sink, op, call, args, bytes)
+            }
+            _ => self
+                .sink
+                .reject(call, format!("svelte-gpui: unknown operation {op}")),
         }
     }
 }

@@ -2,7 +2,9 @@
 
 use std::ops::Range;
 
-use gpui::{Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size};
+use gpui::{
+    Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
+};
 use serde_json::json;
 
 use super::Workbench;
@@ -44,7 +46,11 @@ impl EntityInputHandler for Workbench {
         })
     }
 
-    fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+    fn marked_text_range(
+        &self,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Range<usize>> {
         let id = self.input_target(window)?;
         let fields = self.interaction.fields.borrow();
         let field = fields.get(&id)?;
@@ -66,7 +72,12 @@ impl EntityInputHandler for Workbench {
                 None => return,
             }
         };
-        self.emit(id, "compositionend", json!({ "data": data }).to_string(), cx);
+        self.emit(
+            id,
+            "compositionend",
+            json!({ "data": data }).to_string(),
+            cx,
+        );
     }
 
     fn replace_text_in_range(
@@ -101,9 +112,18 @@ impl EntityInputHandler for Workbench {
             return;
         }
         let bytes = self.bytes_for(id, range);
-        let inside = new_selected_range
-            .map(|selected| byte_offset(new_text, selected.start)..byte_offset(new_text, selected.end));
-        self.compose(id, bytes, new_text, true, inside, "insertCompositionText", cx);
+        let inside = new_selected_range.map(|selected| {
+            byte_offset(new_text, selected.start)..byte_offset(new_text, selected.end)
+        });
+        self.compose(
+            id,
+            bytes,
+            new_text,
+            true,
+            inside,
+            "insertCompositionText",
+            cx,
+        );
     }
 
     fn bounds_for_range(
@@ -117,12 +137,16 @@ impl EntityInputHandler for Workbench {
         let fields = self.interaction.fields.borrow();
         let field = fields.get(&id)?;
         let start = byte_offset(&field.text, range.start);
-        let anchor = field
-            .layout
-            .as_ref()
-            .and_then(|layout| layout.position_for_index(start).map(|at| (at, layout.line_height())));
+        let anchor = field.layout.as_ref().and_then(|layout| {
+            layout
+                .position_for_index(start)
+                .map(|at| (at, layout.line_height()))
+        });
         match anchor {
-            Some((at, height)) => Some(Bounds { origin: at, size: size(px(1.0), height) }),
+            Some((at, height)) => Some(Bounds {
+                origin: at,
+                size: size(px(1.0), height),
+            }),
             None => Some(Bounds {
                 origin: point(element_bounds.origin.x, element_bounds.origin.y),
                 size: size(px(1.0), element_bounds.size.height),

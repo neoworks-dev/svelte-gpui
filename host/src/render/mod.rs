@@ -26,9 +26,9 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, AnyView, Bounds, Context, DragMoveEvent, Entity, ExternalPaths, FocusHandle, IntoElement,
-    MouseMoveEvent, MouseUpEvent, Render, Rgba, ScrollHandle, WeakEntity, Window, canvas, div, prelude::*, px,
-    relative,
+    AnyElement, AnyView, Bounds, Context, DragMoveEvent, Entity, ExternalPaths, FocusHandle,
+    IntoElement, MouseMoveEvent, MouseUpEvent, Render, Rgba, ScrollHandle, WeakEntity, Window,
+    canvas, div, prelude::*, px, relative,
 };
 
 use crate::elements::Instances;
@@ -96,7 +96,11 @@ pub struct Interaction {
 }
 
 impl Interaction {
-    pub fn new(images: Images, fields: Rc<RefCell<HashMap<NodeId, Field>>>, cx: &mut Context<Workbench>) -> Self {
+    pub fn new(
+        images: Images,
+        fields: Rc<RefCell<HashMap<NodeId, Field>>>,
+        cx: &mut Context<Workbench>,
+    ) -> Self {
         Interaction {
             root_focus: cx.focus_handle(),
             focus: RefCell::new(HashMap::new()),
@@ -144,15 +148,28 @@ impl Interaction {
     }
 
     fn focus_handle(&self, id: NodeId, cx: &mut Context<Workbench>) -> FocusHandle {
-        self.focus.borrow_mut().entry(id).or_insert_with(|| cx.focus_handle()).clone()
+        self.focus
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| cx.focus_handle())
+            .clone()
     }
 
     fn scroll_handle(&self, id: NodeId) -> ScrollHandle {
-        self.scroll.borrow_mut().entry(id).or_insert_with(ScrollHandle::new).clone()
+        self.scroll
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(ScrollHandle::new)
+            .clone()
     }
 }
 
-const DEFAULT_BACKGROUND: Rgba = Rgba { r: 0.094, g: 0.094, b: 0.106, a: 1.0 };
+const DEFAULT_BACKGROUND: Rgba = Rgba {
+    r: 0.094,
+    g: 0.094,
+    b: 0.106,
+    a: 1.0,
+};
 
 /// A part of the document that is its own GPUI view. GPUI keeps what a view drew and its
 /// layout until the view changes, so a change somewhere else in the window costs this part
@@ -175,9 +192,14 @@ impl Render for NodeView {
         let root = self.root;
         let inherited = self.inherited.clone();
         let started = Instant::now();
-        let element = workbench.update(cx, |workbench, cx| workbench.build_view(root, inherited, cx));
+        let element = workbench.update(cx, |workbench, cx| {
+            workbench.build_view(root, inherited, cx)
+        });
         VIEW_BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        VIEW_NANOS.fetch_add(started.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        VIEW_NANOS.fetch_add(
+            started.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         element
     }
 }
@@ -199,7 +221,12 @@ pub struct Painter<'a> {
 
 impl<'a> Painter<'a> {
     pub fn new(tree: &'a Tree, interaction: &'a Interaction, inside_view: Option<NodeId>) -> Self {
-        Self { tree, interaction, weights: RefCell::new(HashMap::new()), inside_view }
+        Self {
+            tree,
+            interaction,
+            weights: RefCell::new(HashMap::new()),
+            inside_view,
+        }
     }
 
     /// How many nodes are under `id`, itself included.
@@ -210,7 +237,11 @@ impl<'a> Painter<'a> {
         let Some(node) = self.tree.nodes.get(&id) else {
             return 0;
         };
-        let weight = 1 + node.children.iter().map(|child| self.weight(*child)).sum::<usize>();
+        let weight = 1 + node
+            .children
+            .iter()
+            .map(|child| self.weight(*child))
+            .sum::<usize>();
         self.weights.borrow_mut().insert(id, weight);
         weight
     }
@@ -231,13 +262,26 @@ impl<'a> Painter<'a> {
         let computed = match self.tree.nodes.get(&id) {
             Some(node) => {
                 let own = compute(node);
-                let above = node.parent.map(|parent| self.computed(parent).zoom).unwrap_or(1.0);
+                let above = node
+                    .parent
+                    .map(|parent| self.computed(parent).zoom)
+                    .unwrap_or(1.0);
                 let zoom = above * own.style.zoom.unwrap_or(1.0);
                 Rc::new(own.zoomed(zoom))
             }
-            None => Rc::new(Computed { style: Style::default(), hover: None, active: None, focus: None, zoom: 1.0 }),
+            None => Rc::new(Computed {
+                style: Style::default(),
+                hover: None,
+                active: None,
+                focus: None,
+                zoom: 1.0,
+            }),
         };
-        self.interaction.styles.borrow_mut().1.insert(id, computed.clone());
+        self.interaction
+            .styles
+            .borrow_mut()
+            .1
+            .insert(id, computed.clone());
         computed
     }
 
@@ -266,16 +310,22 @@ impl<'a> Painter<'a> {
             .capture_any_mouse_up(cx.listener(|workbench, event: &MouseUpEvent, _window, cx| {
                 workbench.release_pointer(event, cx);
             }))
-            .on_mouse_move(cx.listener(|workbench, event: &MouseMoveEvent, _window, cx| {
-                workbench.captured_motion(event, cx);
-            }))
-            .on_drag_move(cx.listener(|workbench, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
-                let paths = event.drag(cx).paths().to_vec();
-                workbench.external_drag_over(event.event.position, paths, cx);
-            }))
-            .on_drop(cx.listener(|workbench, dropped: &ExternalPaths, window, cx| {
-                workbench.external_drop(window.mouse_position(), dropped.paths().to_vec(), cx);
-            }))
+            .on_mouse_move(
+                cx.listener(|workbench, event: &MouseMoveEvent, _window, cx| {
+                    workbench.captured_motion(event, cx);
+                }),
+            )
+            .on_drag_move(cx.listener(
+                |workbench, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
+                    let paths = event.drag(cx).paths().to_vec();
+                    workbench.external_drag_over(event.event.position, paths, cx);
+                },
+            ))
+            .on_drop(
+                cx.listener(|workbench, dropped: &ExternalPaths, window, cx| {
+                    workbench.external_drop(window.mouse_position(), dropped.paths().to_vec(), cx);
+                }),
+            )
             .child(external_drag_ended(cx))
             .child(press_ends_focus(cx));
         let inherited = Inherited::root();
@@ -290,7 +340,12 @@ impl<'a> Painter<'a> {
     }
 
     /// The contents of a view: its top element, drawn to fill the box the outer layout gave it.
-    pub fn view_content(&self, root: NodeId, inherited: Inherited, cx: &mut Context<Workbench>) -> AnyElement {
+    pub fn view_content(
+        &self,
+        root: NodeId,
+        inherited: Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> AnyElement {
         match self.element(root, &inherited, cx) {
             Some(element) => element,
             None => div().into_any_element(),
@@ -307,10 +362,17 @@ impl<'a> Painter<'a> {
             return false;
         };
         let parent_style = self.computed(parent).style.clone();
-        let fixed =
-            |dimension: Option<Dimension>| matches!(dimension, Some(Dimension::Px(_)) | Some(Dimension::Percent(_)));
+        let fixed = |dimension: Option<Dimension>| {
+            matches!(
+                dimension,
+                Some(Dimension::Px(_)) | Some(Dimension::Percent(_))
+            )
+        };
         let nothing = |dimension: Option<Dimension>| matches!(dimension, Some(Dimension::Px(zero)) | Some(Dimension::Percent(zero)) if zero == 0.0);
-        let stretches = matches!(style.align_self.or(parent_style.align_items), None | Some(style::Align::Stretch));
+        let stretches = matches!(
+            style.align_self.or(parent_style.align_items),
+            None | Some(style::Align::Stretch)
+        );
         let fills = style.grow.unwrap_or(0.0) > 0.0 && nothing(style.basis);
         let (main, main_minimum, cross) = if parent_style.row == Some(true) {
             (style.width, style.min_width, style.height)
@@ -336,7 +398,9 @@ impl<'a> Painter<'a> {
             return None;
         }
         let weight = self.weight(id);
-        if !(VIEW_MIN_WEIGHT..=VIEW_MAX_WEIGHT).contains(&weight) || !self.sized_by_parent(id, style) {
+        if !(VIEW_MIN_WEIGHT..=VIEW_MAX_WEIGHT).contains(&weight)
+            || !self.sized_by_parent(id, style)
+        {
             return None;
         }
         let workbench = self.interaction.workbench.borrow().clone()?;
@@ -345,8 +409,15 @@ impl<'a> Painter<'a> {
             Some(entity) => entity,
             None => {
                 let inherited = inherited.clone();
-                let entity = cx.new(|_| NodeView { workbench, root: id, inherited });
-                self.interaction.views.borrow_mut().insert(id, entity.clone());
+                let entity = cx.new(|_| NodeView {
+                    workbench,
+                    root: id,
+                    inherited,
+                });
+                self.interaction
+                    .views
+                    .borrow_mut()
+                    .insert(id, entity.clone());
                 entity
             }
         };
@@ -371,7 +442,10 @@ impl<'a> Painter<'a> {
         _row: bool,
         cx: &mut Context<Workbench>,
     ) -> Vec<AnyElement> {
-        self.children_with_nodes(parent, inherited, cx).into_iter().map(|(_, element)| element).collect()
+        self.children_with_nodes(parent, inherited, cx)
+            .into_iter()
+            .map(|(_, element)| element)
+            .collect()
     }
 
     /// The children of a container, each with the element it came from; text has none.
@@ -394,7 +468,10 @@ impl<'a> Painter<'a> {
                     let text = collapse(data);
                     let text = text.trim();
                     if !text.is_empty() {
-                        elements.push((None, text_box(transform(text, inherited), inherited.font_size)));
+                        elements.push((
+                            None,
+                            text_box(transform(text, inherited), inherited.font_size),
+                        ));
                     }
                 }
                 Kind::Element { .. } => {
@@ -408,7 +485,12 @@ impl<'a> Painter<'a> {
     }
 
     /// One element, with its children, or nothing when it is not displayed.
-    fn element(&self, id: NodeId, inherited: &Inherited, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    fn element(
+        &self,
+        id: NodeId,
+        inherited: &Inherited,
+        cx: &mut Context<Workbench>,
+    ) -> Option<AnyElement> {
         let node = self.tree.nodes.get(&id)?;
         let Some(primitive) = primitive_of(node) else {
             if let Kind::Element { tag } = &node.kind {
@@ -456,7 +538,10 @@ impl<'a> Painter<'a> {
                 for (child, content) in self.children_with_nodes(id, &inherited, cx) {
                     let slot = Rc::new(Cell::new(None));
                     slots.push((child, slot.clone()));
-                    element = element.child(LayoutSpy { child: content, slot });
+                    element = element.child(LayoutSpy {
+                        child: content,
+                        slot,
+                    });
                 }
                 anchored_slots = Some(slots);
                 element
@@ -477,10 +562,29 @@ impl<'a> Painter<'a> {
     }
 
     /// A scroller with an anchor, wrapped so it can keep its place or its end while it is laid out.
-    fn anchored(&self, scroller: AnyElement, id: NodeId, anchoring: Anchoring, slots: Slots) -> AnyElement {
+    fn anchored(
+        &self,
+        scroller: AnyElement,
+        id: NodeId,
+        anchoring: Anchoring,
+        slots: Slots,
+    ) -> AnyElement {
         let handle = self.interaction.scroll_handle(id);
-        let state = self.interaction.anchors.borrow_mut().entry(id).or_default().clone();
-        ScrollAnchor { anchoring, scroller, handle, state, slots }.into_any_element()
+        let state = self
+            .interaction
+            .anchors
+            .borrow_mut()
+            .entry(id)
+            .or_default()
+            .clone();
+        ScrollAnchor {
+            anchoring,
+            scroller,
+            handle,
+            state,
+            slots,
+        }
+        .into_any_element()
     }
 
     /// An invisible layer that records where its parent came out.

@@ -36,14 +36,24 @@ impl SourceMap {
     /// map's `sources` are relative to. `None` if the text is not a source map.
     pub fn parse(text: &str, directory: &Path) -> Option<Self> {
         let json: Value = serde_json::from_str(text).ok()?;
-        let sources =
-            json["sources"].as_array()?.iter().map(|source| directory.join(source.as_str().unwrap_or(""))).collect();
+        let sources = json["sources"]
+            .as_array()?
+            .iter()
+            .map(|source| directory.join(source.as_str().unwrap_or("")))
+            .collect();
         let contents = match json["sourcesContent"].as_array() {
-            Some(list) => list.iter().map(|content| content.as_str().map(str::to_string)).collect(),
+            Some(list) => list
+                .iter()
+                .map(|content| content.as_str().map(str::to_string))
+                .collect(),
             None => Vec::new(),
         };
         let lines = decode(json["mappings"].as_str()?)?;
-        Some(SourceMap { sources, contents, lines })
+        Some(SourceMap {
+            sources,
+            contents,
+            lines,
+        })
     }
 
     /// The source position of a bundle position, both counting from 1.
@@ -53,14 +63,24 @@ impl SourceMap {
         let after = segments.partition_point(|segment| segment.generated_column <= wanted);
         let segment = segments.get(after.checked_sub(1)?)?;
         let path = normalize(self.sources.get(segment.source as usize)?);
-        Some(Origin { path, line: segment.line as usize + 1, column: segment.column as usize + 1 })
+        Some(Origin {
+            path,
+            line: segment.line as usize + 1,
+            column: segment.column as usize + 1,
+        })
     }
 
     /// The text of line `line` (from 1) of a source, when the map carries the sources' text.
     pub fn source_line(&self, path: &Path, line: usize) -> Option<String> {
-        let index = self.sources.iter().position(|source| normalize(source) == path)?;
+        let index = self
+            .sources
+            .iter()
+            .position(|source| normalize(source) == path)?;
         let content = self.contents.get(index)?.as_ref()?;
-        content.lines().nth(line.checked_sub(1)?).map(str::to_string)
+        content
+            .lines()
+            .nth(line.checked_sub(1)?)
+            .map(str::to_string)
     }
 }
 
@@ -152,7 +172,14 @@ mod tests {
         let text = r#"{"version":3,"sources":["../src/a.svelte"],"sourcesContent":["one\ntwo\n"],"mappings":"AAAA;AACA,EAAE"}"#;
         let map = SourceMap::parse(text, Path::new("/app/dist")).expect("a map");
         let origin = map.origin(2, 3).expect("a position");
-        assert_eq!(origin, Origin { path: PathBuf::from("/app/src/a.svelte"), line: 2, column: 3 });
+        assert_eq!(
+            origin,
+            Origin {
+                path: PathBuf::from("/app/src/a.svelte"),
+                line: 2,
+                column: 3
+            }
+        );
         assert_eq!(map.source_line(&origin.path, 2).as_deref(), Some("two"));
         assert_eq!(map.origin(9, 1), None);
     }

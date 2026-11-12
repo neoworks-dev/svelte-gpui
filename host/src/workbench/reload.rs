@@ -33,10 +33,21 @@ impl Workbench {
     ///
     /// A bundle that fails to run does not stop the host: the window shows the error until
     /// the next good build.
-    pub(crate) fn reload(&mut self, bundle: &str, allow_files: &[String], window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reload(
+        &mut self,
+        bundle: &str,
+        allow_files: &[String],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let started = Instant::now();
         let commands = self.svelte.commands.clone();
-        let next = Svelte::start_with(bundle, Script::Development(bundle.to_string()), allow_files, commands);
+        let next = Svelte::start_with(
+            bundle,
+            Script::Development(bundle.to_string()),
+            allow_files,
+            commands,
+        );
         let failed = next.load_error.is_some();
         self.replace_app(next, window, cx);
         println!(
@@ -63,7 +74,13 @@ impl Workbench {
         window.focus(&self.interaction.root_focus);
         self.forget_old_state();
         self.listen_for_io(cx);
-        if let Some(title) = self.svelte.window_settings.borrow().as_ref().and_then(|settings| settings.title.clone()) {
+        if let Some(title) = self
+            .svelte
+            .window_settings
+            .borrow()
+            .as_ref()
+            .and_then(|settings| settings.title.clone())
+        {
             window.set_window_title(&title);
         }
         self.tick(false, window, cx);

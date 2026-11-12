@@ -22,10 +22,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Starts a request; `fetch` settles `call` with the response or a network error.
 pub fn fetch(sink: &Sink, call: u64, args: Value, body: Option<Vec<u8>>) {
     let reply = sink.clone();
-    let spawned = std::thread::Builder::new().name(format!("fetch-{call}")).spawn(move || match perform(&args, body) {
-        Ok((head, bytes)) => reply.resolve_bytes(call, head, bytes),
-        Err(message) => reply.reject(call, message),
-    });
+    let spawned = std::thread::Builder::new()
+        .name(format!("fetch-{call}"))
+        .spawn(move || match perform(&args, body) {
+            Ok((head, bytes)) => reply.resolve_bytes(call, head, bytes),
+            Err(message) => reply.reject(call, message),
+        });
     if spawned.is_err() {
         sink.reject(call, "could not start a thread for the request");
     }
@@ -35,8 +37,15 @@ pub fn fetch(sink: &Sink, call: u64, args: Value, body: Option<Vec<u8>>) {
 fn perform(args: &Value, body: Option<Vec<u8>>) -> Result<(Value, Vec<u8>), String> {
     let url = args["url"].as_str().ok_or("fetch needs a url")?;
     let method = args["method"].as_str().unwrap_or("GET");
-    let redirects = if args["redirect"].as_str().unwrap_or("follow") == "follow" { MAX_REDIRECTS } else { 0 };
-    let agent = ureq::AgentBuilder::new().redirects(redirects).timeout_connect(CONNECT_TIMEOUT).build();
+    let redirects = if args["redirect"].as_str().unwrap_or("follow") == "follow" {
+        MAX_REDIRECTS
+    } else {
+        0
+    };
+    let agent = ureq::AgentBuilder::new()
+        .redirects(redirects)
+        .timeout_connect(CONNECT_TIMEOUT)
+        .build();
     let mut request = agent.request(method, url);
     for pair in args["headers"].as_array().into_iter().flatten() {
         if let (Some(name), Some(value)) = (pair[0].as_str(), pair[1].as_str()) {
@@ -62,7 +71,10 @@ fn describe(requested: &str, response: ureq::Response) -> Result<(Value, Vec<u8>
     let status_text = response.status_text().to_string();
     let headers = header_pairs(&response);
     let mut bytes = Vec::new();
-    response.into_reader().read_to_end(&mut bytes).map_err(|error| error.to_string())?;
+    response
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
     let head = json!({
         "url": url,
         "redirected": url != requested,

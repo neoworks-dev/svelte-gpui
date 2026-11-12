@@ -47,7 +47,12 @@ pub trait AppElement: Render + Sized + 'static {
 
     /// The app called a method on the component. `args` is the JSON array of its arguments. The answer
     /// resolves the app's promise, and an error rejects it, as for a command.
-    fn call(&mut self, method: &str, args: Value, cx: &mut Context<Self>) -> Result<Value, CommandError>;
+    fn call(
+        &mut self,
+        method: &str,
+        args: Value,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, CommandError>;
 
     /// The handle the view takes keys and input-method text through, if it takes focus. The host moves focus
     /// to it when the node is pressed or the app calls `focus()`.
@@ -71,7 +76,12 @@ impl NativeHost {
         if node == 0 {
             return;
         }
-        let sink = self.hub.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let sink = self
+            .hub
+            .sink
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         if let Some(sink) = sink {
             sink.element_event(node, name, detail);
         }
@@ -124,7 +134,10 @@ impl<T: AppElement> ElementHandle for Entity<T> {
         }));
         match outcome {
             Ok(answer) => answer,
-            Err(_) => Err(CommandError::with_code("Panicked", format!("the method {method:?} panicked"))),
+            Err(_) => Err(CommandError::with_code(
+                "Panicked",
+                format!("the method {method:?} panicked"),
+            )),
         }
     }
 
@@ -154,7 +167,10 @@ pub struct Elements {
 
 impl fmt::Debug for Elements {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Elements").field("names", &self.names()).finish()
+        formatter
+            .debug_struct("Elements")
+            .field("names", &self.names())
+            .finish()
     }
 }
 
@@ -177,7 +193,10 @@ impl Elements {
             entity
         });
         let previous = self.factories.insert(name.to_string(), build);
-        assert!(previous.is_none(), "the element {name:?} is registered twice");
+        assert!(
+            previous.is_none(),
+            "the element {name:?} is registered twice"
+        );
         self
     }
 
@@ -196,9 +215,18 @@ impl Elements {
     /// A new view for the registered `name`, or `None` when there is no such element.
     pub(crate) fn create(&self, name: &str, key: Option<String>, cx: &mut App) -> Option<Live> {
         let factory = self.factories.get(name)?;
-        let host = NativeHost { node: Arc::new(AtomicU32::new(0)), hub: self.hub.clone() };
+        let host = NativeHost {
+            node: Arc::new(AtomicU32::new(0)),
+            hub: self.hub.clone(),
+        };
         let handle = factory(host.clone(), cx);
-        Some(Live { handle, host, name: name.to_string(), key, props: HashMap::new() })
+        Some(Live {
+            handle,
+            host,
+            name: name.to_string(),
+            key,
+            props: HashMap::new(),
+        })
     }
 }
 
@@ -261,7 +289,10 @@ impl Instances {
     /// The kept view with this name and key, if there is one.
     pub fn claim(&mut self, name: &str, key: &Option<String>) -> Option<Live> {
         key.as_ref()?;
-        let position = self.kept.iter().position(|(live, _)| live.name == name && live.key == *key)?;
+        let position = self
+            .kept
+            .iter()
+            .position(|(live, _)| live.name == name && live.key == *key)?;
         Some(self.kept.remove(position).0)
     }
 

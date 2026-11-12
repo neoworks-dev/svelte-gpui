@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    Bounds, Context, Div, HighlightStyle, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Rgba,
-    SharedString, StyledText, canvas, div, fill, px, size,
+    Bounds, Context, Div, HighlightStyle, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Rgba, SharedString, StyledText, canvas, div, fill, px, size,
 };
 
 use super::{Inherited, Painter, attribute};
@@ -14,7 +14,12 @@ use crate::style::Style;
 use crate::tree::{Node, NodeId};
 use crate::workbench::Workbench;
 
-const SELECTION: Rgba = Rgba { r: 0.23, g: 0.43, b: 0.66, a: 0.45 };
+const SELECTION: Rgba = Rgba {
+    r: 0.23,
+    g: 0.43,
+    b: 0.66,
+    a: 0.45,
+};
 
 impl Painter<'_> {
     /// The editable text of a `g-input`, with its selection and caret.
@@ -46,24 +51,53 @@ impl Painter<'_> {
             }
             field.cursor = field.cursor.min(field.text.len());
             field.anchor = field.anchor.min(field.text.len());
-            let shown = if secure { "\u{2022}".repeat(field.text.chars().count()) } else { field.text.clone() };
+            let shown = if secure {
+                "\u{2022}".repeat(field.text.chars().count())
+            } else {
+                field.text.clone()
+            };
             let map = |byte: usize| -> usize {
-                if secure { field.text[..byte].chars().count() * "\u{2022}".len() } else { byte }
+                if secure {
+                    field.text[..byte].chars().count() * "\u{2022}".len()
+                } else {
+                    byte
+                }
             };
             let selection = field.selection();
-            let composing = field.marked.clone().map(|range| map(range.start)..map(range.end));
-            (shown, map(field.cursor), map(selection.start)..map(selection.end), field.scroll_x, composing)
+            let composing = field
+                .marked
+                .clone()
+                .map(|range| map(range.start)..map(range.end));
+            (
+                shown,
+                map(field.cursor),
+                map(selection.start)..map(selection.end),
+                field.scroll_x,
+                composing,
+            )
         };
 
         let empty = shown.is_empty();
-        let mut styled = StyledText::new(SharedString::from(if empty { placeholder } else { shown }));
+        let mut styled =
+            StyledText::new(SharedString::from(if empty { placeholder } else { shown }));
         if let (Some(range), false) = (composing, empty) {
-            let underline =
-                gpui::UnderlineStyle { thickness: px(1.0), color: Some(inherited.colour.into()), wavy: false };
-            styled = styled
-                .with_highlights(vec![(range, HighlightStyle { underline: Some(underline), ..Default::default() })]);
+            let underline = gpui::UnderlineStyle {
+                thickness: px(1.0),
+                color: Some(inherited.colour.into()),
+                wavy: false,
+            };
+            styled = styled.with_highlights(vec![(
+                range,
+                HighlightStyle {
+                    underline: Some(underline),
+                    ..Default::default()
+                },
+            )]);
         } else if !empty && !selection.is_empty() {
-            let highlight = HighlightStyle { background_color: Some(Hsla::from(SELECTION)), ..Default::default() };
+            let highlight = HighlightStyle {
+                background_color: Some(Hsla::from(SELECTION)),
+                ..Default::default()
+            };
             styled = styled.with_highlights(vec![(selection, highlight)]);
         }
         if !empty {
@@ -78,7 +112,10 @@ impl Painter<'_> {
             text = text.whitespace_nowrap().ml(px(-scroll));
         }
         if empty {
-            text = text.text_color(Rgba { a: inherited.colour.a * 0.45, ..inherited.colour });
+            text = text.text_color(Rgba {
+                a: inherited.colour.a * 0.45,
+                ..inherited.colour
+            });
         }
         let text = text.child(styled);
 
@@ -91,7 +128,11 @@ impl Painter<'_> {
             |bounds, _, _| bounds,
             move |bounds: Bounds<gpui::Pixels>, _, window, cx| {
                 // The input method types into whatever is focused, through this handler.
-                window.handle_input(&focus, gpui::ElementInputHandler::new(bounds, workbench.clone()), cx);
+                window.handle_input(
+                    &focus,
+                    gpui::ElementInputHandler::new(bounds, workbench.clone()),
+                    cx,
+                );
                 let mut fields = fields.borrow_mut();
                 let Some(field) = fields.get_mut(&id) else {
                     return;
@@ -106,9 +147,9 @@ impl Painter<'_> {
                     return;
                 }
                 let measured = match (&field.layout, empty) {
-                    (Some(layout), false) => {
-                        layout.position_for_index(cursor).map(|position| (position, layout.line_height()))
-                    }
+                    (Some(layout), false) => layout
+                        .position_for_index(cursor)
+                        .map(|position| (position, layout.line_height())),
                     _ => None,
                 };
                 let (position, height) = measured.unwrap_or((bounds.origin, px(line_height)));
@@ -128,7 +169,13 @@ impl Painter<'_> {
                     }
                 }
                 if caret_on {
-                    window.paint_quad(fill(Bounds { origin: position, size: size(px(1.5), height) }, caret_colour));
+                    window.paint_quad(fill(
+                        Bounds {
+                            origin: position,
+                            size: size(px(1.5), height),
+                        },
+                        caret_colour,
+                    ));
                 }
             },
         )
@@ -165,13 +212,20 @@ impl Painter<'_> {
                     workbench.caret_moved(id, cx);
                 }),
             )
-            .on_mouse_move(cx.listener(move |workbench, event: &MouseMoveEvent, _window, cx| {
-                let dragging = workbench.interaction.fields.borrow().get(&id).map(|field| field.dragging);
-                if dragging == Some(true) {
-                    workbench.field_mouse_move(id, event.position);
-                    workbench.caret_moved(id, cx);
-                }
-            }))
+            .on_mouse_move(
+                cx.listener(move |workbench, event: &MouseMoveEvent, _window, cx| {
+                    let dragging = workbench
+                        .interaction
+                        .fields
+                        .borrow()
+                        .get(&id)
+                        .map(|field| field.dragging);
+                    if dragging == Some(true) {
+                        workbench.field_mouse_move(id, event.position);
+                        workbench.caret_moved(id, cx);
+                    }
+                }),
+            )
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(move |workbench, _event: &MouseUpEvent, _window, _cx| {
@@ -193,7 +247,10 @@ fn caret_row(layout: &gpui::TextLayout, cursor: usize) -> (usize, usize) {
     let top = f32::from(layout.bounds().origin.y);
     let rows = ((f32::from(layout.bounds().size.height) / height).round() as usize).max(1);
     let row = match layout.position_for_index(cursor) {
-        Some(position) => (((f32::from(position.y) - top) / height + 0.01).floor().max(0.0) as usize).min(rows - 1),
+        Some(position) => (((f32::from(position.y) - top) / height + 0.01)
+            .floor()
+            .max(0.0) as usize)
+            .min(rows - 1),
         None => 0,
     };
     (row, rows)

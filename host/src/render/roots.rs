@@ -39,7 +39,12 @@ impl ViewRoots {
     /// The build is done: what it reached are the views. Returns the tops that stopped being
     /// one, whose views are no longer drawn.
     pub fn finish(&mut self) -> Vec<NodeId> {
-        let stopped = self.current.iter().filter(|id| !self.building.contains(id)).copied().collect();
+        let stopped = self
+            .current
+            .iter()
+            .filter(|id| !self.building.contains(id))
+            .copied()
+            .collect();
         std::mem::swap(&mut self.current, &mut self.building);
         self.building.clear();
         stopped

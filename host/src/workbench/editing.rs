@@ -34,7 +34,8 @@ fn accepts(node: &Node, text: &str) -> bool {
     if !node.attributes.contains_key("numeric") {
         return true;
     }
-    text.chars().all(|character| character.is_ascii_digit() || matches!(character, '.' | '-' | '+' | 'e'))
+    text.chars()
+        .all(|character| character.is_ascii_digit() || matches!(character, '.' | '-' | '+' | 'e'))
 }
 
 impl Workbench {
@@ -52,7 +53,13 @@ impl Workbench {
     }
 
     /// Writes the field's text back as the node's `value`, and tells the app what happened.
-    pub fn after_edit(&mut self, id: NodeId, input_type: &str, data: Option<&str>, cx: &mut Context<Self>) {
+    pub fn after_edit(
+        &mut self,
+        id: NodeId,
+        input_type: &str,
+        data: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
         let (text, start, end) = {
             let mut fields = self.interaction.fields.borrow_mut();
             let Some(field) = fields.get_mut(&id) else {
@@ -60,7 +67,11 @@ impl Workbench {
             };
             field.applied = Some(field.text.clone());
             let range = field.selection();
-            (field.text.clone(), utf16_offset(&field.text, range.start), utf16_offset(&field.text, range.end))
+            (
+                field.text.clone(),
+                utf16_offset(&field.text, range.start),
+                utf16_offset(&field.text, range.end),
+            )
         };
         if let Some(node) = self.svelte.tree.borrow_mut().nodes.get_mut(&id) {
             node.attributes.insert("value".to_string(), text.clone());
@@ -79,7 +90,13 @@ impl Workbench {
 
     /// Tells the app where a field's cursor and selection are, if it listens and they moved.
     pub fn report_selection(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        let listens = self.svelte.tree.borrow().nodes.get(&id).is_some_and(|node| node.listeners.contains("select"));
+        let listens = self
+            .svelte
+            .tree
+            .borrow()
+            .nodes
+            .get(&id)
+            .is_some_and(|node| node.listeners.contains("select"));
         if !listens {
             return;
         }
@@ -95,7 +112,12 @@ impl Workbench {
             field.reported = Some(now);
             now
         };
-        self.emit(id, "select", json!({ "start": now.0, "end": now.1 }).to_string(), cx);
+        self.emit(
+            id,
+            "select",
+            json!({ "start": now.0, "end": now.1 }).to_string(),
+            cx,
+        );
     }
 
     /// Fires `commit` when the text differs from what it was on focus.
@@ -126,7 +148,13 @@ impl Workbench {
     /// Typed characters normally reach a field through the input method, which is how
     /// accents and composed text arrive; `insert_text` makes the field take them from the
     /// key instead, for scripted typing.
-    pub fn field_key(&mut self, id: NodeId, keystroke: &Keystroke, insert_text: bool, cx: &mut Context<Self>) -> bool {
+    pub fn field_key(
+        &mut self,
+        id: NodeId,
+        keystroke: &Keystroke,
+        insert_text: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.has_field(id) {
             return false;
         }
@@ -166,7 +194,12 @@ impl Workbench {
             "delete" => self.delete(id, false, command, cx),
             "enter" if multiline => self.type_text(id, "\n", "insertLineBreak", cx),
             "enter" => {
-                let value = self.interaction.fields.borrow().get(&id).map(|field| field.text.clone());
+                let value = self
+                    .interaction
+                    .fields
+                    .borrow()
+                    .get(&id)
+                    .map(|field| field.text.clone());
                 self.commit_change(id, cx);
                 if let Some(value) = value {
                     self.emit(id, "submit", json!({ "value": value }).to_string(), cx);
@@ -284,15 +317,34 @@ impl Workbench {
             (text, was_composing)
         };
         if mark && !was_composing {
-            self.emit(id, "compositionstart", json!({ "data": "" }).to_string(), cx);
+            self.emit(
+                id,
+                "compositionstart",
+                json!({ "data": "" }).to_string(),
+                cx,
+            );
         }
         if mark {
-            self.emit(id, "compositionupdate", json!({ "data": accepted }).to_string(), cx);
+            self.emit(
+                id,
+                "compositionupdate",
+                json!({ "data": accepted }).to_string(),
+                cx,
+            );
         }
-        let kind = if mark || was_composing { "insertCompositionText" } else { input_type };
+        let kind = if mark || was_composing {
+            "insertCompositionText"
+        } else {
+            input_type
+        };
         self.after_edit(id, kind, Some(&accepted), cx);
         if !mark && was_composing {
-            self.emit(id, "compositionend", json!({ "data": accepted }).to_string(), cx);
+            self.emit(
+                id,
+                "compositionend",
+                json!({ "data": accepted }).to_string(),
+                cx,
+            );
         }
     }
 
@@ -327,7 +379,11 @@ impl Workbench {
             any
         };
         if changed {
-            let kind = if backwards { "deleteContentBackward" } else { "deleteContentForward" };
+            let kind = if backwards {
+                "deleteContentBackward"
+            } else {
+                "deleteContentForward"
+            };
             self.after_edit(id, kind, None, cx);
         }
     }
@@ -421,11 +477,13 @@ impl Workbench {
                 ClipboardEntry::String(_) => None,
             })
         });
-        let saved = image.and_then(|image| match save_image(&std::env::temp_dir(), image.format, &image.bytes) {
-            Ok(saved) => Some(saved),
-            Err(error) => {
-                eprintln!("svelte-gpui: cannot keep the clipboard's image: {error}");
-                None
+        let saved = image.and_then(|image| {
+            match save_image(&std::env::temp_dir(), image.format, &image.bytes) {
+                Ok(saved) => Some(saved),
+                Err(error) => {
+                    eprintln!("svelte-gpui: cannot keep the clipboard's image: {error}");
+                    None
+                }
             }
         });
         *self.svelte.clipboard.borrow_mut() = text.clone();

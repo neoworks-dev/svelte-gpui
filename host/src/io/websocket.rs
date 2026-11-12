@@ -84,7 +84,11 @@ impl Sockets {
         };
         let protocols: Vec<String> = args["protocols"]
             .as_array()
-            .map(|list| list.iter().filter_map(|protocol| protocol.as_str().map(str::to_string)).collect())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|protocol| protocol.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
         self.forget_finished();
         let poller = match Poller::new() {
@@ -95,15 +99,24 @@ impl Sockets {
             }
         };
         let (sender, receiver) = channel();
-        self.sockets.borrow_mut().insert(call, Handle { commands: sender, waker: poller.clone() });
+        self.sockets.borrow_mut().insert(
+            call,
+            Handle {
+                commands: sender,
+                waker: poller.clone(),
+            },
+        );
         let thread_sink = sink.clone();
-        let spawned = std::thread::Builder::new().name(format!("ws-{call}")).spawn(move || {
-            let outcome =
-                catch_unwind(AssertUnwindSafe(|| run(&thread_sink, call, &url, &protocols, &receiver, &poller)));
-            if outcome.is_err() {
-                fail(&thread_sink, call, "the socket thread panicked");
-            }
-        });
+        let spawned = std::thread::Builder::new()
+            .name(format!("ws-{call}"))
+            .spawn(move || {
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    run(&thread_sink, call, &url, &protocols, &receiver, &poller)
+                }));
+                if outcome.is_err() {
+                    fail(&thread_sink, call, "the socket thread panicked");
+                }
+            });
         if spawned.is_err() {
             self.sockets.borrow_mut().remove(&call);
             sink.reject(call, "could not start a thread for the socket");
@@ -155,14 +168,23 @@ impl Sockets {
 
     /// Drops the senders of sockets whose threads have ended.
     fn forget_finished(&self) {
-        self.sockets.borrow_mut().retain(|_, handle| handle.commands.send(Command::Probe).is_ok());
+        self.sockets
+            .borrow_mut()
+            .retain(|_, handle| handle.commands.send(Command::Probe).is_ok());
     }
 }
 
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 /// Runs a socket from connecting to its end, and reports every step.
-fn run(sink: &Sink, call: u64, url: &str, protocols: &[String], commands: &Receiver<Command>, poller: &Poller) {
+fn run(
+    sink: &Sink,
+    call: u64,
+    url: &str,
+    protocols: &[String],
+    commands: &Receiver<Command>,
+    poller: &Poller,
+) {
     let (mut socket, stream, protocol) = match connect(url, protocols) {
         Ok(connected) => connected,
         Err(message) => {
@@ -184,26 +206,51 @@ fn run(sink: &Sink, call: u64, url: &str, protocols: &[String], commands: &Recei
 /// Reports a failure the way a browser does: an error event, then an abnormal close.
 fn fail(sink: &Sink, call: u64, message: &str) {
     sink.event(call, json!({ "type": "error", "message": message }), None);
-    sink.close(call, End { code: ABNORMAL_CLOSE, reason: String::new(), clean: false }.json());
+    sink.close(
+        call,
+        End {
+            code: ABNORMAL_CLOSE,
+            reason: String::new(),
+            clean: false,
+        }
+        .json(),
+    );
 }
 
 /// Opens the connection and returns it, with the TCP stream under it (now non-blocking)
 /// and the sub-protocol the server chose.
 fn connect(url: &str, protocols: &[String]) -> Result<(Socket, TcpStream, String), String> {
-    let mut request = url.into_client_request().map_err(|error| error.to_string())?;
+    let mut request = url
+        .into_client_request()
+        .map_err(|error| error.to_string())?;
     if !protocols.is_empty() {
-        let value = HeaderValue::from_str(&protocols.join(", ")).map_err(|error| error.to_string())?;
-        request.headers_mut().insert("Sec-WebSocket-Protocol", value);
+        let value =
+            HeaderValue::from_str(&protocols.join(", ")).map_err(|error| error.to_string())?;
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", value);
     }
     let uri = request.uri().clone();
-    let host = uri.host().ok_or("the url has no host")?.trim_matches(['[', ']']).to_string();
-    let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
+    let host = uri
+        .host()
+        .ok_or("the url has no host")?
+        .trim_matches(['[', ']'])
+        .to_string();
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("wss") {
+            443
+        } else {
+            80
+        });
     let stream = connect_tcp(&host, port)?;
     // The clone shares the socket, so what is set on it applies to the stream tungstenite owns.
     let shared = stream.try_clone().map_err(|error| error.to_string())?;
-    let (socket, response) =
-        tungstenite::client_tls_with_config(request, stream, None, None).map_err(|error| error.to_string())?;
-    shared.set_nonblocking(true).map_err(|error| error.to_string())?;
+    let (socket, response) = tungstenite::client_tls_with_config(request, stream, None, None)
+        .map_err(|error| error.to_string())?;
+    shared
+        .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
     let protocol = response
         .headers()
         .get("Sec-WebSocket-Protocol")
@@ -217,7 +264,10 @@ fn connect(url: &str, protocols: &[String]) -> Result<(Socket, TcpStream, String
 /// for the handshakes that follow, after which the caller makes it non-blocking.
 fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     let mut last = format!("could not resolve {host}");
-    for address in (host, port).to_socket_addrs().map_err(|error| error.to_string())? {
+    for address in (host, port)
+        .to_socket_addrs()
+        .map_err(|error| error.to_string())?
+    {
         match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
             Ok(stream) => {
                 let _ = stream.set_nodelay(true);
@@ -269,18 +319,31 @@ fn pump(
             Ok(()) => false,
             Err(Error::Io(error)) if is_would_block(error.kind()) => true,
             Err(Error::ConnectionClosed | Error::AlreadyClosed) => {
-                return received_close.unwrap_or(End { code: NO_STATUS, reason: String::new(), clean: true });
+                return received_close.unwrap_or(End {
+                    code: NO_STATUS,
+                    reason: String::new(),
+                    clean: true,
+                });
             }
             Err(error) => return failed(sink, call, &error.to_string()),
         };
         let deadline = close_started.map(|started| started + CLOSE_TIMEOUT);
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return End { code: ABNORMAL_CLOSE, reason: String::new(), clean: false };
+            return End {
+                code: ABNORMAL_CLOSE,
+                reason: String::new(),
+                clean: false,
+            };
         }
         events.clear();
         let waited = poller
             .modify(stream, Event::new(0, true, unwritten))
-            .and_then(|_| poller.wait(&mut events, deadline.map(|deadline| deadline - Instant::now())));
+            .and_then(|_| {
+                poller.wait(
+                    &mut events,
+                    deadline.map(|deadline| deadline - Instant::now()),
+                )
+            });
         if let Err(error) = waited {
             return failed(sink, call, &error.to_string());
         }
@@ -288,20 +351,35 @@ fn pump(
 }
 
 /// Reads every message that has arrived. Returns how the socket ended, if it did.
-fn read_available(sink: &Sink, call: u64, socket: &mut Socket, received_close: &mut Option<End>) -> Option<End> {
+fn read_available(
+    sink: &Sink,
+    call: u64,
+    socket: &mut Socket,
+    received_close: &mut Option<End>,
+) -> Option<End> {
     loop {
         match socket.read() {
-            Ok(Message::Text(text)) => sink.event(call, json!({ "type": "message", "data": text.as_str() }), None),
-            Ok(Message::Binary(bytes)) => {
-                sink.event(call, json!({ "type": "message", "binary": true }), Some(bytes.to_vec()))
-            }
+            Ok(Message::Text(text)) => sink.event(
+                call,
+                json!({ "type": "message", "data": text.as_str() }),
+                None,
+            ),
+            Ok(Message::Binary(bytes)) => sink.event(
+                call,
+                json!({ "type": "message", "binary": true }),
+                Some(bytes.to_vec()),
+            ),
             Ok(Message::Close(frame)) => *received_close = Some(close_of(frame)),
             // Ping, pong and raw frames: tungstenite answers pings itself.
             Ok(_) => {}
             Err(Error::Io(error)) if is_would_block(error.kind()) => return None,
             Err(Error::ConnectionClosed | Error::AlreadyClosed) => {
                 let end = received_close.take();
-                return Some(end.unwrap_or(End { code: NO_STATUS, reason: String::new(), clean: true }));
+                return Some(end.unwrap_or(End {
+                    code: NO_STATUS,
+                    reason: String::new(),
+                    clean: true,
+                }));
             }
             Err(error) => return Some(failed(sink, call, &error.to_string())),
         }
@@ -311,7 +389,11 @@ fn read_available(sink: &Sink, call: u64, socket: &mut Socket, received_close: &
 /// Reports a problem with an open socket, which ends it abnormally.
 fn failed(sink: &Sink, call: u64, problem: &str) -> End {
     sink.event(call, json!({ "type": "error", "message": problem }), None);
-    End { code: ABNORMAL_CLOSE, reason: String::new(), clean: false }
+    End {
+        code: ABNORMAL_CLOSE,
+        reason: String::new(),
+        clean: false,
+    }
 }
 
 /// Writes everything the app queued. Returns what went wrong, if anything.
@@ -346,8 +428,16 @@ fn send_queued(
 
 fn close_of(frame: Option<CloseFrame>) -> End {
     match frame {
-        Some(frame) => End { code: u16::from(frame.code), reason: frame.reason.to_string(), clean: true },
-        None => End { code: NO_STATUS, reason: String::new(), clean: true },
+        Some(frame) => End {
+            code: u16::from(frame.code),
+            reason: frame.reason.to_string(),
+            clean: true,
+        },
+        None => End {
+            code: NO_STATUS,
+            reason: String::new(),
+            clean: true,
+        },
     }
 }
 

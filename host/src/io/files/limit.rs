@@ -21,7 +21,11 @@ pub struct Limit {
 
 impl Limit {
     pub fn new(operator: Option<Vec<PathBuf>>) -> Self {
-        Limit { declared: None, operator, picked: Vec::new() }
+        Limit {
+            declared: None,
+            operator,
+            picked: Vec::new(),
+        }
     }
 
     /// Sets the app's limit. It can be set once; a second attempt fails, so code that runs
@@ -46,7 +50,8 @@ impl Limit {
     pub fn permits(&self, path: &Path) -> bool {
         let inside = |roots: &Vec<PathBuf>| roots.iter().any(|root| path.starts_with(root));
         self.picked.iter().any(|root| path.starts_with(root))
-            || (self.declared.as_ref().is_none_or(inside) && self.operator.as_ref().is_none_or(inside))
+            || (self.declared.as_ref().is_none_or(inside)
+                && self.operator.as_ref().is_none_or(inside))
     }
 }
 
@@ -61,7 +66,9 @@ enum Step {
 fn steps(path: &Path) -> VecDeque<Step> {
     path.components()
         .filter_map(|component| match component {
-            Component::Prefix(_) | Component::RootDir => Some(Step::Start(component.as_os_str().to_owned())),
+            Component::Prefix(_) | Component::RootDir => {
+                Some(Step::Start(component.as_os_str().to_owned()))
+            }
             Component::CurDir => None,
             Component::ParentDir => Some(Step::Parent),
             Component::Normal(name) => Some(Step::Name(name.to_owned())),
@@ -113,7 +120,12 @@ pub fn canonical(path: &Path, follow_last: bool) -> PathBuf {
 
 /// Where `path` points, if it is a symbolic link that may still be followed.
 fn link_target(path: &Path, links: usize) -> Option<PathBuf> {
-    if links >= MOST_LINKS || !std::fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
+    if links >= MOST_LINKS
+        || !std::fs::symlink_metadata(path)
+            .ok()?
+            .file_type()
+            .is_symlink()
+    {
         return None;
     }
     std::fs::read_link(path).ok()

@@ -34,12 +34,18 @@ pub struct CommandError {
 
 impl CommandError {
     pub fn new(message: impl Into<String>) -> Self {
-        CommandError { message: message.into(), code: None }
+        CommandError {
+            message: message.into(),
+            code: None,
+        }
     }
 
     /// A failure with a code, such as `NotFound`, that the app can tell apart.
     pub fn with_code(code: impl Into<String>, message: impl Into<String>) -> Self {
-        CommandError { message: message.into(), code: Some(code.into()) }
+        CommandError {
+            message: message.into(),
+            code: Some(code.into()),
+        }
     }
 }
 
@@ -92,13 +98,19 @@ impl From<()> for Output {
 
 impl From<Vec<u8>> for Output {
     fn from(bytes: Vec<u8>) -> Self {
-        Output { json: Value::Null, bytes: Some(bytes) }
+        Output {
+            json: Value::Null,
+            bytes: Some(bytes),
+        }
     }
 }
 
 impl From<(Value, Vec<u8>)> for Output {
     fn from((json, bytes): (Value, Vec<u8>)) -> Self {
-        Output { json, bytes: Some(bytes) }
+        Output {
+            json,
+            bytes: Some(bytes),
+        }
     }
 }
 
@@ -120,7 +132,10 @@ pub struct Commands {
 
 impl fmt::Debug for Commands {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Commands").field("names", &self.names()).finish()
+        formatter
+            .debug_struct("Commands")
+            .field("names", &self.names())
+            .finish()
     }
 }
 
@@ -139,12 +154,18 @@ impl Commands {
     ///     Ok::<_, String>(serde_json::json!(format!("Hello, {name}!")))
     /// });
     /// ```
-    pub fn command<R, E>(self, name: &str, handler: impl Fn(Value) -> Result<R, E> + Send + Sync + 'static) -> Self
+    pub fn command<R, E>(
+        self,
+        name: &str,
+        handler: impl Fn(Value) -> Result<R, E> + Send + Sync + 'static,
+    ) -> Self
     where
         R: Into<Output>,
         E: Into<CommandError>,
     {
-        self.register(name, move |input| handler(input.args).map(Into::into).map_err(Into::into))
+        self.register(name, move |input| {
+            handler(input.args).map(Into::into).map_err(Into::into)
+        })
     }
 
     /// Like [`command`](Self::command), and also gets the bytes the app passed, if any.
@@ -157,7 +178,11 @@ impl Commands {
         R: Into<Output>,
         E: Into<CommandError>,
     {
-        self.register(name, move |input| handler(input.args, input.bytes).map(Into::into).map_err(Into::into))
+        self.register(name, move |input| {
+            handler(input.args, input.bytes)
+                .map(Into::into)
+                .map_err(Into::into)
+        })
     }
 
     /// A command written as an `async` function. Its future runs to completion on the
@@ -172,7 +197,9 @@ impl Commands {
         E: Into<CommandError>,
     {
         self.register(name, move |input| {
-            futures::executor::block_on(handler(input.args)).map(Into::into).map_err(Into::into)
+            futures::executor::block_on(handler(input.args))
+                .map(Into::into)
+                .map_err(Into::into)
         })
     }
 
@@ -185,7 +212,9 @@ impl Commands {
         E: Into<CommandError>,
     {
         self.register(name, move |input| {
-            futures::executor::block_on(handler(input.args, input.bytes)).map(Into::into).map_err(Into::into)
+            futures::executor::block_on(handler(input.args, input.bytes))
+                .map(Into::into)
+                .map_err(Into::into)
         })
     }
 
@@ -209,7 +238,10 @@ impl Commands {
     ) -> Self {
         assert!(!name.is_empty(), "a command needs a name");
         let previous = self.handlers.insert(name.to_string(), Arc::new(handler));
-        assert!(previous.is_none(), "the command {name:?} is registered twice");
+        assert!(
+            previous.is_none(),
+            "the command {name:?} is registered twice"
+        );
         self
     }
 }
@@ -227,7 +259,10 @@ impl Router {
     /// numbers mean nothing to this one, are dropped.
     pub fn new(commands: Commands, sink: &Sink) -> Self {
         commands.emitter.attach(sink.clone());
-        Router { handlers: Arc::new(commands.handlers), emitter: commands.emitter }
+        Router {
+            handlers: Arc::new(commands.handlers),
+            emitter: commands.emitter,
+        }
     }
 
     /// `invoke`, `events.listen` and `events.unlisten`.
@@ -249,15 +284,20 @@ impl Router {
             sink.reject_with_code(call, "UnknownCommand", self.unknown(&name));
             return;
         };
-        let input = Input { args: args["args"].take(), bytes };
+        let input = Input {
+            args: args["args"].take(),
+            bytes,
+        };
         let reply = sink.clone();
-        let spawned = std::thread::Builder::new().name(format!("command-{name}")).spawn(move || {
-            match catch_unwind(AssertUnwindSafe(|| handler(input))) {
-                Ok(Ok(output)) => answer(&reply, call, output),
-                Ok(Err(error)) => fail(&reply, call, error),
-                Err(panic) => fail(&reply, call, panicked(&name, panic.as_ref())),
-            }
-        });
+        let spawned = std::thread::Builder::new()
+            .name(format!("command-{name}"))
+            .spawn(
+                move || match catch_unwind(AssertUnwindSafe(|| handler(input))) {
+                    Ok(Ok(output)) => answer(&reply, call, output),
+                    Ok(Err(error)) => fail(&reply, call, error),
+                    Err(panic) => fail(&reply, call, panicked(&name, panic.as_ref())),
+                },
+            );
         if spawned.is_err() {
             sink.reject(call, "could not start a thread for the command");
         }
@@ -268,9 +308,14 @@ impl Router {
         let mut names: Vec<&str> = self.handlers.keys().map(String::as_str).collect();
         names.sort();
         if names.is_empty() {
-            return format!("there is no Rust command named {name:?}: this app registers no commands");
+            return format!(
+                "there is no Rust command named {name:?}: this app registers no commands"
+            );
         }
-        format!("there is no Rust command named {name:?}; the app registers {}", names.join(", "))
+        format!(
+            "there is no Rust command named {name:?}; the app registers {}",
+            names.join(", ")
+        )
     }
 
     fn listen(&self, sink: &Sink, call: u64, args: &Value) {
@@ -310,7 +355,10 @@ fn panicked(name: &str, panic: &(dyn std::any::Any + Send)) -> CommandError {
         .map(|text| text.to_string())
         .or_else(|| panic.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "no message".to_string());
-    CommandError::with_code("Panicked", format!("the command {name:?} panicked: {detail}"))
+    CommandError::with_code(
+        "Panicked",
+        format!("the command {name:?} panicked: {detail}"),
+    )
 }
 
 #[derive(Default)]
@@ -351,7 +399,9 @@ impl Emitter {
     fn send(&self, name: &str, payload: Value, bytes: Option<Vec<u8>>) {
         let (sink, streams) = {
             let listeners = self.lock();
-            let (Some(sink), Some(streams)) = (listeners.sink.clone(), listeners.streams.get(name).cloned()) else {
+            let (Some(sink), Some(streams)) =
+                (listeners.sink.clone(), listeners.streams.get(name).cloned())
+            else {
                 return;
             };
             (sink, streams)
@@ -368,7 +418,11 @@ impl Emitter {
     }
 
     fn subscribe(&self, name: &str, stream: u64) {
-        self.lock().streams.entry(name.to_string()).or_default().push(stream);
+        self.lock()
+            .streams
+            .entry(name.to_string())
+            .or_default()
+            .push(stream);
     }
 
     fn unsubscribe(&self, stream: u64) {
@@ -380,6 +434,8 @@ impl Emitter {
     }
 
     fn lock(&self) -> MutexGuard<'_, Listeners> {
-        self.listeners.lock().unwrap_or_else(PoisonError::into_inner)
+        self.listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }

@@ -74,7 +74,10 @@ impl Images {
             return state.clone();
         }
         let state = self.start(source);
-        self.states.lock().expect("image states").insert(source.to_string(), state.clone());
+        self.states
+            .lock()
+            .expect("image states")
+            .insert(source.to_string(), state.clone());
         state
     }
 
@@ -85,7 +88,11 @@ impl Images {
         if source.starts_with("http://") || source.starts_with("https://") {
             return self.fetch(source);
         }
-        let path = if source.starts_with('/') { PathBuf::from(source) } else { self.base.join(source) };
+        let path = if source.starts_with('/') {
+            PathBuf::from(source)
+        } else {
+            self.base.join(source)
+        };
         if path.is_file() {
             return ImageState::Ready(path);
         }
@@ -148,7 +155,10 @@ impl Images {
             .ok()
             .and_then(|reader| reader.with_guessed_format().ok())
             .and_then(|reader| reader.into_dimensions().ok());
-        self.sizes.lock().expect("image sizes").insert(path.clone(), size);
+        self.sizes
+            .lock()
+            .expect("image sizes")
+            .insert(path.clone(), size);
         size
     }
 
@@ -167,7 +177,10 @@ impl Images {
         if let Some(state) = self.states.lock().expect("image states").get(&key) {
             return state.clone();
         }
-        self.states.lock().expect("image states").insert(key.clone(), ImageState::Loading);
+        self.states
+            .lock()
+            .expect("image states")
+            .insert(key.clone(), ImageState::Loading);
         let target = self.cache_path(&key);
         let source = path.clone();
         let states = self.states.clone();
@@ -216,11 +229,16 @@ fn shrink(source: &PathBuf, target: &PathBuf, width: u32) -> bool {
     };
     let height = (decoded.height() as f64 * width as f64 / decoded.width() as f64).max(1.0) as u32;
     let resized = decoded.resize_exact(width, height, image::imageops::FilterType::Triangle);
-    resized.save_with_format(target, image::ImageFormat::Png).is_ok()
+    resized
+        .save_with_format(target, image::ImageFormat::Png)
+        .is_ok()
 }
 
 fn download(url: &str, path: &PathBuf) -> bool {
-    let Ok(response) = ureq::get(url).timeout(std::time::Duration::from_secs(10)).call() else {
+    let Ok(response) = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .call()
+    else {
         return false;
     };
     let mut bytes = Vec::new();
@@ -266,7 +284,8 @@ mod tests {
 
     /// A fresh directory of this test's own, so runs never share cache files.
     fn scratch(name: &str) -> PathBuf {
-        let directory = std::env::temp_dir().join(format!("svelte-gpui-images-{name}-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("svelte-gpui-images-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).expect("scratch directory");
         directory
@@ -278,20 +297,30 @@ mod tests {
     fn a_finished_scaling_job_wakes_the_window() {
         let directory = scratch("scaled");
         let wide = directory.join("wide.png");
-        image::RgbImage::new(400, 10).save(&wide).expect("write the picture");
+        image::RgbImage::new(400, 10)
+            .save(&wide)
+            .expect("write the picture");
         let images = Images::with_cache(directory.clone(), directory.join("cache"));
         let mut wakeups = images.take_wakeups().expect("the receiver is there once");
-        assert!(images.take_wakeups().is_none(), "there is only one receiver");
+        assert!(
+            images.take_wakeups().is_none(),
+            "there is only one receiver"
+        );
 
         assert_eq!(images.scaled(&wide, 64), ImageState::Loading);
 
         let deadline = Instant::now() + Duration::from_secs(10);
         while wakeups.try_recv().is_err() {
-            assert!(Instant::now() < deadline, "the job finished without waking the window");
+            assert!(
+                Instant::now() < deadline,
+                "the job finished without waking the window"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         match images.scaled(&wide, 64) {
-            ImageState::Ready(scaled) => assert_ne!(scaled, wide, "the scaled copy is a file of its own"),
+            ImageState::Ready(scaled) => {
+                assert_ne!(scaled, wide, "the scaled copy is a file of its own")
+            }
             other => panic!("expected the scaled copy, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(directory);
@@ -302,7 +331,9 @@ mod tests {
     fn a_small_picture_needs_no_job_and_no_wake() {
         let directory = scratch("small");
         let small = directory.join("small.png");
-        image::RgbImage::new(32, 32).save(&small).expect("write the picture");
+        image::RgbImage::new(32, 32)
+            .save(&small)
+            .expect("write the picture");
         let images = Images::with_cache(directory.clone(), directory.join("cache"));
         let mut wakeups = images.take_wakeups().expect("the receiver is there once");
 

@@ -40,11 +40,19 @@ fn split_step(step: &str) -> Parts {
     let rest: Vec<String> = fields.collect();
     if LAST_COLON.contains(&action.as_str()) && rest.len() >= 2 {
         let (argument, target) = rest.split_last().unwrap();
-        return Parts { action, target: target.join(":"), argument: argument.clone() };
+        return Parts {
+            action,
+            target: target.join(":"),
+            argument: argument.clone(),
+        };
     }
     let target = rest.first().cloned().unwrap_or_default();
     let argument = rest.iter().skip(1).cloned().collect::<Vec<_>>().join(":");
-    Parts { action, target, argument }
+    Parts {
+        action,
+        target,
+        argument,
+    }
 }
 
 /// What the scripted steps did: how many ran, and which of them could not be carried out.
@@ -72,9 +80,16 @@ impl StepLog {
         if total == 0 {
             return Vec::new();
         }
-        let mut line = format!("steps: {} of {total} ran, {} failed", self.ran, self.failures.len());
+        let mut line = format!(
+            "steps: {} of {total} ran, {} failed",
+            self.ran,
+            self.failures.len()
+        );
         if self.ran < total {
-            line += &format!(", {} never ran because the run ended first", total - self.ran);
+            line += &format!(
+                ", {} never ran because the run ended first",
+                total - self.ran
+            );
         }
         let mut lines = vec![line];
         for (number, step, why) in &self.failures {
@@ -90,8 +105,10 @@ fn pointer_argument(argument: &str) -> Result<(f32, f32, i32), String> {
         return Ok((0.0, 0.0, 0));
     }
     let numbers: Vec<&str> = argument.split(',').map(str::trim).collect();
-    let number =
-        |text: &str| text.parse::<f32>().map_err(|_| format!("cannot read {text:?} as a number in {argument:?}"));
+    let number = |text: &str| {
+        text.parse::<f32>()
+            .map_err(|_| format!("cannot read {text:?} as a number in {argument:?}"))
+    };
     match numbers.as_slice() {
         [x, y] => Ok((number(x)?, number(y)?, 0)),
         [x, y, button] => Ok((number(x)?, number(y)?, number(button)? as i32)),
@@ -121,8 +138,17 @@ impl Workbench {
         }
     }
 
-    fn carry_out_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
-        let Parts { action, target: needle, argument } = split_step(step);
+    fn carry_out_step(
+        &mut self,
+        step: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Parts {
+            action,
+            target: needle,
+            argument,
+        } = split_step(step);
         let (action, needle, argument) = (action.as_str(), needle.as_str(), argument.as_str());
         if action == "wait" {
             return Ok(());
@@ -132,13 +158,19 @@ impl Workbench {
             return Ok(());
         }
         if action == "frames" {
-            let frames = needle.parse().map_err(|_| format!("cannot read {needle:?} as a number of frames"))?;
+            let frames = needle
+                .parse()
+                .map_err(|_| format!("cannot read {needle:?} as a number of frames"))?;
             self.frame_times.clear();
             self.frame_target = frames;
             cx.notify();
             return Ok(());
         }
-        if matches!(action, "press" | "click" | "hover" | "unhover" | "focus" | "poke") && !argument.is_empty() {
+        if matches!(
+            action,
+            "press" | "click" | "hover" | "unhover" | "focus" | "poke"
+        ) && !argument.is_empty()
+        {
             return Err(format!(
                 "{action} takes no argument, but got {argument:?}; a colon in the target is written \\:"
             ));
@@ -170,7 +202,12 @@ impl Workbench {
             } else {
                 self.listening_ancestor(id, action)
             };
-            self.run_pointer_step(action, id, if argument.is_empty() { "0,0" } else { argument }, cx);
+            self.run_pointer_step(
+                action,
+                id,
+                if argument.is_empty() { "0,0" } else { argument },
+                cx,
+            );
             self.dirty_all_views(cx);
             cx.notify();
             return Ok(());
@@ -179,12 +216,22 @@ impl Workbench {
             "click" | "press" => {
                 let target = self.listening_ancestor(id, "press");
                 // A real click goes down first, which overlays opened elsewhere hear as an outside press.
-                let middle = self.interaction.bounds.borrow().get(&target).map(|bounds| bounds.center());
+                let middle = self
+                    .interaction
+                    .bounds
+                    .borrow()
+                    .get(&target)
+                    .map(|bounds| bounds.center());
                 if let Some(middle) = middle {
                     self.simulate_press_outside(middle, 0, cx);
                 }
                 self.press_focus(id, window);
-                self.emit(target, "press", "{\"x\":0,\"y\":0,\"button\":0,\"clicks\":1}".to_string(), cx);
+                self.emit(
+                    target,
+                    "press",
+                    "{\"x\":0,\"y\":0,\"button\":0,\"clicks\":1}".to_string(),
+                    cx,
+                );
             }
             "focus" => {
                 let command = Command::Focus(self.focusable_ancestor(id));
@@ -215,8 +262,11 @@ impl Workbench {
                 self.carry_out(&command, window, cx);
                 for character in argument.chars() {
                     let text = character.to_string();
-                    let keystroke =
-                        Keystroke { modifiers: Default::default(), key: text.clone(), key_char: Some(text) };
+                    let keystroke = Keystroke {
+                        modifiers: Default::default(),
+                        key: text.clone(),
+                        key_char: Some(text),
+                    };
                     self.handle_key(id, &keystroke, false, true, cx);
                 }
             }
@@ -229,19 +279,23 @@ impl Workbench {
                         self, None, text, None, window, cx,
                     );
                 } else {
-                    <Self as gpui::EntityInputHandler>::replace_text_in_range(self, None, text, window, cx);
+                    <Self as gpui::EntityInputHandler>::replace_text_in_range(
+                        self, None, text, window, cx,
+                    );
                 }
             }
             "key" => {
-                let keystroke =
-                    Keystroke::parse(argument).map_err(|_| format!("cannot read {argument:?} as a keystroke"))?;
+                let keystroke = Keystroke::parse(argument)
+                    .map_err(|_| format!("cannot read {argument:?} as a keystroke"))?;
                 self.handle_key(id, &keystroke, false, true, cx);
             }
             "scroll" => {
-                let pixels: f32 =
-                    argument.parse().map_err(|_| format!("cannot read {argument:?} as a number of pixels"))?;
+                let pixels: f32 = argument
+                    .parse()
+                    .map_err(|_| format!("cannot read {argument:?} as a number of pixels"))?;
                 let target = self.scrollable_ancestor(id);
-                self.queued.push((Command::ScrollTo(target, 0.0, pixels), 20));
+                self.queued
+                    .push((Command::ScrollTo(target, 0.0, pixels), 20));
             }
             _ => return Err(format!("unknown step {action:?}")),
         }
@@ -253,7 +307,9 @@ impl Workbench {
     /// `down` presses on an element, which then holds the pointer; `move` and `up` go to the
     /// element holding it. The argument is the position in the window as `x,y`, and optionally the button after it as `x,y,2`.
     fn run_pointer_step(&mut self, action: &str, id: NodeId, at: &str, cx: &mut Context<Self>) {
-        let mut numbers = at.split(',').map(|number| number.trim().parse::<f32>().unwrap_or(0.0));
+        let mut numbers = at
+            .split(',')
+            .map(|number| number.trim().parse::<f32>().unwrap_or(0.0));
         let (x, y) = (numbers.next().unwrap_or(0.0), numbers.next().unwrap_or(0.0));
         // A third number names the button: 0 left (the default), 1 middle, 2 right.
         let button = numbers.next().unwrap_or(0.0) as i32;
@@ -296,7 +352,9 @@ impl Workbench {
         let mut current = Some(id);
         while let Some(candidate) = current {
             let node = tree.nodes.get(&candidate);
-            if node.is_some_and(|node| node.listeners.contains("down") && render::takes_button(node, button)) {
+            if node.is_some_and(|node| {
+                node.listeners.contains("down") && render::takes_button(node, button)
+            }) {
                 return candidate;
             }
             current = node.and_then(|node| node.parent);
@@ -372,8 +430,10 @@ impl Workbench {
         loop {
             let node = tree.nodes.get(&current)?;
             let next = node.children.iter().find(|child| {
-                matches!(tree.nodes.get(child).map(|n| &n.kind), Some(Kind::Element { .. }))
-                    && tree.text_content(**child).contains(needle)
+                matches!(
+                    tree.nodes.get(child).map(|n| &n.kind),
+                    Some(Kind::Element { .. })
+                ) && tree.text_content(**child).contains(needle)
             });
             match next {
                 Some(child) => current = *child,
@@ -386,8 +446,16 @@ impl Workbench {
 /// The keystroke typing one character makes.
 fn typed_keystroke(character: char) -> Keystroke {
     let text = character.to_string();
-    let key = if character == ' ' { "space".to_string() } else { text.clone() };
-    Keystroke { modifiers: Default::default(), key, key_char: Some(text) }
+    let key = if character == ' ' {
+        "space".to_string()
+    } else {
+        text.clone()
+    };
+    Keystroke {
+        modifiers: Default::default(),
+        key,
+        key_char: Some(text),
+    }
 }
 
 #[cfg(test)]
@@ -395,7 +463,11 @@ mod tests {
     use super::*;
 
     fn split(step: &str) -> (String, String, String) {
-        let Parts { action, target, argument } = split_step(step);
+        let Parts {
+            action,
+            target,
+            argument,
+        } = split_step(step);
         (action, target, argument)
     }
 
@@ -407,25 +479,46 @@ mod tests {
     fn plain_steps_split_as_before() {
         assert_eq!(split("press:Save"), parts("press", "Save", ""));
         assert_eq!(split("wait"), parts("wait", "", ""));
-        assert_eq!(split("type:@placeholder=Name:Ada"), parts("type", "@placeholder=Name", "Ada"));
+        assert_eq!(
+            split("type:@placeholder=Name:Ada"),
+            parts("type", "@placeholder=Name", "Ada")
+        );
         assert_eq!(split("type:Name:a:b"), parts("type", "Name", "a:b"));
-        assert_eq!(split("down:Canvas:10,20,2"), parts("down", "Canvas", "10,20,2"));
+        assert_eq!(
+            split("down:Canvas:10,20,2"),
+            parts("down", "Canvas", "10,20,2")
+        );
         assert_eq!(split("frames:30"), parts("frames", "30", ""));
     }
 
     #[test]
     fn a_target_with_a_colon_splits_from_the_end_for_steps_that_end_in_their_argument() {
-        assert_eq!(split("key:echo #1: hello:down"), parts("key", "echo #1: hello", "down"));
-        assert_eq!(split("scroll:Time 12:30:400"), parts("scroll", "Time 12:30", "400"));
+        assert_eq!(
+            split("key:echo #1: hello:down"),
+            parts("key", "echo #1: hello", "down")
+        );
+        assert_eq!(
+            split("scroll:Time 12:30:400"),
+            parts("scroll", "Time 12:30", "400")
+        );
         assert_eq!(split("down:12:30:5,6"), parts("down", "12:30", "5,6"));
     }
 
     #[test]
     fn an_escaped_colon_does_not_split() {
-        assert_eq!(split(r"press:echo #1\: hello"), parts("press", "echo #1: hello", ""));
-        assert_eq!(split(r"type:Time 12\:30:ok"), parts("type", "Time 12:30", "ok"));
+        assert_eq!(
+            split(r"press:echo #1\: hello"),
+            parts("press", "echo #1: hello", "")
+        );
+        assert_eq!(
+            split(r"type:Time 12\:30:ok"),
+            parts("type", "Time 12:30", "ok")
+        );
         assert_eq!(split(r"key:a\:b:enter"), parts("key", "a:b", "enter"));
-        assert_eq!(split(r"press:@href=http\://x"), parts("press", "@href=http://x", ""));
+        assert_eq!(
+            split(r"press:@href=http\://x"),
+            parts("press", "@href=http://x", "")
+        );
     }
 
     #[test]
@@ -462,7 +555,11 @@ mod tests {
         let mut log = StepLog::default();
         assert_eq!(log.begin(), 1);
         assert_eq!(log.begin(), 2);
-        log.failures.push((2, "press:Save".to_string(), "nothing matches \"Save\"".to_string()));
+        log.failures.push((
+            2,
+            "press:Save".to_string(),
+            "nothing matches \"Save\"".to_string(),
+        ));
         assert!(log.failed(2));
         assert_eq!(
             log.summary(2),
@@ -478,7 +575,10 @@ mod tests {
         let mut log = StepLog::default();
         log.begin();
         assert!(log.failed(3));
-        assert_eq!(log.summary(3), vec!["steps: 1 of 3 ran, 0 failed, 2 never ran because the run ended first"]);
+        assert_eq!(
+            log.summary(3),
+            vec!["steps: 1 of 3 ran, 0 failed, 2 never ran because the run ended first"]
+        );
     }
 
     #[test]

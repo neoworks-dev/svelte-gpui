@@ -93,29 +93,58 @@ impl AppError {
             let Some(frame) = parse_frame(line) else {
                 continue;
             };
-            let origin = map.zip(frame.position).and_then(|(map, (line, column))| map.origin(line, column));
+            let origin = map
+                .zip(frame.position)
+                .and_then(|(map, (line, column))| map.origin(line, column));
             let (place, in_app) = match &origin {
-                Some(origin) => {
-                    (format!("{}:{}:{}", shown(&origin.path, base), origin.line, origin.column), is_app(&origin.path))
-                }
+                Some(origin) => (
+                    format!(
+                        "{}:{}:{}",
+                        shown(&origin.path, base),
+                        origin.line,
+                        origin.column
+                    ),
+                    is_app(&origin.path),
+                ),
                 None => (frame.file, false),
             };
             if let (Some(origin), Some(map)) = (&origin, map) {
                 if in_app && code.is_empty() {
                     code = code_around(map, origin);
                 }
-                if component.is_none() && origin.path.extension().is_some_and(|extension| extension == "svelte") {
-                    component = origin.path.file_name().map(|name| name.to_string_lossy().to_string());
+                if component.is_none()
+                    && origin
+                        .path
+                        .extension()
+                        .is_some_and(|extension| extension == "svelte")
+                {
+                    component = origin
+                        .path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string());
                 }
             }
-            frames.push(Frame { function: frame.function, place, in_app });
+            frames.push(Frame {
+                function: frame.function,
+                place,
+                in_app,
+            });
         }
-        AppError { kind, message: report.message, frames, component, code, count: 1 }
+        AppError {
+            kind,
+            message: report.message,
+            frames,
+            component,
+            code,
+            count: 1,
+        }
     }
 
     /// Whether `other` is the same error happening again, which is counted instead of listed.
     pub fn repeats(&self, other: &AppError) -> bool {
-        self.kind == other.kind && self.message == other.message && self.frames.first() == other.frames.first()
+        self.kind == other.kind
+            && self.message == other.message
+            && self.frames.first() == other.frames.first()
     }
 
     /// The error as plain text, for the log file.
@@ -170,10 +199,22 @@ fn parse_frame(line: &str) -> Option<ParsedFrame> {
     let line_number = parts.next().and_then(|part| part.parse::<usize>().ok());
     let file = parts.next().unwrap_or(location).to_string();
     let position = line_number.zip(column);
-    let file = if position.is_some() { file } else { location.to_string() };
+    let file = if position.is_some() {
+        file
+    } else {
+        location.to_string()
+    };
     // A bundle kept as bytecode has no line tables, so its frames name the function and no place.
-    let file = if file == "<null>" { "bundle without line numbers".to_string() } else { file };
-    Some(ParsedFrame { function, file, position })
+    let file = if file == "<null>" {
+        "bundle without line numbers".to_string()
+    } else {
+        file
+    };
+    Some(ParsedFrame {
+        function,
+        file,
+        position,
+    })
 }
 
 /// Whether a source file is the app's own, as opposed to a package or this library's runtime.
@@ -200,7 +241,11 @@ fn code_around(map: &SourceMap, origin: &crate::sourcemap::Origin) -> Vec<CodeLi
     (first..=origin.line + CONTEXT_LINES)
         .filter_map(|number| {
             let text = map.source_line(&origin.path, number)?;
-            Some(CodeLine { number, text, current: number == origin.line })
+            Some(CodeLine {
+                number,
+                text,
+                current: number == origin.line,
+            })
         })
         .collect()
 }
@@ -222,9 +267,15 @@ mod tests {
     #[test]
     fn reads_a_frame_with_and_without_a_name() {
         let named = parse_frame("    at press (bundle:12:34)").expect("a frame");
-        assert_eq!((named.function.as_str(), named.file.as_str(), named.position), ("press", "bundle", Some((12, 34))));
+        assert_eq!(
+            (named.function.as_str(), named.file.as_str(), named.position),
+            ("press", "bundle", Some((12, 34)))
+        );
         let anonymous = parse_frame("    at bundle:5:6").expect("a frame");
-        assert_eq!((anonymous.function.as_str(), anonymous.position), ("<anonymous>", Some((5, 6))));
+        assert_eq!(
+            (anonymous.function.as_str(), anonymous.position),
+            ("<anonymous>", Some((5, 6)))
+        );
         let native = parse_frame("    at map (native)").expect("a frame");
         assert_eq!((native.file.as_str(), native.position), ("native", None));
         assert!(parse_frame("not a frame").is_none());
@@ -232,12 +283,18 @@ mod tests {
 
     #[test]
     fn counts_the_same_error_once() {
-        let report = Report { message: "boom".into(), stack: "    at a (bundle:1:1)".into() };
+        let report = Report {
+            message: "boom".into(),
+            stack: "    at a (bundle:1:1)".into(),
+        };
         let first = AppError::explain(ErrorKind::Event, report, None, Path::new("/"));
         let mut list = ErrorList::default();
         list.add(first.clone());
         list.add(first);
         assert_eq!(list.errors.len(), 1);
-        assert_eq!((list.errors[0].count, list.total, list.unlogged.len()), (2, 2, 2));
+        assert_eq!(
+            (list.errors[0].count, list.total, list.unlogged.len()),
+            (2, 2, 2)
+        );
     }
 }

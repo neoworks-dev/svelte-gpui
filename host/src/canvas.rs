@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use gpui::{Bounds, Pixels, RenderImage, Window, point, px};
 use serde_json::Value;
-use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect, Stroke, Transform};
+use tiny_skia::{
+    FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect, Stroke, Transform,
+};
 
 use crate::style::parse_colour;
 
@@ -56,7 +58,10 @@ impl Surface {
     /// the app draws in: the window's scale times the zoom the canvas is under. What was drawn
     /// is kept, from the top left, and resampled when the scale changed.
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-        let same = self.pixmap.as_ref().is_some_and(|pixmap| pixmap.width() == width && pixmap.height() == height);
+        let same = self
+            .pixmap
+            .as_ref()
+            .is_some_and(|pixmap| pixmap.width() == width && pixmap.height() == height);
         if (same && self.scale == scale) || width == 0 || height == 0 {
             return;
         }
@@ -66,9 +71,23 @@ impl Surface {
         if let Some(old) = &self.pixmap {
             // A new screen scale or zoom keeps the drawing where it was, resampled until the
             // app draws it again.
-            let factor = if self.scale > 0.0 { scale / self.scale } else { 1.0 };
-            let paint = PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..PixmapPaint::default() };
-            fresh.draw_pixmap(0, 0, old.as_ref(), &paint, Transform::from_scale(factor, factor), None);
+            let factor = if self.scale > 0.0 {
+                scale / self.scale
+            } else {
+                1.0
+            };
+            let paint = PixmapPaint {
+                quality: tiny_skia::FilterQuality::Bilinear,
+                ..PixmapPaint::default()
+            };
+            fresh.draw_pixmap(
+                0,
+                0,
+                old.as_ref(),
+                &paint,
+                Transform::from_scale(factor, factor),
+                None,
+            );
         }
         self.pixmap = Some(fresh);
         self.scale = scale;
@@ -88,10 +107,17 @@ impl Surface {
         let mut bytes = Vec::with_capacity(pixmap.data().len());
         for pixel in pixmap.pixels() {
             let straight = pixel.demultiply();
-            bytes.extend_from_slice(&[straight.blue(), straight.green(), straight.red(), straight.alpha()]);
+            bytes.extend_from_slice(&[
+                straight.blue(),
+                straight.green(),
+                straight.red(),
+                straight.alpha(),
+            ]);
         }
         let buffer = image::RgbaImage::from_raw(pixmap.width(), pixmap.height(), bytes)?;
-        let fresh = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
+        let fresh = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
+            buffer
+        )]));
         if let Some(old) = self.image.replace(fresh.clone()) {
             self.stale.push(old);
         }
@@ -109,13 +135,18 @@ impl Surface {
     fn run(&mut self, parts: &[Value]) {
         let number = |index: usize| parts.get(index).and_then(Value::as_f64).unwrap_or(0.0) as f32;
         let colour = |index: usize| {
-            let rgba = parts.get(index).and_then(Value::as_str).and_then(parse_colour).unwrap_or(gpui::Rgba {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            });
-            tiny_skia::Color::from_rgba(rgba.r, rgba.g, rgba.b, rgba.a).unwrap_or(tiny_skia::Color::WHITE)
+            let rgba = parts
+                .get(index)
+                .and_then(Value::as_str)
+                .and_then(parse_colour)
+                .unwrap_or(gpui::Rgba {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                });
+            tiny_skia::Color::from_rgba(rgba.r, rgba.g, rgba.b, rgba.a)
+                .unwrap_or(tiny_skia::Color::WHITE)
         };
         match parts.first().and_then(Value::as_str).unwrap_or("") {
             "clear" => {
@@ -129,7 +160,12 @@ impl Surface {
                 self.pen = None;
             }
             "begin" => {
-                let pen = Pen { x: number(1), y: number(2), colour: colour(3), width: number(4).max(0.1) };
+                let pen = Pen {
+                    x: number(1),
+                    y: number(2),
+                    colour: colour(3),
+                    width: number(4).max(0.1),
+                };
                 self.dot(pen.x, pen.y, pen.width / 2.0, pen.colour);
                 self.pen = Some(pen);
             }
@@ -145,12 +181,24 @@ impl Surface {
                 }
             }
             "end" => self.pen = None,
-            "line" => self.segment(number(1), number(2), number(3), number(4), colour(5), number(6)),
+            "line" => self.segment(
+                number(1),
+                number(2),
+                number(3),
+                number(4),
+                colour(5),
+                number(6),
+            ),
             "rect" => {
                 let scale = self.scale;
                 if let (Some(pixmap), Some(rect)) = (
                     &mut self.pixmap,
-                    Rect::from_xywh(number(1) * scale, number(2) * scale, number(3) * scale, number(4) * scale),
+                    Rect::from_xywh(
+                        number(1) * scale,
+                        number(2) * scale,
+                        number(3) * scale,
+                        number(4) * scale,
+                    ),
                 ) {
                     pixmap.fill_rect(rect, &paint(colour(5)), Transform::identity(), None);
                 }
@@ -166,12 +214,28 @@ impl Surface {
         let Some(pixmap) = &mut self.pixmap else {
             return;
         };
-        if let Some(path) = PathBuilder::from_circle(x * scale, y * scale, (radius * scale).max(0.5)) {
-            pixmap.fill_path(&path, &paint(colour), FillRule::Winding, Transform::identity(), None);
+        if let Some(path) =
+            PathBuilder::from_circle(x * scale, y * scale, (radius * scale).max(0.5))
+        {
+            pixmap.fill_path(
+                &path,
+                &paint(colour),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
         }
     }
 
-    fn segment(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, colour: tiny_skia::Color, width: f32) {
+    fn segment(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        colour: tiny_skia::Color,
+        width: f32,
+    ) {
         let scale = self.scale;
         let Some(pixmap) = &mut self.pixmap else {
             return;
@@ -182,8 +246,12 @@ impl Surface {
         let Some(path) = builder.finish() else {
             return;
         };
-        let stroke =
-            Stroke { width: width * scale, line_cap: LineCap::Round, line_join: LineJoin::Round, ..Stroke::default() };
+        let stroke = Stroke {
+            width: width * scale,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            ..Stroke::default()
+        };
         pixmap.stroke_path(&path, &paint(colour), &stroke, Transform::identity(), None);
     }
 }
@@ -228,8 +296,17 @@ impl Shapes {
         let number = |index: usize| parts.get(index).and_then(Value::as_f64).unwrap_or(0.0) as f32;
         let at = |index: usize| point(px(number(index)), px(number(index + 1)));
         let colour = |index: usize| {
-            let white = gpui::Rgba { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-            parts.get(index).and_then(Value::as_str).and_then(parse_colour).unwrap_or(white)
+            let white = gpui::Rgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            };
+            parts
+                .get(index)
+                .and_then(Value::as_str)
+                .and_then(parse_colour)
+                .unwrap_or(white)
         };
         match parts.first().and_then(Value::as_str).unwrap_or("") {
             "clear" => {
@@ -239,23 +316,40 @@ impl Shapes {
             }
             "begin" => {
                 self.open = Some(self.list.len());
-                self.list.push(Shape::Stroke { points: vec![at(1)], colour: colour(3), width: number(4).max(0.1) });
+                self.list.push(Shape::Stroke {
+                    points: vec![at(1)],
+                    colour: colour(3),
+                    width: number(4).max(0.1),
+                });
             }
             "to" => {
-                if let Some(Shape::Stroke { points, .. }) = self.open.and_then(|open| self.list.get_mut(open)) {
+                if let Some(Shape::Stroke { points, .. }) =
+                    self.open.and_then(|open| self.list.get_mut(open))
+                {
                     points.push(at(1));
                 }
             }
             "end" => self.open = None,
             "line" => {
                 let points = vec![at(1), at(3)];
-                self.list.push(Shape::Stroke { points, colour: colour(5), width: number(6).max(0.1) });
+                self.list.push(Shape::Stroke {
+                    points,
+                    colour: colour(5),
+                    width: number(6).max(0.1),
+                });
             }
             "rect" => {
                 let bounds = Bounds::new(at(1), gpui::size(px(number(3)), px(number(4))));
-                self.list.push(Shape::Rect { bounds, colour: colour(5) });
+                self.list.push(Shape::Rect {
+                    bounds,
+                    colour: colour(5),
+                });
             }
-            "circle" => self.list.push(Shape::Circle { centre: at(1), radius: number(3), colour: colour(4) }),
+            "circle" => self.list.push(Shape::Circle {
+                centre: at(1),
+                radius: number(3),
+                colour: colour(4),
+            }),
             other => eprintln!("svelte-gpui: unknown canvas command {other:?}"),
         }
     }
@@ -269,17 +363,25 @@ impl Shapes {
         let place = |at: gpui::Point<Pixels>| bounds.origin + at * zoom;
         for shape in &self.list {
             match shape {
-                Shape::Stroke { points, colour, width } if points.len() == 1 => {
+                Shape::Stroke {
+                    points,
+                    colour,
+                    width,
+                } if points.len() == 1 => {
                     paint_dot(place(points[0]), width * zoom / 2.0, *colour, window);
                 }
-                Shape::Stroke { points, colour, width } => {
+                Shape::Stroke {
+                    points,
+                    colour,
+                    width,
+                } => {
                     let width = width * zoom;
                     let options = gpui::StrokeOptions::default()
                         .with_line_width(width)
                         .with_line_cap(lyon::tessellation::LineCap::Round)
                         .with_line_join(lyon::tessellation::LineJoin::Round);
-                    let mut builder =
-                        gpui::PathBuilder::stroke(px(width)).with_style(gpui::PathStyle::Stroke(options));
+                    let mut builder = gpui::PathBuilder::stroke(px(width))
+                        .with_style(gpui::PathStyle::Stroke(options));
                     builder.move_to(place(points[0]));
                     for at in &points[1..] {
                         builder.line_to(place(*at));
@@ -288,10 +390,20 @@ impl Shapes {
                         window.paint_path(path, gpui::Hsla::from(*colour));
                     }
                 }
-                Shape::Rect { bounds: rect, colour } => {
-                    window.paint_quad(gpui::fill(Bounds::new(place(rect.origin), rect.size.map(|side| side * zoom)), *colour));
+                Shape::Rect {
+                    bounds: rect,
+                    colour,
+                } => {
+                    window.paint_quad(gpui::fill(
+                        Bounds::new(place(rect.origin), rect.size.map(|side| side * zoom)),
+                        *colour,
+                    ));
                 }
-                Shape::Circle { centre, radius, colour } => paint_dot(place(*centre), radius * zoom, *colour, window),
+                Shape::Circle {
+                    centre,
+                    radius,
+                    colour,
+                } => paint_dot(place(*centre), radius * zoom, *colour, window),
             }
         }
     }
@@ -299,6 +411,9 @@ impl Shapes {
 
 fn paint_dot(centre: gpui::Point<Pixels>, radius: f32, colour: gpui::Rgba, window: &mut Window) {
     let corner = point(px(radius), px(radius));
-    let bounds = Bounds::new(centre - corner, gpui::size(px(radius * 2.0), px(radius * 2.0)));
+    let bounds = Bounds::new(
+        centre - corner,
+        gpui::size(px(radius * 2.0), px(radius * 2.0)),
+    );
     window.paint_quad(gpui::fill(bounds, colour).corner_radii(px(radius)));
 }

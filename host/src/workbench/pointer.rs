@@ -11,13 +11,21 @@ impl Workbench {
     /// The pointer entered or left an element that tracks it, which restyles it.
     pub(crate) fn hover_changed(&mut self, id: NodeId, hovered: bool, cx: &mut Context<Self>) {
         let mut set = self.interaction.hovered.borrow_mut();
-        let changed = if hovered { set.insert(id) } else { set.remove(&id) };
+        let changed = if hovered {
+            set.insert(id)
+        } else {
+            set.remove(&id)
+        };
         drop(set);
         if !changed {
             return;
         }
         let tree = self.svelte.tree.clone();
-        let listens = tree.borrow().nodes.get(&id).is_some_and(|node| node.listeners.contains("hover"));
+        let listens = tree
+            .borrow()
+            .nodes
+            .get(&id)
+            .is_some_and(|node| node.listeners.contains("hover"));
         if let Some(root) = self.enclosing_view(&tree.borrow(), id) {
             self.dirty_view(root, cx);
         }
@@ -56,7 +64,14 @@ impl Workbench {
             gpui::MouseButton::Middle => 1,
             _ => 2,
         };
-        let detail = render::pointer_detail(id, event.position, event.modifiers, button, event.click_count, self);
+        let detail = render::pointer_detail(
+            id,
+            event.position,
+            event.modifiers,
+            button,
+            event.click_count,
+            self,
+        );
         self.emit(id, "up", detail, cx);
     }
 }

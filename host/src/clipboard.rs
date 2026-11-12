@@ -14,14 +14,25 @@ pub struct ClipboardImage {
 }
 
 /// Writes the image `bytes` in `format` into `dir`, unless an earlier paste already did.
-pub fn save_image(dir: &Path, format: ImageFormat, bytes: &[u8]) -> std::io::Result<ClipboardImage> {
+pub fn save_image(
+    dir: &Path,
+    format: ImageFormat,
+    bytes: &[u8],
+) -> std::io::Result<ClipboardImage> {
     let mut hasher = DefaultHasher::new();
     bytes.hash(&mut hasher);
-    let path = dir.join(format!("svelte-gpui-clipboard-{:016x}.{}", hasher.finish(), extension(format)));
+    let path = dir.join(format!(
+        "svelte-gpui-clipboard-{:016x}.{}",
+        hasher.finish(),
+        extension(format)
+    ));
     if !path.exists() {
         std::fs::write(&path, bytes)?;
     }
-    Ok(ClipboardImage { path: path.to_string_lossy().into_owned(), mime: format.mime_type() })
+    Ok(ClipboardImage {
+        path: path.to_string_lossy().into_owned(),
+        mime: format.mime_type(),
+    })
 }
 
 fn extension(format: ImageFormat) -> &'static str {
@@ -42,7 +53,8 @@ mod tests {
 
     #[test]
     fn the_same_image_is_written_once_under_one_name() {
-        let dir = std::env::temp_dir().join(format!("svelte-gpui-clipboard-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("svelte-gpui-clipboard-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let first = save_image(&dir, ImageFormat::Png, b"not really a png").unwrap();
         let again = save_image(&dir, ImageFormat::Png, b"not really a png").unwrap();

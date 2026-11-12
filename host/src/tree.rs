@@ -98,7 +98,9 @@ impl Tree {
         tree.nodes.insert(
             ROOT,
             Node {
-                kind: Kind::Element { tag: "#root".into() },
+                kind: Kind::Element {
+                    tag: "#root".into(),
+                },
                 parent: None,
                 children: Vec::new(),
                 attributes: HashMap::new(),
@@ -138,7 +140,11 @@ impl Tree {
                 self.create(id, Kind::Text { data });
             }
             SET_TEXT => {
-                if let Some(Node { kind: Kind::Text { data }, .. }) = self.nodes.get_mut(&id) {
+                if let Some(Node {
+                    kind: Kind::Text { data },
+                    ..
+                }) = self.nodes.get_mut(&id)
+                {
                     *data = text_at(parts, 2);
                     self.dirty.insert(id);
                 }
@@ -184,7 +190,10 @@ impl Tree {
             }
             DRAW => {
                 if let Some(Value::Array(command)) = parts.get(2) {
-                    let vector = self.nodes.get(&id).is_some_and(|node| node.attributes.contains_key("vector"));
+                    let vector = self
+                        .nodes
+                        .get(&id)
+                        .is_some_and(|node| node.attributes.contains_key("vector"));
                     let mut surface = self.canvases.entry(id).or_default().borrow_mut();
                     if vector && surface.shapes.is_none() {
                         surface.shapes = Some(Default::default());
@@ -194,12 +203,19 @@ impl Tree {
                     self.dirty.insert(id);
                 }
             }
-            WRITE_CLIPBOARD => self.commands.push(Command::WriteClipboard(text_at(parts, 2))),
+            WRITE_CLIPBOARD => self
+                .commands
+                .push(Command::WriteClipboard(text_at(parts, 2))),
             CALL => {
                 let call = parts.get(2).and_then(Value::as_u64).unwrap_or(0);
                 let method = text_at(parts, 3);
                 let args = text_at(parts, 4);
-                self.commands.push(Command::Call { node: id, call, method, args });
+                self.commands.push(Command::Call {
+                    node: id,
+                    call,
+                    method,
+                    args,
+                });
             }
             _ => eprintln!("svelte-gpui: unknown operation {code}"),
         }
@@ -308,7 +324,11 @@ impl Tree {
         };
         match &node.kind {
             Kind::Text { data } => data.clone(),
-            Kind::Element { .. } => node.children.iter().map(|child| self.text_content(*child)).collect(),
+            Kind::Element { .. } => node
+                .children
+                .iter()
+                .map(|child| self.text_content(*child))
+                .collect(),
         }
     }
 }
@@ -346,7 +366,9 @@ mod tests {
     #[test]
     fn other_primitives_are_not_app_elements() {
         let mut tree = Tree::new();
-        tree.apply(&format!("[[{CREATE_ELEMENT},2,\"g-view\"],[{SET_ATTRIBUTE},2,\"look\",\"{{}}\"]]"));
+        tree.apply(&format!(
+            "[[{CREATE_ELEMENT},2,\"g-view\"],[{SET_ATTRIBUTE},2,\"look\",\"{{}}\"]]"
+        ));
         assert!(tree.changed_elements.is_empty());
     }
 
@@ -363,8 +385,18 @@ mod tests {
         let mut tree = tree_with_element();
         tree.apply(&format!("[[{CALL},2,9,\"add\",\"[10]\"]]"));
         match tree.commands.as_slice() {
-            [Command::Call { node, call, method, args }] => {
-                assert_eq!((*node, *call, method.as_str(), args.as_str()), (2, 9, "add", "[10]"));
+            [
+                Command::Call {
+                    node,
+                    call,
+                    method,
+                    args,
+                },
+            ] => {
+                assert_eq!(
+                    (*node, *call, method.as_str(), args.as_str()),
+                    (2, 9, "add", "[10]")
+                );
             }
             other => panic!("expected one call, got {other:?}"),
         }

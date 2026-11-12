@@ -3,7 +3,9 @@
 use gpui::{CursorStyle, Rgba, SharedString};
 use serde_json::Value;
 
-use super::{Align, Dimension, Easing, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Transition};
+use super::{
+    Align, Dimension, Easing, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Transition,
+};
 
 impl Style {
     /// Sets one property from the style object. Returns false when it is not understood,
@@ -183,7 +185,12 @@ impl Style {
             if value == "auto" {
                 return Some(Dimension::Auto);
             }
-            value.trim_end_matches("px").trim().parse().ok().map(Dimension::Px)
+            value
+                .trim_end_matches("px")
+                .trim()
+                .parse()
+                .ok()
+                .map(Dimension::Px)
         };
         let pixels = |value: &str| value.trim_end_matches("px").trim().parse::<f32>().ok();
         match name {
@@ -220,7 +227,11 @@ fn dimension(value: &Value) -> Option<Dimension> {
             if text == "full" {
                 return Some(Dimension::Percent(100.0));
             }
-            text.strip_suffix('%')?.trim().parse().ok().map(Dimension::Percent)
+            text.strip_suffix('%')?
+                .trim()
+                .parse()
+                .ok()
+                .map(Dimension::Percent)
         }
         _ => None,
     }
@@ -267,7 +278,11 @@ fn sides(value: &Value) -> Sides<Option<Dimension>> {
 
 fn transition(value: &Value) -> Option<Transition> {
     if let Some(duration) = number(value) {
-        return Some(Transition { duration_ms: duration, delay_ms: 0.0, easing: Easing::EASE });
+        return Some(Transition {
+            duration_ms: duration,
+            delay_ms: 0.0,
+            easing: Easing::EASE,
+        });
     }
     let fields = value.as_object()?;
     let easing = match fields.get("easing").and_then(Value::as_str) {
@@ -299,7 +314,12 @@ fn shadows(value: &Value) -> Option<Vec<Shadow>> {
                 y: read("y"),
                 blur: read("blur"),
                 spread: read("spread"),
-                color: fields.get("color").and_then(colour_of).unwrap_or(Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.3 }),
+                color: fields.get("color").and_then(colour_of).unwrap_or(Rgba {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.3,
+                }),
             })
         })
         .collect()
@@ -313,10 +333,19 @@ fn colour_of(value: &Value) -> Option<Rgba> {
 pub fn parse_colour(text: &str) -> Option<Rgba> {
     let text = text.trim();
     if text == "transparent" {
-        return Some(Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.0 });
+        return Some(Rgba {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        });
     }
     if let Some(hex) = text.strip_prefix('#') {
-        let digit = |index: usize| u8::from_str_radix(&hex[index..index + 1], 16).ok().map(|value| value * 17);
+        let digit = |index: usize| {
+            u8::from_str_radix(&hex[index..index + 1], 16)
+                .ok()
+                .map(|value| value * 17)
+        };
         let pair = |index: usize| u8::from_str_radix(&hex[index..index + 2], 16).ok();
         let channels = match hex.len() {
             3 => [digit(0)?, digit(1)?, digit(2)?, 255],
@@ -328,14 +357,22 @@ pub fn parse_colour(text: &str) -> Option<Rgba> {
         let [r, g, b, a] = channels.map(|channel| channel as f32 / 255.0);
         return Some(Rgba { r, g, b, a });
     }
-    let inner = text.strip_prefix("rgba(").or_else(|| text.strip_prefix("rgb("))?.strip_suffix(')')?;
+    let inner = text
+        .strip_prefix("rgba(")
+        .or_else(|| text.strip_prefix("rgb("))?
+        .strip_suffix(')')?;
     let parts: Vec<f32> = inner
         .split([',', ' ', '/'])
         .filter(|part| !part.is_empty())
         .map(|part| part.trim().parse::<f32>().ok())
         .collect::<Option<_>>()?;
     let alpha = parts.get(3).copied().unwrap_or(1.0);
-    Some(Rgba { r: *parts.first()? / 255.0, g: *parts.get(1)? / 255.0, b: *parts.get(2)? / 255.0, a: alpha })
+    Some(Rgba {
+        r: *parts.first()? / 255.0,
+        g: *parts.get(1)? / 255.0,
+        b: *parts.get(2)? / 255.0,
+        a: alpha,
+    })
 }
 
 /// `translate(x, y)`, `translateX(x)` and `translateY(y)` from a CSS transform, in pixels.

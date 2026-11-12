@@ -5,7 +5,10 @@
 
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
-    if let Some(position) = arguments.iter().position(|argument| argument == "--compile-only") {
+    if let Some(position) = arguments
+        .iter()
+        .position(|argument| argument == "--compile-only")
+    {
         compile_only(&arguments[position + 1..]);
         return;
     }

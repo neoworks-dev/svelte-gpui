@@ -48,7 +48,10 @@ impl Field {
     /// The selection in UTF-16 offsets, which is how a script's string indices count.
     pub fn selection_utf16(&self) -> (usize, usize) {
         let range = self.selection();
-        (utf16_offset(&self.text, range.start), utf16_offset(&self.text, range.end))
+        (
+            utf16_offset(&self.text, range.start),
+            utf16_offset(&self.text, range.end),
+        )
     }
 
     pub fn selection(&self) -> std::ops::Range<usize> {
@@ -149,7 +152,10 @@ impl Field {
     pub(crate) fn vertical(&self, direction: f32) -> Option<usize> {
         let layout = self.layout.as_ref()?;
         let origin = layout.position_for_index(self.cursor)?;
-        let target = Point { x: origin.x, y: origin.y + layout.line_height() * direction + layout.line_height() * 0.5 };
+        let target = Point {
+            x: origin.x,
+            y: origin.y + layout.line_height() * direction + layout.line_height() * 0.5,
+        };
         match layout.index_for_position(target) {
             Ok(index) | Err(index) => Some(index.min(self.text.len())),
         }

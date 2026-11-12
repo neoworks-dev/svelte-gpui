@@ -1,7 +1,10 @@
 //! Text: paragraphs gathered from nested `g-text` runs, with what they inherit.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Div, FontWeight, Hsla, IntoElement, Rgba, SharedString, StyledText, div, px, size};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, Hsla, IntoElement, Rgba, SharedString, StyledText, div,
+    px, size,
+};
 
 use super::Painter;
 use super::inline::{InlineBox, InlineFlow};
@@ -50,12 +53,17 @@ impl Inherited {
             font_size: style.font_size.unwrap_or(self.font_size * own_zoom),
             colour: style.color.unwrap_or(self.colour),
             weight: style.font_weight.unwrap_or(self.weight),
-            family: style.font_family.clone().unwrap_or_else(|| self.family.clone()),
+            family: style
+                .font_family
+                .clone()
+                .unwrap_or_else(|| self.family.clone()),
             italic: style.italic.unwrap_or(self.italic),
             underline: style.underline.unwrap_or(self.underline),
             strikethrough: style.strikethrough.unwrap_or(self.strikethrough),
             uppercase: style.uppercase.unwrap_or(self.uppercase),
-            line_height: style.line_height.or(self.line_height.map(|height| height * own_zoom)),
+            line_height: style
+                .line_height
+                .or(self.line_height.map(|height| height * own_zoom)),
             zoom: self.zoom * own_zoom,
         }
     }
@@ -78,7 +86,12 @@ pub(super) fn zoom_text<T: Styled>(mut element: T, style: &Style, inherited: &In
 
 pub(super) const DEFAULT_FONT_SIZE: f32 = 14.0;
 
-pub(super) const DEFAULT_TEXT: Rgba = Rgba { r: 0.957, g: 0.957, b: 0.961, a: 1.0 };
+pub(super) const DEFAULT_TEXT: Rgba = Rgba {
+    r: 0.957,
+    g: 0.957,
+    b: 0.961,
+    a: 1.0,
+};
 
 /// A paragraph as it is gathered: its text, the runs that style it, and the elements in it.
 #[derive(Default)]
@@ -104,21 +117,37 @@ impl Painter<'_> {
         let preserve = node.attributes.contains_key("pre");
         let mut paragraph = Paragraph::default();
         self.flow(id, inherited, preserve, &mut paragraph, cx);
-        let Paragraph { mut text, mut runs, mut boxes } = paragraph;
+        let Paragraph {
+            mut text,
+            mut runs,
+            mut boxes,
+        } = paragraph;
         if !preserve {
             // Whitespace at the ends of the paragraph is template indentation.
             let trimmed_start = text.len() - text.trim_start().len();
             let trimmed_end = text.trim_end().len();
             trim_runs(&mut text, &mut runs, trimmed_start, trimmed_end);
             for inline in &mut boxes {
-                inline.at = inline.at.clamp(trimmed_start, trimmed_end.max(trimmed_start)) - trimmed_start;
+                inline.at = inline
+                    .at
+                    .clamp(trimmed_start, trimmed_end.max(trimmed_start))
+                    - trimmed_start;
             }
         }
         if !boxes.is_empty() {
-            let widest = boxes.iter().map(|inline| f32::from(inline.size.width)).fold(0.0, f32::max);
-            let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
+            let widest = boxes
+                .iter()
+                .map(|inline| f32::from(inline.size.width))
+                .fold(0.0, f32::max);
+            let longest = text
+                .split_whitespace()
+                .map(|word| word.chars().count())
+                .max()
+                .unwrap_or(0);
             let narrowest = widest.max(longest as f32 * inherited.font_size * 0.6);
-            return element.min_w(px(narrowest)).child(InlineFlow::new(text, runs, boxes));
+            return element
+                .min_w(px(narrowest))
+                .child(InlineFlow::new(text, runs, boxes));
         }
         if text.is_empty() {
             return element;
@@ -129,7 +158,11 @@ impl Painter<'_> {
         if !single_line && !preserve && !anywhere {
             // Text may shrink and wrap, but not below its longest word, which GPUI cannot work
             // out for itself and would otherwise break between letters.
-            let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
+            let longest = text
+                .split_whitespace()
+                .map(|word| word.chars().count())
+                .max()
+                .unwrap_or(0);
             if text.chars().any(char::is_whitespace) {
                 element = element.min_w(px(longest as f32 * inherited.font_size * 0.6));
             } else {
@@ -163,13 +196,30 @@ impl Painter<'_> {
             };
             match &child_node.kind {
                 Kind::Text { data } => {
-                    let piece = if preserve { data.clone() } else { collapse(data) };
+                    let piece = if preserve {
+                        data.clone()
+                    } else {
+                        collapse(data)
+                    };
                     // Collapsing continues across pieces, as it would in one string. A box counts
                     // as a word, so the space after one stays.
-                    let box_last = paragraph.boxes.last().is_some_and(|inline| inline.at == paragraph.text.len());
+                    let box_last = paragraph
+                        .boxes
+                        .last()
+                        .is_some_and(|inline| inline.at == paragraph.text.len());
                     let after_space = paragraph.text.ends_with(' ') && !box_last;
-                    let piece = if !preserve && after_space { piece.trim_start().to_string() } else { piece };
-                    push_run(&mut paragraph.text, &mut paragraph.runs, &transform(&piece, inherited), inherited, None);
+                    let piece = if !preserve && after_space {
+                        piece.trim_start().to_string()
+                    } else {
+                        piece
+                    };
+                    push_run(
+                        &mut paragraph.text,
+                        &mut paragraph.runs,
+                        &transform(&piece, inherited),
+                        inherited,
+                        None,
+                    );
                 }
                 Kind::Element { tag } if tag == "g-text" => {
                     let computed = self.computed(*child);
@@ -225,7 +275,11 @@ pub(super) fn push_run(
         font.style = gpui::FontStyle::Italic;
     }
     let line = |on: bool| {
-        on.then(|| gpui::UnderlineStyle { thickness: px(1.0), color: Some(inherited.colour.into()), wavy: false })
+        on.then(|| gpui::UnderlineStyle {
+            thickness: px(1.0),
+            color: Some(inherited.colour.into()),
+            wavy: false,
+        })
     };
     text.push_str(piece);
     runs.push(gpui::TextRun {
@@ -234,14 +288,20 @@ pub(super) fn push_run(
         color: inherited.colour.into(),
         background_color: background.map(Hsla::from),
         underline: line(inherited.underline),
-        strikethrough: inherited
-            .strikethrough
-            .then(|| gpui::StrikethroughStyle { thickness: px(1.0), color: Some(inherited.colour.into()) }),
+        strikethrough: inherited.strikethrough.then(|| gpui::StrikethroughStyle {
+            thickness: px(1.0),
+            color: Some(inherited.colour.into()),
+        }),
     });
 }
 
 /// Cuts a paragraph down to `start..end`, shortening the runs to match.
-pub(super) fn trim_runs(text: &mut String, runs: &mut Vec<gpui::TextRun>, start: usize, end: usize) {
+pub(super) fn trim_runs(
+    text: &mut String,
+    runs: &mut Vec<gpui::TextRun>,
+    start: usize,
+    end: usize,
+) {
     if start == 0 && end == text.len() {
         return;
     }
@@ -252,7 +312,10 @@ pub(super) fn trim_runs(text: &mut String, runs: &mut Vec<gpui::TextRun>, start:
         let run_end = (offset + run.len).min(end);
         offset += run.len;
         if run_end > run_start {
-            kept.push(gpui::TextRun { len: run_end - run_start, ..run });
+            kept.push(gpui::TextRun {
+                len: run_end - run_start,
+                ..run
+            });
         }
     }
     *runs = kept;
@@ -260,12 +323,20 @@ pub(super) fn trim_runs(text: &mut String, runs: &mut Vec<gpui::TextRun>, start:
 }
 
 pub(super) fn transform(text: &str, inherited: &Inherited) -> String {
-    if inherited.uppercase { text.to_uppercase() } else { text.to_string() }
+    if inherited.uppercase {
+        text.to_uppercase()
+    } else {
+        text.to_string()
+    }
 }
 
 /// A run of text that can shrink and wrap, but not below its longest word.
 pub(super) fn text_box(shown: String, font_size: f32) -> AnyElement {
-    let longest = shown.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
+    let longest = shown
+        .split_whitespace()
+        .map(|word| word.chars().count())
+        .max()
+        .unwrap_or(0);
     let mut text = div();
     if shown.chars().any(char::is_whitespace) {
         text = text.min_w(px(longest as f32 * font_size * 0.6));

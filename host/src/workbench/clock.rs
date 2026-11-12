@@ -36,7 +36,12 @@ impl Workbench {
         if let Some(id) = self.poked {
             self.touch(id, cx);
         }
-        let easing: Vec<NodeId> = self.interaction.animating_ids.borrow_mut().drain().collect();
+        let easing: Vec<NodeId> = self
+            .interaction
+            .animating_ids
+            .borrow_mut()
+            .drain()
+            .collect();
         for id in easing {
             self.touch(id, cx);
         }
@@ -60,7 +65,12 @@ impl Workbench {
                 self.frame_target = 0;
             }
         }
-        let moved: Vec<NodeId> = self.interaction.bounds_changed.borrow_mut().drain().collect();
+        let moved: Vec<NodeId> = self
+            .interaction
+            .bounds_changed
+            .borrow_mut()
+            .drain()
+            .collect();
         for id in moved {
             self.touch(id, cx);
         }
@@ -70,8 +80,9 @@ impl Workbench {
     /// Arranges the next tick: on the display's next frame while anything animates, so
     /// motion keeps the display's refresh rate, or when the first timer or caret blink is due.
     fn schedule(&mut self, wake: Wake, window: &mut Window, cx: &mut Context<Self>) {
-        let animating =
-            wake == Wake::Frame || self.poked.is_some() || !self.interaction.animating_ids.borrow().is_empty();
+        let animating = wake == Wake::Frame
+            || self.poked.is_some()
+            || !self.interaction.animating_ids.borrow().is_empty();
         if animating {
             self.tick_next_frame(window, cx);
             // A frame has to be drawn for the display to offer the next one.
@@ -81,7 +92,9 @@ impl Workbench {
             Wake::After(delay) => Some(Instant::now() + delay),
             _ => None,
         };
-        let blinking = self.focused.filter(|id| self.interaction.fields.borrow().contains_key(id));
+        let blinking = self
+            .focused
+            .filter(|id| self.interaction.fields.borrow().contains_key(id));
         if blinking.is_some() {
             let blink = render::next_blink(self.interaction.caret_epoch.get());
             due = Some(due.map_or(blink, |due| due.min(blink)));
