@@ -249,6 +249,20 @@ unsafe fn build_classes() {
                     sel!(characterIndexForPoint:),
                     character_index_for_point as extern "C" fn(&Object, Sel, NSPoint) -> u64,
                 );
+
+                if let Some(protocol) = Protocol::get("NSDraggingSource") {
+                    decl.add_protocol(protocol);
+                }
+                decl.add_method(
+                    sel!(draggingSession:sourceOperationMaskForDraggingContext:),
+                    dragging_source_operation_mask
+                        as extern "C" fn(&Object, Sel, id, NSInteger) -> NSDragOperation,
+                );
+                decl.add_method(
+                    sel!(draggingSession:endedAtPoint:operation:),
+                    dragging_session_ended
+                        as extern "C" fn(&Object, Sel, id, NSPoint, NSDragOperation),
+                );
             }
             decl.register()
         };
@@ -412,6 +426,11 @@ struct MacWindowState {
     external_files_dragged: bool,
     // Whether the next left-mouse click is also the focusing click.
     first_mouse: bool,
+    /// The last press or drag of the pointer, retained: a drag to other applications starts
+    /// from it.
+    last_pointer_event: id,
+    /// Set while a drag to other applications runs, to say how it ended.
+    external_drag_ended: Option<oneshot::Sender<crate::ExternalDragOutcome>>,
     fullscreen_restore_bounds: Bounds<Pixels>,
     move_tab_to_new_window_callback: Option<Box<dyn FnMut()>>,
     merge_all_windows_callback: Option<Box<dyn FnMut()>>,
@@ -422,6 +441,18 @@ struct MacWindowState {
 }
 
 impl MacWindowState {
+    /// Keeps `event` for a drag to other applications, which AppKit starts from a press or
+    /// drag event.
+    unsafe fn remember_pointer_event(&mut self, event: id) {
+        unsafe {
+            let _: id = msg_send![event, retain];
+            if self.last_pointer_event != nil {
+                let _: () = msg_send![self.last_pointer_event, release];
+            }
+        }
+        self.last_pointer_event = event;
+    }
+
     fn move_traffic_light(&self) {
         if let Some(traffic_light_position) = self.traffic_light_position {
             if self.is_fullscreen() {
@@ -718,6 +749,8 @@ impl MacWindow {
                 do_command_handled: None,
                 external_files_dragged: false,
                 first_mouse: false,
+                last_pointer_event: nil,
+                external_drag_ended: None,
                 fullscreen_restore_bounds: Bounds::default(),
                 move_tab_to_new_window_callback: None,
                 merge_all_windows_callback: None,
@@ -1482,6 +1515,38 @@ impl PlatformWindow for MacWindow {
         None
     }
 
+    fn start_external_drag(
+        &self,
+        paths: Vec<PathBuf>,
+    ) -> Option<oneshot::Receiver<crate::ExternalDragOutcome>> {
+        let mut lock = self.0.lock();
+        if lock.last_pointer_event == nil {
+            return None;
+        }
+        let (ended, receiver) = oneshot::channel();
+        if let Some(previous) = lock.external_drag_ended.replace(ended) {
+            previous.send(crate::ExternalDragOutcome::Cancelled).ok();
+        }
+        // The session takes over the pointer, so the moves GPUI repeats while a button is
+        // held must stop.
+        lock.synthetic_drag_counter += 1;
+        let view = lock.native_view.as_ptr() as id;
+        let event = lock.last_pointer_event;
+        let _: id = unsafe { msg_send![event, retain] };
+        let window_state = Arc::downgrade(&self.0);
+        // Started outside the current dispatch: AppKit calls the view back while it runs.
+        lock.executor
+            .spawn(async move {
+                let started = unsafe { begin_dragging_session(view, event, &paths) };
+                let _: () = unsafe { msg_send![event, release] };
+                if !started {
+                    end_external_drag(&window_state, crate::ExternalDragOutcome::Cancelled, None);
+                }
+            })
+            .detach();
+        Some(receiver)
+    }
+
     fn update_ime_position(&self, _bounds: Bounds<Pixels>) {
         let executor = self.0.lock().executor.clone();
         executor
@@ -1839,6 +1904,17 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
 
             _ => {}
         };
+
+        if matches!(
+            event,
+            PlatformInput::MouseDown(_)
+                | PlatformInput::MouseMove(MouseMoveEvent {
+                    pressed_button: Some(_),
+                    ..
+                })
+        ) {
+            unsafe { lock.remember_pointer_event(native_event) };
+        }
 
         match &event {
             PlatformInput::MouseDown(_) => {
@@ -2430,6 +2506,122 @@ extern "C" fn conclude_drag_operation(this: &Object, _: Sel, _: id) {
     send_new_event(
         &window_state,
         PlatformInput::FileDrop(FileDropEvent::Exited),
+    );
+}
+
+// https://developer.apple.com/documentation/appkit/nsdragoperation
+#[allow(non_upper_case_globals)]
+const NSDragOperationLink: NSDragOperation = 2;
+#[allow(non_upper_case_globals)]
+const NSDragOperationGeneric: NSDragOperation = 4;
+#[allow(non_upper_case_globals)]
+const NSDragOperationMove: NSDragOperation = 16;
+#[allow(non_upper_case_globals)]
+const NSDragOperationDelete: NSDragOperation = 32;
+
+/// Starts AppKit's drag session from `view` with a file URL per path, each drawn as its
+/// Finder icon under the pointer. Says whether AppKit started it.
+unsafe fn begin_dragging_session(view: id, event: id, paths: &[PathBuf]) -> bool {
+    unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let location: NSPoint = msg_send![event, locationInWindow];
+        let location: NSPoint = msg_send![view, convertPoint: location fromView: nil];
+        let icon_size = 32.0;
+        let items: id = msg_send![class!(NSMutableArray), arrayWithCapacity: paths.len()];
+        for (index, path) in paths.iter().enumerate() {
+            let path = ns_string(&path.to_string_lossy());
+            let url: id = msg_send![class!(NSURL), fileURLWithPath: path];
+            let item: id = msg_send![class!(NSDraggingItem), alloc];
+            let item: id = msg_send![item, initWithPasteboardWriter: url];
+            let icon: id = msg_send![workspace, iconForFile: path];
+            let offset = index as f64 * 4.0;
+            let frame = NSRect::new(
+                NSPoint::new(
+                    location.x - icon_size / 2.0 + offset,
+                    location.y - icon_size / 2.0 - offset,
+                ),
+                NSSize::new(icon_size, icon_size),
+            );
+            let _: () = msg_send![item, setDraggingFrame: frame contents: icon];
+            let _: () = msg_send![items, addObject: item];
+            let _: () = msg_send![item, release];
+        }
+        let session: id = msg_send![
+            view,
+            beginDraggingSessionWithItems: items
+            event: event
+            source: view
+        ];
+        if session == nil {
+            return false;
+        }
+        let _: () = msg_send![session, setAnimatesToStartingPositionsOnCancelOrFail: YES];
+        true
+    }
+}
+
+/// `NSDraggingSource`: other applications may copy, move or link the files.
+extern "C" fn dragging_source_operation_mask(
+    _: &Object,
+    _: Sel,
+    _session: id,
+    _context: NSInteger,
+) -> NSDragOperation {
+    NSDragOperationCopy | NSDragOperationLink | NSDragOperationGeneric | NSDragOperationMove
+}
+
+/// `NSDraggingSource`: the session ended at `screen_point` with the operation the
+/// destination performed, `NSDragOperationNone` when nothing took it.
+extern "C" fn dragging_session_ended(
+    this: &Object,
+    _: Sel,
+    _session: id,
+    screen_point: NSPoint,
+    operation: NSDragOperation,
+) {
+    let window_state = unsafe { get_window_state(this) };
+    let outcome = match operation {
+        NSDragOperationNone => crate::ExternalDragOutcome::Cancelled,
+        NSDragOperationMove | NSDragOperationDelete => crate::ExternalDragOutcome::Moved,
+        NSDragOperationLink => crate::ExternalDragOutcome::Linked,
+        _ => crate::ExternalDragOutcome::Copied,
+    };
+    end_external_drag(&Arc::downgrade(&window_state), outcome, Some(screen_point));
+}
+
+/// Says how the drag ended, and hands the window the release AppKit's session kept.
+fn end_external_drag(
+    window_state: &Weak<Mutex<MacWindowState>>,
+    outcome: crate::ExternalDragOutcome,
+    screen_point: Option<NSPoint>,
+) {
+    let Some(window_state) = window_state.upgrade() else {
+        return;
+    };
+    let mut lock = window_state.lock();
+    let Some(ended) = lock.external_drag_ended.take() else {
+        return;
+    };
+    ended.send(outcome).ok();
+    let mut position = Point::default();
+    if let Some(screen_point) = screen_point {
+        let window_point: NSPoint =
+            unsafe { msg_send![lock.native_window, convertPointFromScreen: screen_point] };
+        let height = lock.content_size().height;
+        position = point(
+            px(window_point.x as f32),
+            height - px(window_point.y as f32),
+        );
+    }
+    drop(lock);
+    send_new_event(
+        &window_state,
+        PlatformInput::MouseUp(MouseUpEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::default(),
+            click_count: 1,
+        }),
     );
 }
 

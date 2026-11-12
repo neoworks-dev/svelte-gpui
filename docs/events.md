@@ -199,7 +199,8 @@ Nothing is allowed for a drop that no element listens for.
 ```
 
 Dragging things inside the app is a different thing, done with `Draggable` and `DropTarget`
-(see [Primitives](primitives.md#draggable-and-droptarget)), which use pointer capture.
+(see [Primitives](primitives.md#draggable-and-droptarget)), which use pointer capture. A
+`Draggable` with `files` can also be dragged out of the window to other programs.
 
 ## The window
 

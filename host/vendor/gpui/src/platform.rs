@@ -450,6 +450,20 @@ impl Tiling {
     }
 }
 
+/// How a drag that left the window for another application ended. The application that
+/// took the drop chooses between copying, moving and linking; a move is carried out by it.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ExternalDragOutcome {
+    /// Another application took the files as a copy.
+    Copied,
+    /// Another application took the files and moved them.
+    Moved,
+    /// Another application made links to the files.
+    Linked,
+    /// Nothing took the drop, or it was cancelled.
+    Cancelled,
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub(crate) struct RequestFrameOptions {
     pub(crate) require_presentation: bool,
@@ -535,6 +549,14 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn show_window_menu(&self, _position: Point<Pixels>) {}
     fn start_window_move(&self) {}
     fn start_window_resize(&self, _edge: ResizeEdge) {}
+    /// Hands the pressed pointer to the system's drag and drop, carrying `paths`, so other
+    /// applications can take them. `None` when the platform cannot start one.
+    fn start_external_drag(
+        &self,
+        _paths: Vec<PathBuf>,
+    ) -> Option<oneshot::Receiver<ExternalDragOutcome>> {
+        None
+    }
     fn window_decorations(&self) -> Decorations {
         Decorations::Server
     }

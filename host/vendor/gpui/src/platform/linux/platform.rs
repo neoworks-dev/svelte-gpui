@@ -693,6 +693,42 @@ pub(super) unsafe fn read_fd(mut fd: filedescriptor::FileDescriptor) -> Result<V
     Ok(buffer)
 }
 
+/// What a drag out of the window carries, in the forms other applications ask for.
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(crate) struct DraggedFiles {
+    /// `text/uri-list`: one `file://` URL per line, each line ended by CRLF.
+    pub uri_list: Vec<u8>,
+    /// Plain text: the paths, one per line, for a target that only takes text.
+    pub text: Vec<u8>,
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+impl DraggedFiles {
+    /// `None` when a path is relative, which no URL can name.
+    pub fn new(paths: &[PathBuf]) -> Option<Self> {
+        let mut uri_list = String::new();
+        let mut text = Vec::new();
+        for path in paths {
+            let url = http_client::Url::from_file_path(path).ok()?;
+            uri_list.push_str(url.as_str());
+            uri_list.push_str("\r\n");
+            text.push(path.to_string_lossy().into_owned());
+        }
+        Some(DraggedFiles {
+            uri_list: uri_list.into_bytes(),
+            text: text.join("\n").into_bytes(),
+        })
+    }
+
+    /// The bytes for a MIME type, which is the URI list unless the type asks for text.
+    pub fn bytes_for(&self, mime_type: &str) -> &[u8] {
+        if mime_type == "text/uri-list" {
+            return &self.uri_list;
+        }
+        &self.text
+    }
+}
+
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
 

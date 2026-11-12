@@ -616,6 +616,7 @@ around it, so a `ContextMenu` or a view with `ondown` around a `Draggable` hears
 | `Draggable` prop | Type | |
 |---|---|---|
 | `data` | `T` | What a target is given when this is dropped on it. |
+| `files` | `string[]` | Paths other programs are handed when the drag leaves the window. Without them it stays inside. |
 | `disabled` | `boolean` | |
 | `threshold` | `number` | Pixels the pointer moves before the drag starts. The default is 4. |
 | `style`, `hover` | `Style` | |
@@ -623,7 +624,7 @@ around it, so a `ContextMenu` or a view with `ondown` around a `Draggable` hears
 | `preview` | `Snippet<[T]>` | What follows the pointer. The default is a copy of the children, in the same style and width. |
 | `previewStyle` | `Style` | |
 | `onstart` | `(data) => void` | |
-| `onend` | `({ data, dropped }) => void` | The drag ended, dropped on a target or not. |
+| `onend` | `({ data, dropped, operation? }) => void` | The drag ended, dropped on a target or not. `operation` is there when it left the window with `files`. |
 
 | `DropTarget` prop | Type | |
 |---|---|---|
@@ -645,6 +646,17 @@ for showing a hint everywhere while a drag is under way.
 <DropTarget ondragover={(info) => (before = info.y < info.height / 2)} ondrop={({ data }) => insert(data, before)}>
   <Draggable data={card}><Text>{card.title}</Text></Draggable>
 </DropTarget>
+```
+
+With `files`, a drag can also leave the window. Once the pointer crosses the window's edge, the in-app drag ends
+without a drop and the system's drag and drop takes the pointer, carrying the paths to a file manager, a mail draft
+or the desktop. `onend` then hears `operation`: `"copy"`, `"move"` or `"link"` for what the program that took the
+files did, or `"none"`. A move is carried out by that program, so a file manager only has to reload. The paths must be
+inside the app's file limit. Dropped back on the app's own window, the files arrive as a drop from another program.
+This works on Wayland, X11, macOS and Windows; on Wayland and X11 there is no drag image yet, only the cursor.
+
+```svelte
+<Draggable data={{ paths }} files={paths} onend={({ operation }) => operation === "move" && reload()}>
 ```
 
 Targets are found by where they were laid out, which is reported after each frame, so a target that is

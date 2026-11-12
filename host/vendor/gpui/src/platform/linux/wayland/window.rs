@@ -1058,6 +1058,17 @@ impl PlatformWindow for WaylandWindow {
         )
     }
 
+    fn start_external_drag(
+        &self,
+        paths: Vec<std::path::PathBuf>,
+    ) -> Option<futures::channel::oneshot::Receiver<crate::ExternalDragOutcome>> {
+        let state = self.borrow();
+        let client = state.client.clone();
+        let surface = state.surface.clone();
+        drop(state);
+        client.start_external_drag(self.0.clone(), &surface, &paths)
+    }
+
     fn window_decorations(&self) -> Decorations {
         let state = self.borrow();
         match state.decorations {

@@ -8,6 +8,7 @@ use std::{
 };
 
 use ashpd::WindowIdentifier;
+use futures::channel::oneshot;
 use calloop::{
     EventLoop, LoopHandle,
     timer::{TimeoutAction, Timer},
@@ -73,7 +74,7 @@ use super::{
 use crate::platform::{PlatformWindow, blade::BladeContext};
 use crate::{
     AnyWindowHandle, Bounds, Capslock, CursorStyle, DOUBLE_CLICK_INTERVAL, DevicePixels, DisplayId,
-    FileDropEvent, ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon,
+    ExternalDragOutcome, FileDropEvent, ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon,
     LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, PlatformDisplay,
     PlatformInput, PlatformKeyboardLayout, Point, SCROLL_LINES, ScrollDelta, ScrollWheelEvent,
@@ -82,8 +83,8 @@ use crate::{
 use crate::{
     SharedString,
     platform::linux::{
-        LinuxClient, get_xkb_compose_state, is_within_click_distance, open_uri_internal, read_fd,
-        reveal_path_internal,
+        DraggedFiles, LinuxClient, get_xkb_compose_state, is_within_click_distance,
+        open_uri_internal, read_fd, reveal_path_internal,
         wayland::{
             clipboard::{Clipboard, DataOffer, FILE_LIST_MIME_TYPE, TEXT_MIME_TYPES},
             cursor::Cursor,
@@ -213,6 +214,7 @@ pub(crate) struct WaylandClientState {
     keymap_state: Option<xkb::State>,
     compose_state: Option<xkb::compose::State>,
     drag: DragState,
+    outgoing_drag: Option<OutgoingDrag>,
     click: ClickState,
     repeat: KeyRepeat,
     pub modifiers: Modifiers,
@@ -243,6 +245,20 @@ pub struct DragState {
     data_offer: Option<wl_data_offer::WlDataOffer>,
     window: Option<WaylandWindowStatePtr>,
     position: Point<Pixels>,
+}
+
+/// The user data of a data source that a drag out of a window carries, which tells its
+/// events apart from the clipboard's.
+pub(crate) struct OutgoingDragSource;
+
+/// A drag this client started and the compositor now carries to whichever client takes it.
+pub(crate) struct OutgoingDrag {
+    source: wl_data_source::WlDataSource,
+    files: DraggedFiles,
+    window: WaylandWindowStatePtr,
+    /// The action the compositor last settled on with the target.
+    action: DndAction,
+    ended: oneshot::Sender<ExternalDragOutcome>,
 }
 
 pub struct ClickState {
@@ -287,6 +303,47 @@ impl WaylandClientStatePtr {
     pub fn set_pending_activation(&self, window: ObjectId) {
         self.0.upgrade().unwrap().borrow_mut().pending_activation =
             Some(PendingActivation::Window(window));
+    }
+
+    /// Hands the pressed pointer to the compositor's drag and drop, offering `paths` as a
+    /// URI list and as text. `None` when no button is held over the window, or the
+    /// compositor has no data device.
+    pub fn start_external_drag(
+        &self,
+        window: WaylandWindowStatePtr,
+        surface: &wl_surface::WlSurface,
+        paths: &[PathBuf],
+    ) -> Option<oneshot::Receiver<ExternalDragOutcome>> {
+        let files = DraggedFiles::new(paths)?;
+        let client = self.get_client();
+        let mut state = client.borrow_mut();
+        state.button_pressed?;
+        let manager = state.globals.data_device_manager.clone()?;
+        let data_device = state.data_device.clone()?;
+
+        let source = manager.create_data_source(&state.globals.qh, OutgoingDragSource);
+        source.offer(FILE_LIST_MIME_TYPE.to_string());
+        for mime_type in TEXT_MIME_TYPES {
+            source.offer(mime_type.to_string());
+        }
+        source.set_actions(DndAction::Copy | DndAction::Move);
+        let serial = state.serial_tracker.get(SerialKind::MousePress);
+        data_device.start_drag(Some(&source), surface, None, serial);
+
+        let (ended, receiver) = oneshot::channel();
+        let previous = state.outgoing_drag.replace(OutgoingDrag {
+            source,
+            files,
+            window,
+            action: DndAction::empty(),
+            ended,
+        });
+        drop(state);
+        if let Some(previous) = previous {
+            previous.source.destroy();
+            previous.ended.send(ExternalDragOutcome::Cancelled).ok();
+        }
+        Some(receiver)
     }
 
     pub fn enable_ime(&self) {
@@ -576,6 +633,7 @@ impl WaylandClient {
                 window: None,
                 position: Point::default(),
             },
+            outgoing_drag: None,
             click: ClickState {
                 last_click: Instant::now(),
                 last_mouse_button: None,
@@ -2070,6 +2128,69 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for WaylandClientStatePtr {
             _ => {}
         }
     }
+}
+
+impl Dispatch<wl_data_source::WlDataSource, OutgoingDragSource> for WaylandClientStatePtr {
+    fn event(
+        this: &mut Self,
+        data_source: &wl_data_source::WlDataSource,
+        event: wl_data_source::Event,
+        _: &OutgoingDragSource,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let client = this.get_client();
+        let mut state = client.borrow_mut();
+        let Some(drag) = state
+            .outgoing_drag
+            .as_mut()
+            .filter(|drag| drag.source == *data_source)
+        else {
+            data_source.destroy();
+            return;
+        };
+
+        let outcome = match event {
+            wl_data_source::Event::Send { mime_type, fd } => {
+                let bytes = drag.files.bytes_for(&mime_type).to_vec();
+                state.clipboard.send_internal(fd, bytes);
+                return;
+            }
+            wl_data_source::Event::Action {
+                dnd_action: WEnum::Value(action),
+            } => {
+                drag.action = action;
+                return;
+            }
+            wl_data_source::Event::DndFinished => outcome_of(drag.action),
+            wl_data_source::Event::Cancelled => ExternalDragOutcome::Cancelled,
+            _ => return,
+        };
+
+        let drag = state.outgoing_drag.take().expect("matched above");
+        drag.source.destroy();
+        drag.ended.send(outcome).ok();
+
+        // The compositor kept the release, so the window still takes the button for held.
+        let button = state.button_pressed.take().unwrap_or(MouseButton::Left);
+        let input = PlatformInput::MouseUp(MouseUpEvent {
+            button,
+            position: state.mouse_location.unwrap_or_default(),
+            modifiers: state.modifiers,
+            click_count: state.click.current_count,
+        });
+        drop(state);
+        drag.window.handle_input(input);
+    }
+}
+
+/// What a drag ended as, from the action the compositor last settled on with the target.
+/// Wayland has no link action.
+fn outcome_of(action: DndAction) -> ExternalDragOutcome {
+    if action.contains(DndAction::Move) {
+        return ExternalDragOutcome::Moved;
+    }
+    ExternalDragOutcome::Copied
 }
 
 impl Dispatch<zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1, ()>

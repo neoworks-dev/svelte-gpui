@@ -169,7 +169,9 @@ second part only. Only the scroller's own children are kept in place, and it is 
 - **Anything that floats next to an element:** `Popover` (trigger snippet + content, `bind:open`),
   `Tooltip`, `Menu` in a `Popover` with `focusPanel={false}`, `ContextMenu`, `Select`. See below.
 - **Dragging:** files from other programs are `ondragenter`/`ondragleave`/`ondrop` on a `View`
-  (`e.paths`, readable once dropped). Inside the app, `Draggable` and `DropTarget`.
+  (`e.paths`, readable once dropped). Inside the app, `Draggable` and `DropTarget`. Out to
+  other programs, `Draggable files={paths}`: past the window's edge the system's drag takes
+  over, and `onend` hears `operation` (`"copy"`, `"move"`, `"link"` or `"none"`).
 - **Shortcuts:** `<svelte:window onkeydown>` with `event.ctrlKey` and similar. Call
   `preventDefault()` so a focused field does not type the key too.
 - **Paste of the app's own:** in the Ctrl+V handler, `clipboard.read()` has the text and
@@ -231,6 +233,7 @@ with `scripts/shot.sh`, so an error shows up in the screenshot.
   `maximized`, `fullscreen`.
 - **Ask things of it:** `setTitle`, `minimize`, `maximize`, `unmaximize`, `toggleMaximize`,
   `setFullscreen(on)`, `toggleFullscreen`, `close()` (asks the handlers) and `destroy()`.
+  `startDrag(paths)` hands the held button to the system's drag and drop.
 - **Confirm before closing:** `$effect(() => window.onCloseRequested(() => dirty ? ask() :
   undefined))`. Return `false` or a promise of `false` to keep the window open. The
   `$effect` returns the unsubscribe function.

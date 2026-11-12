@@ -1,6 +1,9 @@
 //! The window itself: what the app asks of it, what it reports back, and whether it may close.
 
-use gpui::{Context, Window};
+use std::path::PathBuf;
+
+use gpui::{Context, ExternalDragOutcome, Window};
+use serde_json::json;
 
 use super::Workbench;
 use crate::window_control::{WindowCommand, WindowState};
@@ -30,9 +33,13 @@ impl Workbench {
     }
 
     /// Carries out what the app asked of the window since the last tick.
-    pub(super) fn run_window_commands(&mut self, window: &mut Window) {
+    pub(super) fn run_window_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let commands = std::mem::take(&mut *self.svelte.window_commands.borrow_mut());
         for command in commands {
+            if let WindowCommand::StartDrag { call, paths } = command {
+                self.start_drag(call, &paths, window, cx);
+                continue;
+            }
             match command {
                 WindowCommand::Title(title) => window.set_window_title(&title),
                 WindowCommand::Minimize => window.minimize_window(),
@@ -54,8 +61,35 @@ impl Workbench {
                 }
                 WindowCommand::ToggleFullscreen => window.toggle_fullscreen(),
                 WindowCommand::Destroy => window.remove_window(),
+                WindowCommand::StartDrag { .. } => {}
             }
         }
+    }
+
+    /// Hands the held pointer to the system's drag and drop with `paths`, each of which the
+    /// app's file limit must allow. `call` settles with `{ operation }`: `copy`, `move` or
+    /// `link` for the action the program that took the drop chose, or `none`.
+    fn start_drag(&mut self, call: u64, raw_paths: &[String], window: &mut Window, cx: &mut Context<Self>) {
+        let sink = self.svelte.io.sink();
+        let files = &self.svelte.io.files;
+        let paths: Result<Vec<PathBuf>, String> = raw_paths.iter().map(|raw| files.shareable(raw)).collect();
+        let paths = match paths {
+            Ok(paths) => paths,
+            Err(message) => return sink.reject_with_code(call, "NotAllowed", message),
+        };
+        let Some(ended) = window.start_external_drag(paths) else {
+            return sink.reject_with_code(call, "Unsupported", "the window cannot start a drag to other programs now");
+        };
+        cx.spawn(async move |_, _| {
+            let operation = match ended.await {
+                Ok(ExternalDragOutcome::Copied) => "copy",
+                Ok(ExternalDragOutcome::Moved) => "move",
+                Ok(ExternalDragOutcome::Linked) => "link",
+                Ok(ExternalDragOutcome::Cancelled) | Err(_) => "none",
+            };
+            sink.resolve(call, json!({ "operation": operation }));
+        })
+        .detach();
     }
 
     /// Has the window ask the app before it closes, and report focus changes at once

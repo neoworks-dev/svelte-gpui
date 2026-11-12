@@ -67,6 +67,7 @@ frame, which is before the user can see anything.
 | `window.setFullscreen(on)`, `window.toggleFullscreen()` | |
 | `window.close()` | Closes the window, as the close button does: the handlers from `onCloseRequested` are asked first. |
 | `window.destroy()` | Closes the window at once, without asking. Closing the only window ends the app. |
+| `window.startDrag(paths)` | Hands the pointer button held now to the system's drag and drop, carrying `paths` to other programs. Resolves with `{ operation }`, `"copy"`, `"move"`, `"link"` or `"none"`, once the drop is done. `Draggable` with `files` calls it. |
 
 Each request is carried out on the next frame, and the window manager has the last word. It
 can ignore `minimize` or `maximize`; Hyprland ignored `maximize` in testing.
