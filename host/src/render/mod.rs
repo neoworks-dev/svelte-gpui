@@ -19,6 +19,7 @@ mod overlay;
 mod press;
 mod primitive;
 mod roots;
+mod rows;
 mod scrollbar;
 mod scroller;
 mod text;
@@ -51,6 +52,7 @@ use press::{captured_pointer, press_ends_focus};
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
+use rows::RowPlan;
 use scroller::{Extent, Scroller, SharedScroller};
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
@@ -92,12 +94,17 @@ pub struct Interaction {
     pub views: RefCell<HashMap<NodeId, Entity<NodeView>>>,
     /// The elements that are the top of a view, as of the last time the whole document was built.
     pub view_roots: RefCell<ViewRoots>,
+    /// Which children of scrollers are rows drawn as views, for the version of the tree in the first field.
+    pub row_plan: RefCell<(u64, Rc<RowPlan>)>,
     /// The app's own GPUI views, by the node they are drawn in. They outlive a reload (see `elements.rs`).
     pub instances: RefCell<Instances>,
     pub workbench: RefCell<Option<WeakEntity<Workbench>>>,
     pub images: Images,
     /// The scaled copy each image element last drew, which it keeps drawing while another loads.
     pub drawn_images: RefCell<HashMap<NodeId, Drawn>>,
+    /// The image elements still waiting for their source or a copy of it, so a finished job draws
+    /// again only the views they are in.
+    pub waiting_images: RefCell<HashSet<NodeId>>,
 }
 
 impl Interaction {
@@ -122,10 +129,12 @@ impl Interaction {
             bounds_changed: Rc::new(RefCell::new(HashSet::new())),
             views: RefCell::new(HashMap::new()),
             view_roots: RefCell::new(ViewRoots::default()),
+            row_plan: RefCell::new((u64::MAX, Rc::new(RowPlan::default()))),
             instances: RefCell::new(Instances::default()),
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
             drawn_images: RefCell::new(HashMap::new()),
+            waiting_images: RefCell::new(HashSet::new()),
         }
     }
 
@@ -148,6 +157,8 @@ impl Interaction {
         self.bounds_changed.borrow_mut().clear();
         self.views.borrow_mut().clear();
         self.view_roots.borrow_mut().clear();
+        self.waiting_images.borrow_mut().clear();
+        *self.row_plan.borrow_mut() = (u64::MAX, Rc::new(RowPlan::default()));
     }
 
     fn focus_handle(&self, id: NodeId, cx: &mut Context<Workbench>) -> FocusHandle {
@@ -168,6 +179,8 @@ pub struct NodeView {
     pub workbench: WeakEntity<Workbench>,
     pub root: NodeId,
     pub inherited: Inherited,
+    /// Whether this is a row of a scroller, which moves and is sized by its content (`rows.rs`).
+    pub row: bool,
 }
 
 /// How many views were built, and the nanoseconds that took, for the report.
@@ -181,8 +194,9 @@ impl Render for NodeView {
         };
         let root = self.root;
         let inherited = self.inherited.clone();
+        let row = self.row;
         let started = Instant::now();
-        let element = workbench.update(cx, |workbench, cx| workbench.build_view(root, inherited, cx));
+        let element = workbench.update(cx, |workbench, cx| workbench.build_view(root, inherited, row, cx));
         VIEW_BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         VIEW_NANOS.fetch_add(started.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         element
@@ -202,11 +216,13 @@ pub struct Painter<'a> {
     /// The view being built, whose top element is drawn in place rather than as a view.
     /// Views do not nest: building one never starts another.
     inside_view: Option<NodeId>,
+    /// Whether that view is a row, which is sized by its content like any element in the flow.
+    row_view: bool,
 }
 
 impl<'a> Painter<'a> {
-    pub fn new(tree: &'a Tree, interaction: &'a Interaction, inside_view: Option<NodeId>) -> Self {
-        Self { tree, interaction, weights: RefCell::new(HashMap::new()), inside_view }
+    pub fn new(tree: &'a Tree, interaction: &'a Interaction, inside_view: Option<NodeId>, row_view: bool) -> Self {
+        Self { tree, interaction, weights: RefCell::new(HashMap::new()), inside_view, row_view }
     }
 
     /// How many nodes are under `id`, itself included.
@@ -337,6 +353,13 @@ impl<'a> Painter<'a> {
         if self.inside_view.is_some() || std::env::var_os("SVELTE_GPUI_NO_VIEWS").is_some() {
             return None;
         }
+        if let Some(row) = self.row_view_element(id, style, inherited, cx) {
+            return Some(row);
+        }
+        // Views do not nest: what holds rows that are views is drawn in the open.
+        if self.row_plan().hosts.contains(&id) {
+            return None;
+        }
         let weight = self.weight(id);
         if !(VIEW_MIN_WEIGHT..=VIEW_MAX_WEIGHT).contains(&weight) || !self.sized_by_parent(id, style) {
             return None;
@@ -347,7 +370,7 @@ impl<'a> Painter<'a> {
             Some(entity) => entity,
             None => {
                 let inherited = inherited.clone();
-                let entity = cx.new(|_| NodeView { workbench, root: id, inherited });
+                let entity = cx.new(|_| NodeView { workbench, root: id, inherited, row: false });
                 self.interaction.views.borrow_mut().insert(id, entity.clone());
                 entity
             }
@@ -440,7 +463,7 @@ impl<'a> Painter<'a> {
         let inherited = inherited.under(style);
 
         let mut element = zoom_text(style::apply(div().flex(), style), style, &inherited);
-        if is_view_top {
+        if is_view_top && !self.row_view {
             // The outer layout sized this box; it fills it, and the margins are the outer layout's.
             element = element.w_full().h_full().m_0();
         }
@@ -514,8 +537,15 @@ impl<'a> Painter<'a> {
         let changed = self.interaction.bounds_changed.clone();
         let viewport = self.interaction.viewport.clone();
         canvas(
-            move |bounds, _, _| {
+            move |bounds, window, _| {
                 let view = viewport.get();
+                // A row drawn from what it painted before is not measured again; it says how far it moved.
+                let moved = placed.clone();
+                window.on_relocation(move |delta| {
+                    if let Some(known) = moved.borrow_mut().get_mut(&id) {
+                        known.origin += delta;
+                    }
+                });
                 let before = placed.borrow_mut().insert(id, bounds);
                 let was_near = before.map(|old| !is_far_away(old, view));
                 if was_near != Some(!is_far_away(bounds, view)) {

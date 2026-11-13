@@ -61,8 +61,13 @@ impl Painter<'_> {
             return element;
         }
         let images = &self.interaction.images;
-        let ImageState::Ready(path) = images.state(source) else {
-            return element;
+        let path = match images.state(source) {
+            ImageState::Ready(path) => path,
+            ImageState::Loading => {
+                self.interaction.waiting_images.borrow_mut().insert(id);
+                return element;
+            }
+            ImageState::Failed => return element,
         };
         element = element.child(self.measure(id));
 
@@ -87,11 +92,18 @@ impl Painter<'_> {
         let drawn = self.interaction.drawn_images.borrow().get(&id).filter(|drawn| drawn.source == path).cloned();
         let width = copy_width(drawn.as_ref().map(|drawn| drawn.width), wanted);
         let file = match images.scaled(&path, width) {
-            ImageState::Ready(file) => file,
-            _ => match &drawn {
-                Some(drawn) => drawn.file.clone(),
-                None => return element,
-            },
+            ImageState::Ready(file) => {
+                self.interaction.waiting_images.borrow_mut().remove(&id);
+                file
+            }
+            _ => {
+                // The copy of this size is still being made; the view is drawn again when a job finishes.
+                self.interaction.waiting_images.borrow_mut().insert(id);
+                match &drawn {
+                    Some(drawn) => drawn.file.clone(),
+                    None => return element,
+                }
+            }
         };
         let fit = attribute(node, "fit").to_string();
         let radius = style.radius;

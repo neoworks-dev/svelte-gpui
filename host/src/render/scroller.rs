@@ -12,7 +12,7 @@
 //! `ScrollAnchor` does. Both are drawn inside the cached view the scroller sits in, which is told
 //! to draw again whenever the glide or the fade has another frame to show.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::panic::Location;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -181,12 +181,20 @@ impl Scroller {
             return;
         }
         let view = window.current_view();
+        // A scroller in a row that is drawn from what it painted before keeps its bar where the row moved to.
+        let placed = Rc::new(Cell::new(bounds));
+        let moved = placed.clone();
+        window.on_relocation(move |delta| {
+            let mut known = moved.get();
+            known.origin += delta;
+            moved.set(known);
+        });
         let bar = Bar {
             state: self.state.clone(),
             handle: self.handle.clone(),
             horizontal: self.horizontal,
             extent: self.extent,
-            bounds,
+            bounds: placed,
             node: self.node,
             view,
             workbench: self.workbench.clone(),
@@ -278,7 +286,7 @@ struct Bar {
     handle: ScrollHandle,
     horizontal: bool,
     extent: Option<Extent>,
-    bounds: Bounds<Pixels>,
+    bounds: Rc<Cell<Bounds<Pixels>>>,
     node: NodeId,
     view: EntityId,
     workbench: Option<WeakEntity<Workbench>>,
@@ -286,7 +294,7 @@ struct Bar {
 
 impl Bar {
     fn metrics(&self) -> Metrics {
-        metrics_of(&self.handle, along_size(self.bounds.size, self.horizontal), self.horizontal, self.extent)
+        metrics_of(&self.handle, along_size(self.bounds.get().size, self.horizontal), self.horizontal, self.extent)
     }
 
     /// Remembers that it moved, which is what makes the bar show.
@@ -300,16 +308,17 @@ impl Bar {
 
     /// Where a window position is along the bar, from the scroller's start.
     fn position(&self, window_position: Point<Pixels>) -> f32 {
-        along(window_position - self.bounds.origin, self.horizontal)
+        along(window_position - self.bounds.get().origin, self.horizontal)
     }
 
     /// Whether a window position is in the strip along the edge that belongs to the bar.
     fn in_zone(&self, window_position: Point<Pixels>) -> bool {
-        let local = window_position - self.bounds.origin;
+        let bounds = self.bounds.get();
+        let local = window_position - bounds.origin;
         let (across, with, thickness, length) = if self.horizontal {
-            (local.y, local.x, self.bounds.size.height, self.bounds.size.width)
+            (local.y, local.x, bounds.size.height, bounds.size.width)
         } else {
-            (local.x, local.y, self.bounds.size.width, self.bounds.size.height)
+            (local.x, local.y, bounds.size.width, bounds.size.height)
         };
         let (across, with, thickness, length) =
             (f32::from(across), f32::from(with), f32::from(thickness), f32::from(length));

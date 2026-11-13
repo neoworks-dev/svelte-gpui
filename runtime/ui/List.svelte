@@ -405,6 +405,7 @@
   bind:this={scroller}
   {style}
   anchor={anchoring}
+  rows
   {scrollbar}
   extent={wholeHeight}
   {origin}

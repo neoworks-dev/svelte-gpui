@@ -141,7 +141,7 @@ impl Workbench {
     /// of images that loaded or failed.
     fn images_finished(&mut self, cx: &mut Context<Self>) {
         self.report_images(cx);
-        self.dirty_all_views(cx);
+        self.dirty_views_waiting_for_images(cx);
         cx.notify();
     }
 

@@ -224,7 +224,11 @@ impl Tree {
         let Some(node) = self.nodes.get_mut(&id) else {
             return;
         };
-        self.dirty_deep.insert(id);
+        if stays_on_its_element(&name) {
+            self.dirty.insert(id);
+        } else {
+            self.dirty_deep.insert(id);
+        }
         if matches!(&node.kind, Kind::Element { tag } if tag == ELEMENT_TAG) {
             self.changed_elements.insert(id);
         }
@@ -313,6 +317,13 @@ impl Tree {
     }
 }
 
+/// Attributes whose change can only show in the element they are on, never in what is under it, so a
+/// change does not draw again the views below (the rows of a list, whose scroller is told its extent
+/// whenever a row is measured).
+fn stays_on_its_element(name: &str) -> bool {
+    matches!(name, "extent" | "origin" | "scrollbar" | "anchor" | "rows")
+}
+
 fn text_at(parts: &[Value], index: usize) -> String {
     match parts.get(index) {
         Some(Value::String(value)) => value.clone(),
@@ -341,6 +352,26 @@ mod tests {
         tree.changed_elements.clear();
         tree.apply(&format!("[[{SET_ATTRIBUTE},2,\"prop:step\",\"5\"]]"));
         assert!(tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn a_scroller_told_its_extent_does_not_draw_the_rows_under_it_again() {
+        let mut tree = Tree::new();
+        tree.apply(&format!("[[{CREATE_ELEMENT},2,\"g-scroll\"],[{INSERT},1,2,0]]"));
+        tree.dirty.clear();
+        tree.dirty_deep.clear();
+        tree.apply(&format!("[[{SET_ATTRIBUTE},2,\"extent\",\"5000\"],[{SET_ATTRIBUTE},2,\"origin\",\"0\"]]"));
+        assert!(tree.dirty.contains(&2));
+        assert!(tree.dirty_deep.is_empty());
+    }
+
+    #[test]
+    fn a_style_on_a_scroller_still_reaches_what_is_under_it() {
+        let mut tree = Tree::new();
+        tree.apply(&format!("[[{CREATE_ELEMENT},2,\"g-scroll\"],[{INSERT},1,2,0]]"));
+        tree.dirty_deep.clear();
+        tree.apply(&format!("[[{SET_ATTRIBUTE},2,\"look\",\"{{\\\"color\\\":\\\"#fff\\\"}}\"]]"));
+        assert!(tree.dirty_deep.contains(&2));
     }
 
     #[test]
