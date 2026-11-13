@@ -1,26 +1,33 @@
-//! What a scroller does on top of GPUI's own scroll container, which only ever jumps.
+//! What a scroller does on top of GPUI's own scroll container, which only ever jumps and draws no bar.
 //!
-//! **The wheel glides.** A notch (a line delta) is not added to the offset as it arrives: it goes
-//! to a [`Glide`], which hands out the distance a little at a time, once per display frame, before the
-//! scroller lays out. A touchpad's pixel deltas still move it 1:1. Whether the wheel moved this
-//! scroller is decided here too, so the innermost scroller that can move keeps it.
+//! - **The wheel glides.** A notch (a line delta) is not added to the offset as it arrives: it goes
+//!   to a [`Glide`], which hands out the distance a little at a time, once per display frame, before the
+//!   scroller lays out. A touchpad's pixel deltas still move it 1:1. Whether the wheel moved this
+//!   scroller is decided here too, so the innermost scroller that can move keeps it.
+//! - **An overlay scrollbar** lies over the edge of the content: a thin thumb that shows while the
+//!   scroller scrolls or the pointer is near, fades out after about a second, can be dragged, and
+//!   jumps to where the track is pressed.
 //!
 //! `Scroller` wraps the scroller (and its anchor, if it has one) and leaves its layout alone, as
-//! `ScrollAnchor` does. It is drawn inside the cached view the scroller sits in, which is told to
-//! draw again whenever the glide has another frame to show.
+//! `ScrollAnchor` does. Both are drawn inside the cached view the scroller sits in, which is told
+//! to draw again whenever the glide or the fade has another frame to show.
 
 use std::cell::RefCell;
 use std::panic::Location;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, Bounds, DispatchPhase, Element, ElementId, GlobalElementId, Hitbox, HitboxBehavior,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Point, ScrollDelta, ScrollHandle, ScrollWheelEvent, Size,
-    Window, point, px,
+    AnyElement, App, Bounds, DispatchPhase, Element, ElementId, EntityId, GlobalElementId, Hitbox, HitboxBehavior,
+    Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Rgba, ScrollDelta, ScrollHandle, ScrollWheelEvent, Size, WeakEntity, Window, fill,
+    point, px, size,
 };
 
 use super::glide::Glide;
+use super::scrollbar::{BarLook, FADE, HOLD, INSET, Metrics, ZONE, opacity};
+use crate::tree::NodeId;
+use crate::workbench::Workbench;
 
 /// What a scroller remembers between frames.
 #[derive(Default)]
@@ -29,16 +36,56 @@ pub struct ScrollerState {
     pub glide: Glide,
     /// Its offset before the wheel event being delivered: GPUI's own listener has moved it by the time ours hears it.
     wheel_before: Option<Point<Pixels>>,
+    bar: BarState,
 }
 
 pub type SharedScroller = Rc<RefCell<ScrollerState>>;
 
-/// Wraps a scroller, to glide its wheel.
+#[derive(Default)]
+struct BarState {
+    /// How far it was scrolled when last drawn, to tell that it moved.
+    scrolled: Option<f32>,
+    /// The last scroll or pointer move near the bar, from which it holds and fades.
+    activity: Option<Instant>,
+    /// Whether the pointer is in the strip along the edge.
+    near: bool,
+    /// How far into the thumb the pointer took hold of it, while it is dragged.
+    grab: Option<f32>,
+    /// Whether a timer is waiting to draw the bar again when its hold ends.
+    timer: bool,
+}
+
+impl BarState {
+    fn opacity(&self, now: Instant) -> f32 {
+        let held = self.near || self.grab.is_some();
+        match self.activity {
+            Some(activity) => opacity(now.saturating_duration_since(activity), held),
+            None if held => 1.0,
+            None => 0.0,
+        }
+    }
+}
+
+/// The whole length of content a scroller shows only part of, and where the part starts in it, for a
+/// `List` taller than the host lays out at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Extent {
+    pub total: f32,
+    pub origin: f32,
+}
+
+/// Wraps a scroller, to glide its wheel and draw its bar.
 pub struct Scroller {
     pub inner: AnyElement,
+    pub node: NodeId,
     pub handle: ScrollHandle,
     pub horizontal: bool,
     pub state: SharedScroller,
+    pub look: BarLook,
+    pub extent: Option<Extent>,
+    /// The text colour in the scroller, which the thumb is tinted with unless the app picked one.
+    pub text: Rgba,
+    pub workbench: Option<WeakEntity<Workbench>>,
 }
 
 fn along(point: Point<Pixels>, horizontal: bool) -> f32 {
@@ -64,6 +111,24 @@ fn applied_along(delta: Point<Pixels>, horizontal: bool) -> f32 {
 pub fn can_move(before: f32, applied: f32, furthest: f32) -> bool {
     let clamp = |offset: f32| offset.clamp(-furthest.max(0.0), 0.0);
     (clamp(before + applied) - clamp(before)).abs() > 0.01
+}
+
+/// Where the scroller stands, in the units the bar draws in.
+fn metrics_of(handle: &ScrollHandle, viewport: f32, horizontal: bool, extent: Option<Extent>) -> Metrics {
+    let furthest = along_size(handle.max_offset(), horizontal).max(0.0);
+    let scrolled = (-along(handle.offset(), horizontal)).clamp(0.0, furthest);
+    match extent {
+        Some(Extent { total, origin }) => {
+            Metrics { viewport, content: total.max(viewport), scrolled: origin + scrolled }
+        }
+        None => Metrics { viewport, content: viewport + furthest, scrolled },
+    }
+}
+
+fn move_to(handle: &ScrollHandle, horizontal: bool, scrolled: f32) {
+    let offset = handle.offset();
+    let moved = px(-scrolled);
+    handle.set_offset(if horizontal { point(moved, offset.y) } else { point(offset.x, moved) });
 }
 
 impl Scroller {
@@ -110,6 +175,70 @@ impl Scroller {
             }
         });
     }
+
+    fn bar(&self, bounds: Bounds<Pixels>, hitbox: &Hitbox, window: &mut Window, cx: &mut App) {
+        if self.look.hidden {
+            return;
+        }
+        let view = window.current_view();
+        let bar = Bar {
+            state: self.state.clone(),
+            handle: self.handle.clone(),
+            horizontal: self.horizontal,
+            extent: self.extent,
+            bounds,
+            node: self.node,
+            view,
+            workbench: self.workbench.clone(),
+        };
+        let metrics = bar.metrics();
+        let now = Instant::now();
+        bar.note_scroll(metrics.scrolled, now);
+        bar.listen(hitbox, window);
+        let Some(thumb) = metrics.thumb() else {
+            return;
+        };
+        let (shown, held, idle) = {
+            let state = self.state.borrow();
+            let idle = state.bar.activity.map(|activity| now.saturating_duration_since(activity));
+            (state.bar.opacity(now), state.bar.near || state.bar.grab.is_some(), idle)
+        };
+        if shown > 0.0 {
+            self.paint_thumb(bounds, thumb.start, thumb.length, held, shown, window);
+        }
+        match idle {
+            _ if held => {}
+            Some(idle) if idle < HOLD => bar.wake_after(HOLD - idle, cx),
+            Some(idle) if idle < HOLD + FADE => window.request_animation_frame(),
+            _ => {}
+        }
+    }
+
+    fn paint_thumb(
+        &self,
+        bounds: Bounds<Pixels>,
+        start: f32,
+        length: f32,
+        near: bool,
+        shown: f32,
+        window: &mut Window,
+    ) {
+        let thickness = self.look.thickness(near);
+        let mut color = self.look.thumb_color(self.text, near);
+        color.a *= shown;
+        let thumb = if self.horizontal {
+            Bounds::new(
+                point(bounds.left() + px(start), bounds.bottom() - px(INSET + thickness)),
+                size(px(length), px(thickness)),
+            )
+        } else {
+            Bounds::new(
+                point(bounds.right() - px(INSET + thickness), bounds.top() + px(start)),
+                size(px(thickness), px(length)),
+            )
+        };
+        window.paint_quad(fill(thumb, Hsla::from(color)).corner_radii(px(thickness / 2.0)));
+    }
 }
 
 /// Decides what a wheel event does to a scroller, and says whether it moved it. A notch (not
@@ -140,6 +269,186 @@ fn wheel(
     }
     state.glide.add(next - target, Instant::now());
     true
+}
+
+/// What the bar's listeners need, cloned into each of them.
+#[derive(Clone)]
+struct Bar {
+    state: SharedScroller,
+    handle: ScrollHandle,
+    horizontal: bool,
+    extent: Option<Extent>,
+    bounds: Bounds<Pixels>,
+    node: NodeId,
+    view: EntityId,
+    workbench: Option<WeakEntity<Workbench>>,
+}
+
+impl Bar {
+    fn metrics(&self) -> Metrics {
+        metrics_of(&self.handle, along_size(self.bounds.size, self.horizontal), self.horizontal, self.extent)
+    }
+
+    /// Remembers that it moved, which is what makes the bar show.
+    fn note_scroll(&self, scrolled: f32, now: Instant) {
+        let mut state = self.state.borrow_mut();
+        if state.bar.scrolled.is_some_and(|before| (before - scrolled).abs() > 0.01) {
+            state.bar.activity = Some(now);
+        }
+        state.bar.scrolled = Some(scrolled);
+    }
+
+    /// Where a window position is along the bar, from the scroller's start.
+    fn position(&self, window_position: Point<Pixels>) -> f32 {
+        along(window_position - self.bounds.origin, self.horizontal)
+    }
+
+    /// Whether a window position is in the strip along the edge that belongs to the bar.
+    fn in_zone(&self, window_position: Point<Pixels>) -> bool {
+        let local = window_position - self.bounds.origin;
+        let (across, with, thickness, length) = if self.horizontal {
+            (local.y, local.x, self.bounds.size.height, self.bounds.size.width)
+        } else {
+            (local.x, local.y, self.bounds.size.width, self.bounds.size.height)
+        };
+        let (across, with, thickness, length) =
+            (f32::from(across), f32::from(with), f32::from(thickness), f32::from(length));
+        across >= thickness - ZONE && across <= thickness && with >= 0.0 && with <= length
+    }
+
+    fn listen(&self, hitbox: &Hitbox, window: &mut Window) {
+        let down = (self.clone(), hitbox.clone());
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble && down.0.press(event, &down.1, window, cx) {
+                // The content under the bar does not hear a press the bar took.
+                cx.stop_propagation();
+            }
+        });
+        let moved = (self.clone(), hitbox.clone());
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == DispatchPhase::Capture {
+                moved.0.motion(event, &moved.1, window, cx);
+            }
+        });
+        let up = self.clone();
+        window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+            if phase == DispatchPhase::Capture {
+                up.release(cx);
+            }
+        });
+        let left = self.clone();
+        window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+            if phase == DispatchPhase::Capture {
+                left.leave(cx);
+            }
+        });
+    }
+
+    /// A press in the strip takes hold of the thumb, or puts the thumb under the pointer and takes hold of that.
+    /// A bar that has faded is not there to be pressed.
+    fn press(&self, event: &MouseDownEvent, hitbox: &Hitbox, window: &mut Window, cx: &mut App) -> bool {
+        if event.button != MouseButton::Left || !self.in_zone(event.position) || !hitbox.is_hovered(window) {
+            return false;
+        }
+        let metrics = self.metrics();
+        let Some(thumb) = metrics.thumb() else {
+            return false;
+        };
+        let now = Instant::now();
+        if self.state.borrow().bar.opacity(now) <= 0.0 {
+            return false;
+        }
+        let pointer = self.position(event.position);
+        let on_thumb = pointer >= thumb.start && pointer <= thumb.start + thumb.length;
+        let grab = if on_thumb { pointer - thumb.start } else { thumb.length / 2.0 };
+        {
+            let mut state = self.state.borrow_mut();
+            state.bar.grab = Some(grab);
+            state.bar.near = true;
+            state.bar.activity = Some(now);
+            state.glide.cancel();
+        }
+        self.drag_to(pointer, grab, metrics, thumb.length, cx);
+        window.prevent_default();
+        cx.notify(self.view);
+        true
+    }
+
+    fn motion(&self, event: &MouseMoveEvent, hitbox: &Hitbox, window: &mut Window, cx: &mut App) {
+        let grab = self.state.borrow().bar.grab;
+        if let Some(grab) = grab {
+            if event.pressed_button != Some(MouseButton::Left) {
+                self.release(cx);
+                return;
+            }
+            let metrics = self.metrics();
+            if let Some(thumb) = metrics.thumb() {
+                self.drag_to(self.position(event.position), grab, metrics, thumb.length, cx);
+            }
+            self.state.borrow_mut().bar.activity = Some(Instant::now());
+            cx.notify(self.view);
+            return;
+        }
+        let near = self.in_zone(event.position) && hitbox.is_hovered(window) && self.metrics().thumb().is_some();
+        let changed = {
+            let mut state = self.state.borrow_mut();
+            let changed = state.bar.near != near;
+            state.bar.near = near;
+            if near {
+                state.bar.activity = Some(Instant::now());
+            }
+            changed
+        };
+        if changed {
+            cx.notify(self.view);
+        }
+    }
+
+    fn release(&self, cx: &mut App) {
+        let mut state = self.state.borrow_mut();
+        if state.bar.grab.take().is_some() {
+            state.bar.activity = Some(Instant::now());
+            cx.notify(self.view);
+        }
+    }
+
+    fn leave(&self, cx: &mut App) {
+        let mut state = self.state.borrow_mut();
+        if std::mem::replace(&mut state.bar.near, false) {
+            cx.notify(self.view);
+        }
+    }
+
+    /// Puts the thumb, held `grab` into its length, under the pointer at `pointer`.
+    fn drag_to(&self, pointer: f32, grab: f32, metrics: Metrics, length: f32, cx: &mut App) {
+        let scrolled = metrics.scrolled_for(length, pointer - grab);
+        self.scroll_to(scrolled, cx);
+    }
+
+    /// Scrolls to an offset counted over the whole content. A scroller that shows only a stretch of a longer
+    /// list cannot do it by itself, so the app is asked, as `scrollTo` would be.
+    fn scroll_to(&self, scrolled: f32, cx: &mut App) {
+        if let (Some(_), Some(workbench)) = (self.extent, &self.workbench) {
+            workbench.update(cx, |workbench, cx| workbench.scrollbar_moved(self.node, scrolled, cx)).ok();
+            return;
+        }
+        self.state.borrow_mut().glide.cancel();
+        move_to(&self.handle, self.horizontal, scrolled);
+    }
+
+    /// Has the view drawn again once the bar's hold is over, so it can start to fade.
+    fn wake_after(&self, wait: Duration, cx: &mut App) {
+        if std::mem::replace(&mut self.state.borrow_mut().bar.timer, true) {
+            return;
+        }
+        let (state, view) = (self.state.clone(), self.view);
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(wait).await;
+            state.borrow_mut().bar.timer = false;
+            cx.update(|cx| cx.notify(view)).ok();
+        })
+        .detach();
+    }
 }
 
 impl Element for Scroller {
@@ -182,7 +491,7 @@ impl Element for Scroller {
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _layout: &mut (),
         hitbox: &mut Hitbox,
         window: &mut Window,
@@ -190,6 +499,7 @@ impl Element for Scroller {
     ) {
         self.listen_for_wheel(hitbox, window);
         self.inner.paint(window, cx);
+        self.bar(bounds, hitbox, window, cx);
     }
 }
 

@@ -48,6 +48,7 @@ React Native works. There is no webview and no DOM.
 developing with hot reload and the error overlay.
 
 `examples/stick-to-end` is a long chat opened at its end, to see `List`'s `stickToEnd` and `Scroll`'s `anchor` work.
-`examples/scrolling` has a scroller of each kind, with a nested one, to try the wheel on.
+`examples/scrolling` has a scroller of each kind, with a nested one and a tinted scrollbar, to try the wheel and the
+scrollbar on. `examples/hover-ease` has rows that ease slowly, to see how transitions between colours pass.
 The demo in `examples/demo` uses every feature described here. When the docs and the
 demo disagree, the types in `runtime/ui/` are the reference.

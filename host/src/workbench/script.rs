@@ -99,6 +99,40 @@ fn pointer_argument(argument: &str) -> Result<(f32, f32, i32), String> {
     }
 }
 
+/// A pointer step through GPUI: `mouse:X,Y` moves, `mousedown:X,Y` and `mouseup:X,Y` press and release. A
+/// third number names a button (0 left, 1 middle, 2 right): the one pressed or released, or for a move the one
+/// held down while it happens, which is what a drag is.
+fn pointer_event(action: &str, position: &str) -> Result<PlatformInput, String> {
+    let (x, y, button) = pointer_argument(position)?;
+    let held = position.split(',').count() == 3;
+    let button = match button {
+        1 => gpui::MouseButton::Middle,
+        2 => gpui::MouseButton::Right,
+        _ => gpui::MouseButton::Left,
+    };
+    let position = gpui::point(gpui::px(x), gpui::px(y));
+    Ok(match action {
+        "mousedown" => PlatformInput::MouseDown(gpui::MouseDownEvent {
+            button,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        }),
+        "mouseup" => PlatformInput::MouseUp(gpui::MouseUpEvent {
+            button,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+        }),
+        _ => PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button: held.then_some(button),
+            modifiers: Default::default(),
+        }),
+    })
+}
+
 /// A wheel step: `wheel:X,Y:DY`, `wheel:X,Y:DX,DY` or either with `,px` last, at a window position. The
 /// deltas are lines, as a notched wheel sends, or pixels, as a touchpad does, and follow GPUI's
 /// sign: a negative one moves the content up, which scrolls down.
@@ -187,16 +221,11 @@ impl Workbench {
             cx.notify();
             return Ok(());
         }
-        if action == "mouse" {
+        if matches!(action, "mouse" | "mousedown" | "mouseup") {
             // Several positions, `x,y;x,y;…`, are a pointer travelling, one move every 8 ms.
             for (index, position) in needle.split(';').enumerate() {
-                let (x, y, _) = pointer_argument(position)?;
-                let event = gpui::MouseMoveEvent {
-                    position: gpui::point(gpui::px(x), gpui::px(y)),
-                    pressed_button: None,
-                    modifiers: Default::default(),
-                };
-                Self::dispatch_after(PlatformInput::MouseMove(event), index as u64 * 8, window, cx);
+                let event = pointer_event(action, position)?;
+                Self::dispatch_after(event, index as u64 * 8, window, cx);
             }
             return Ok(());
         }

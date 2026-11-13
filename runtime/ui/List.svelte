@@ -25,7 +25,7 @@
   import View from "./View.svelte";
   import { Heights } from "./heights";
   import type { Layout, ScrollPosition } from "./events";
-  import type { Style } from "./style";
+  import type { Scrollbar, Style } from "./style";
 
   interface Props {
     items: T[];
@@ -44,13 +44,15 @@
      */
     stickToEnd?: boolean;
     style?: Style;
+    /** `false` hides the scrollbar, an object tints it. It stands for the whole list, whichever rows are built. */
+    scrollbar?: boolean | Scrollbar;
     onscroll?: (position: ScrollPosition) => void;
   }
 
   /** How tall a stretch of rows is laid out at once, in pixels. */
   const STRETCH = 1_000_000;
 
-  let { items, rowHeight, estimatedRowHeight = 40, row, key, overscan = 8, stickToEnd = false, style, onscroll }: Props = $props();
+  let { items, rowHeight, estimatedRowHeight = 40, row, key, overscan = 8, stickToEnd = false, style, scrollbar, onscroll }: Props = $props();
 
   let scroller: ReturnType<typeof Scroll> | undefined = $state();
   /** How far the list is scrolled, counted from the top of the whole list. */
@@ -148,6 +150,17 @@
   const spaceBelow = $derived.by(() => {
     heightsAt(version);
     return Math.max(Math.min(totalHeight() - origin, STRETCH) - spaceAbove - (topOf(last) - topOf(first)), 0);
+  });
+
+  /**
+   * The scrollbar stands for the whole list, which the host's scroller only holds a stretch of, so it is told the
+   * whole height and where the stretch starts. A drag is carried out here, not by the host: rows are built where
+   * the window goes, and only the app can build them in the same step as the scroller moves. A host that moved
+   * first would show spacers for a frame, and its anchor would follow them.
+   */
+  const wholeHeight = $derived.by(() => {
+    heightsAt(version);
+    return totalHeight();
   });
 
   // The items changed: the rows keep what is known about them, and the window keeps its place.
@@ -352,6 +365,22 @@
     moveTo(offset);
   }
 
+  /** The scrollbar of a list taller than the host's stretch was dragged to `offset`, counted over the whole list. */
+  function barMoved(offset: number): void {
+    const furthest = Math.max(totalHeight() - viewport, 0);
+    const target = Math.min(Math.max(offset, 0), furthest);
+    if (stickToEnd && target >= furthest - 1) {
+      scrollToEnd();
+      return;
+    }
+    pinned = false;
+    if (measured) {
+      top = target;
+      record();
+    }
+    moveTo(target);
+  }
+
   /** Scrolls to the very end, which the host pins, however tall the rows turn out to be. */
   function scrollToEnd(): void {
     pinned = true;
@@ -362,7 +391,17 @@
   }
 </script>
 
-<Scroll bind:this={scroller} {style} anchor={anchoring} onscroll={scrolled} onlayout={laidOut}>
+<Scroll
+  bind:this={scroller}
+  {style}
+  anchor={anchoring}
+  {scrollbar}
+  extent={wholeHeight}
+  {origin}
+  onscrollbar={barMoved}
+  onscroll={scrolled}
+  onlayout={laidOut}
+>
   <View style={{ height: spaceAbove, shrink: 0 }} />
   {#each shown as entry (key ? key(entry.item, entry.index) : entry.index)}
     {#if measured}

@@ -26,6 +26,16 @@ export interface Pen {
   width?: number;
 }
 
+/** How a scroller's overlay scrollbar looks. `scrollbar={false}` hides it. */
+export interface Scrollbar {
+  /** The thumb's colour. Without one it is the text colour around the scroller, translucent. */
+  color?: Color;
+  /** The thumb's colour while the pointer is near it or holds it. */
+  activeColor?: Color;
+  /** The thumb's thickness in pixels while idle; it is a little thicker while the pointer is near. The default is 6. */
+  width?: number;
+}
+
 export interface Transition {
   duration?: number;
   delay?: number;

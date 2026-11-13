@@ -196,8 +196,10 @@ column or a fixed `height`.
 | `style` | `Style` | |
 | `horizontal` | `boolean` | Scroll sideways instead of down. |
 | `anchor` | `"content" \| "end"` | What the host keeps in view while it lays out. A vertical scroller only; see below. |
+| `scrollbar` | `boolean \| Scrollbar` | `false` hides the scrollbar. `{ color?, activeColor?, width? }` tints it; see below. |
 | `onscroll` | `(p: ScrollPosition) => void` | The offset and how far it can go: `{ x, y, maxX, maxY }`. It fires when the offset changes, and also when the content grows or shrinks and `maxY` changes with it. |
 | `onlayout` | `(l: Layout) => void` | |
+| `extent`, `origin`, `onscrollbar` | `number`, `number`, `(offset: number) => void` | For content of which only a stretch is laid out, as `List` does for a very long list: see below. |
 
 | Method | |
 |---|---|
@@ -228,8 +230,35 @@ A notch of a mouse wheel (a line delta) glides to its target over about 150 ms, 
 notch that arrives while one is under way adds to where the scroller is heading, so a fast wheel runs on smoothly.
 A touchpad's deltas, which are in pixels, move the content 1:1. The host paces the glide with the display's frames,
 and an idle scroller draws nothing. With scrollers inside one another, the innermost one that can move keeps the
-wheel, and the one around it takes over when the inner one is at its end. `scrollTo`, `scrollBy`, `scrollToIndex`
-and `anchor` act at once, and `scrollTo` ends a glide.
+wheel, and the one around it takes over when the inner one is at its end. `scrollTo`, `scrollBy`, a drag of the
+scrollbar and `anchor` all act at once and end a glide.
+
+### Scrollbar
+
+Every `Scroll` and `List` draws an overlay scrollbar: a thin rounded thumb over the edge of the content, which does
+not take room from it. It shows while the content scrolls or the pointer is within 16 px of the edge, stays a second
+after that and fades out. The thumb thickens under the pointer and can be dragged. Pressing the track puts the thumb
+there and takes hold of it, so it jumps to that place and goes on as a drag. The bar takes presses only while it is
+showing, and what it takes does not reach the content below. The thumb stands for the whole of the content, and is
+never shorter than 28 px.
+
+`scrollbar={false}` hides it. An object tints it, for a theme:
+
+```svelte
+<Scroll style={{ flex: 1 }} scrollbar={{ color: "#8b5cf6aa", activeColor: "#c4b5fd", width: 8 }}>…</Scroll>
+```
+
+| `Scrollbar` field | |
+|---|---|
+| `color` | The thumb's colour. Without one it is the text colour around the scroller, translucent, so it follows a dark or a light theme. |
+| `activeColor` | The colour while the pointer is near or holds it. By default `color` made more opaque. |
+| `width` | The thickness in pixels while idle, 6 by default. It is 4 more while the pointer is near. |
+
+A scroller that lays out only a stretch of what it scrolls, as `List` does for a list taller than the host can draw at
+once, tells the host the whole length with `extent` and where the stretch starts in it with `origin`. The thumb then
+stands for the whole, and a drag is carried out by the app, because only the app can build the content where the
+window goes: it is given `onscrollbar` with the offset to go to, counted over the whole, and without it the scroller
+goes there itself. `List` does all of it.
 
 ### Anchoring
 
@@ -272,6 +301,7 @@ above and below, so the host lays out their real heights at once.
 | `overscan` | `number` | How many rows past each edge are built anyway, as long as they start within a window's height of it. The default is 8. |
 | `stickToEnd` | `boolean` | Opens at the end, and stays there as items are added and rows change height, as a chat does. Scrolling up lets go of it; scrolling back to the end takes it again. Needs no `scrollToIndex` to start at the end. |
 | `style` | `Style` | Give it a bounded height, as for `Scroll`. |
+| `scrollbar` | `boolean \| Scrollbar` | As for `Scroll`. The thumb stands for the whole list, however few of its rows are built. |
 | `onscroll` | `(p: ScrollPosition) => void` | `y` counts from the top of the whole list. |
 
 | Method | |

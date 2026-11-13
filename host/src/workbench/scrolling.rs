@@ -1,4 +1,4 @@
-//! Scroll requests the app makes while it handles an event.
+//! Scroll requests the app makes while it handles an event, and the ones the scrollbar makes of it.
 
 use gpui::{Context, point, px};
 
@@ -37,5 +37,12 @@ impl Workbench {
         if let Some(state) = self.interaction.scrollers.borrow().get(&id) {
             state.borrow_mut().glide.cancel();
         }
+    }
+
+    /// The user dragged the scrollbar of a scroller that shows only a stretch of something longer, to
+    /// `offset` counted over the whole of it. Only the app knows how to get there, so it hears `scrollbar`.
+    pub(crate) fn scrollbar_moved(&mut self, id: NodeId, offset: f32, cx: &mut Context<Self>) {
+        self.stop_gliding(id);
+        self.emit(id, "scrollbar", format!("{{\"offset\":{offset}}}"), cx);
     }
 }

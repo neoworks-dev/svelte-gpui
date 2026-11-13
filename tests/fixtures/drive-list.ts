@@ -152,4 +152,13 @@ for (let pass = 0; pass < 4; pass++) {
 }
 log.tall = built(tall);
 
+// The scrollbar of the list of fixed rows: it is told the whole list, and the drag is carried out by the app, which
+// builds the rows where the window goes in the same step as it moves.
+globals.__event(fixed.id, "layout", JSON.stringify({ x: 0, y: 0, width: 400, height: 600 }));
+log.bar = { extent: fixed.attributes.extent ?? null, origin: fixed.attributes.origin ?? null };
+const requestsBeforeDrag = scrollRequests;
+globals.__event(fixed.id, "scrollbar", JSON.stringify({ offset: 50000 }));
+globals.__settle();
+log.dragged = { fixed: built(fixed), scrollRequests: scrollRequests - requestsBeforeDrag, offset: lastScrollOffset };
+
 process.stdout.write(`\n@@${JSON.stringify(log)}\n`);
