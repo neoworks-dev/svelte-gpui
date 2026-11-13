@@ -254,6 +254,8 @@ one. `docs/testing.md` lists the steps:
 - `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit` (`press` and `down` move focus as a real press does);
 - `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
+- `mouse:X,Y` (a real pointer move through GPUI: hover styles and `onhover` follow; `X,Y;X,Y` travels) and
+  `wheel:X,Y:DY` (notches, negative scrolls down; `,px` last for touchpad pixels);
 - `scroll`, `wait`, `frames`.
 
 Targets are text, `@attr=value` or `@tag=g-canvas`. A colon in a target is written `\:`
