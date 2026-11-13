@@ -11,6 +11,7 @@ mod element;
 mod events;
 mod field;
 mod file_drop;
+mod glide;
 mod inline;
 mod media;
 mod motion;
@@ -18,6 +19,7 @@ mod overlay;
 mod press;
 mod primitive;
 mod roots;
+mod scroller;
 mod text;
 
 use std::cell::{Cell, RefCell};
@@ -48,6 +50,7 @@ use press::{captured_pointer, press_ends_focus};
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
+use scroller::{Scroller, SharedScroller};
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
 
@@ -59,6 +62,8 @@ pub struct Interaction {
     pub scroll: RefCell<HashMap<NodeId, ScrollHandle>>,
     /// What each scroller anchored to its end remembers between frames.
     pub anchors: RefCell<HashMap<NodeId, Rc<RefCell<AnchorState>>>>,
+    /// What each scroller keeps for its wheel glide and its scrollbar.
+    pub scrollers: RefCell<HashMap<NodeId, SharedScroller>>,
     /// Where each measured element came out in the window.
     pub bounds: Rc<RefCell<HashMap<NodeId, Bounds<gpui::Pixels>>>>,
     pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
@@ -101,6 +106,7 @@ impl Interaction {
             focus: RefCell::new(HashMap::new()),
             scroll: RefCell::new(HashMap::new()),
             anchors: RefCell::new(HashMap::new()),
+            scrollers: RefCell::new(HashMap::new()),
             fields,
             bounds: Rc::new(RefCell::new(HashMap::new())),
             hovered: RefCell::new(HashSet::new()),
@@ -128,6 +134,7 @@ impl Interaction {
         self.focus.borrow_mut().clear();
         self.scroll.borrow_mut().clear();
         self.anchors.borrow_mut().clear();
+        self.scrollers.borrow_mut().clear();
         self.bounds.borrow_mut().clear();
         self.fields.borrow_mut().clear();
         self.hovered.borrow_mut().clear();
@@ -464,10 +471,26 @@ impl<'a> Painter<'a> {
             element = element.child(self.measure(id));
         }
         let drawn = self.interactive(element, id, node, primitive, &computed, eased, cx);
-        match (anchored_slots, anchoring_of(node)) {
-            (Some(slots), Some(anchoring)) => Some(self.anchored(drawn, id, anchoring, slots)),
-            _ => Some(drawn),
+        let drawn = match (anchored_slots, anchoring_of(node)) {
+            (Some(slots), Some(anchoring)) => self.anchored(drawn, id, anchoring, slots),
+            _ => drawn,
+        };
+        if primitive == Primitive::Scroll {
+            return Some(self.scroller(drawn, id, node));
         }
+        Some(drawn)
+    }
+
+    /// A scroller, wrapped so its wheel glides.
+    fn scroller(&self, scroller: AnyElement, id: NodeId, node: &Node) -> AnyElement {
+        let state = self.interaction.scrollers.borrow_mut().entry(id).or_default().clone();
+        Scroller {
+            inner: scroller,
+            handle: self.interaction.scroll_handle(id),
+            horizontal: node.attributes.contains_key("horizontal"),
+            state,
+        }
+        .into_any_element()
     }
 
     /// A scroller with an anchor, wrapped so it can keep its place or its end while it is laid out.

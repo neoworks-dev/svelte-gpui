@@ -201,8 +201,8 @@ column or a fixed `height`.
 
 | Method | |
 |---|---|
-| `scrollTo(offset)` | Moves the top (or left) edge to `offset` pixels. |
-| `scrollBy(delta)` | Moves by `delta` pixels, down or right when positive, and stops at the ends. |
+| `scrollTo(offset)` | Moves the top (or left) edge to `offset` pixels, at once. |
+| `scrollBy(delta)` | Moves by `delta` pixels, down or right when positive, and stops at the ends. At once. |
 | `position()` | `{ x, y, maxX, maxY }`: where it is and how far it can go. |
 
 `position()` is known without an `onscroll` handler, and is right straight after `scrollTo` or `scrollBy`. Read in a
@@ -221,6 +221,15 @@ template or an effect, it updates the way state does. It reads zeros until the h
   <Scroll bind:this={scroller} style={{ flex: 1 }}>…</Scroll>
 </View>
 ```
+
+### The wheel
+
+A notch of a mouse wheel (a line delta) glides to its target over about 150 ms, easing out, instead of jumping. A
+notch that arrives while one is under way adds to where the scroller is heading, so a fast wheel runs on smoothly.
+A touchpad's deltas, which are in pixels, move the content 1:1. The host paces the glide with the display's frames,
+and an idle scroller draws nothing. With scrollers inside one another, the innermost one that can move keeps the
+wheel, and the one around it takes over when the inner one is at its end. `scrollTo`, `scrollBy`, `scrollToIndex`
+and `anchor` act at once, and `scrollTo` ends a glide.
 
 ### Anchoring
 

@@ -22,6 +22,12 @@ The host eases `background`, `color`, `borderColor` and `opacity` towards whatev
 style says now. It does this in Rust, without running JavaScript per frame. See
 [Transitions](styles.md#transitions).
 
+## Scrolling
+
+The host glides a mouse wheel's notches to their target over about 150 ms, in Rust, with no JavaScript per frame. It
+asks for a frame from the display only while one is under way, so it follows the display's refresh rate and an idle
+scroller costs nothing. See [Scroll](primitives.md#the-wheel).
+
 ## Svelte transitions with Presence
 
 Svelte's `in:`, `out:` and `transition:` directives only work on elements, and an app

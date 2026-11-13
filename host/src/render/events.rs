@@ -4,7 +4,7 @@
 use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ScrollDelta,
-    ScrollHandle, ScrollWheelEvent, Window,
+    ScrollWheelEvent,
 };
 
 use super::{Computed, Painter, Primitive};
@@ -47,14 +47,9 @@ impl Painter<'_> {
             let handle = self.interaction.scroll_handle(id);
             let horizontal = node.attributes.contains_key("horizontal");
             element = element.track_scroll(&handle);
+            // The wheel is `Scroller`'s: GPUI scrolls every container under the pointer, and the
+            // innermost one that moved keeps it.
             element = if horizontal { element.overflow_x_scroll() } else { element.overflow_y_scroll() };
-            // GPUI scrolls every container under the pointer. The innermost one that moved keeps
-            // the wheel, so an outer one only scrolls once the inner one is at its end.
-            element = element.on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
-                if scrolled_by(&handle, event, horizontal, window) {
-                    cx.stop_propagation();
-                }
-            });
         }
         if node.attributes.contains_key("keepfocus") {
             // Before the elements under it can take focus: a press here leaves focus where it is.
@@ -144,34 +139,6 @@ impl Painter<'_> {
     }
 }
 
-/// Whether the wheel event moved this container. GPUI's own scroll listener has already
-/// added the event's delta to the offset, unclamped, so the offset before it is the
-/// difference.
-fn scrolled_by(handle: &ScrollHandle, event: &ScrollWheelEvent, horizontal: bool, window: &Window) -> bool {
-    let delta = event.delta.pixel_delta(window.line_height());
-    let (along, across) = if horizontal { (delta.x, delta.y) } else { (delta.y, delta.x) };
-    // A vertical wheel scrolls a horizontal container too, as GPUI does.
-    let applied = f32::from(if f32::from(along) != 0.0 { along } else { across });
-    let offset = handle.offset();
-    let max_offset = handle.max_offset();
-    let (now, furthest) = if horizontal {
-        (f32::from(offset.x), f32::from(max_offset.width))
-    } else {
-        (f32::from(offset.y), f32::from(max_offset.height))
-    };
-    moved(now, applied, furthest)
-}
-
-/// Whether an offset of `now` after a wheel delta of `applied` moved a container that can scroll
-/// `furthest`. Offsets count down from 0, and both are clamped into range before they are
-/// compared: GPUI only clamps an offset when it lays the container out again, so one it has not
-/// drawn since can be out of range, and would otherwise seem to move with every notch while the
-/// container cannot move at all (#67).
-fn moved(now: f32, applied: f32, furthest: f32) -> bool {
-    let clamp = |offset: f32| offset.clamp(-furthest.max(0.0), 0.0);
-    (clamp(now) - clamp(now - applied)).abs() > 0.01
-}
-
 pub(super) fn listens_for_pointer(node: &Node) -> bool {
     node.listeners.contains("down") || node.listeners.contains("move")
 }
@@ -238,31 +205,4 @@ pub fn pointer_detail(
         y - origin.1,
         modifier_fields(modifiers)
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::moved;
-
-    #[test]
-    fn a_wheel_with_room_to_move_moves_the_container() {
-        // At the top of a container that can scroll 300 px, a notch down moves it 78 px.
-        assert!(moved(-78.0, -78.0, 300.0));
-        // Near its end, the part of the notch that fits still moves it.
-        assert!(moved(-338.0, -78.0, 300.0));
-    }
-
-    #[test]
-    fn a_wheel_past_an_end_does_not_move_the_container() {
-        assert!(!moved(78.0, 78.0, 300.0));
-        assert!(!moved(-378.0, -78.0, 300.0));
-    }
-
-    #[test]
-    fn a_container_that_cannot_scroll_never_keeps_the_wheel_whatever_its_offset() {
-        // The stale offset of a code block that had not been laid out again (#67).
-        assert!(!moved(54.0, 78.0, 0.0));
-        assert!(!moved(0.0, 78.0, 0.0));
-        assert!(!moved(-24.0, -78.0, 0.0));
-    }
 }
