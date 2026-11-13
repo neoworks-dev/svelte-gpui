@@ -3,10 +3,14 @@
 Native apps from Svelte 5 components, run in QuickJS and drawn by a Rust GPUI host.
 See README.md. svelte-gpui is its own project; Grove is one app that may use it.
 
-- Apps are built from primitives (`runtime/ui/*.svelte`), each rendering one host
+- Apps are built from primitives (`runtime/ui/*.ts` and `*.svelte`), each rendering one host
   tag (`g-view`, `g-text`, …) that `host/src/render/` draws. There is no HTML and
   no CSS: a tag the host does not know is not drawn. Host tags are prefixed because
   Svelte puts `<text>` and `<image>` in the SVG namespace.
+- `View`, `Text`, `Button`, `Icon`, `Image` and `Overlay` are `.ts` files made by
+  `definePrimitive` (`runtime/ui/primitive.ts`): one effect each, attributes written by a
+  function and listeners from a table. A compiled `.svelte` file for the same tag costs five
+  effects, and a list row has thirty primitives. A new primitive that sits in rows goes there too.
 - Styles are typed objects (`runtime/ui/style.ts`) sent as JSON in the `look`
   attribute; `host/src/style/parse.rs` reads the same property names. Keep the two in step.
 - Operation codes live only in `protocol.json`; `host/build.rs` generates the Rust
@@ -98,7 +102,7 @@ Every issue gets a type, a priority, an effort and an area. Type, priority and e
 
 Area is a label, exactly one of:
 
-- `area:primitives` — `runtime/ui/*.svelte` and how `host/src/render/` draws them: layout, events, focus
+- `area:primitives` — `runtime/ui/*.ts`, `runtime/ui/*.svelte` and how `host/src/render/` draws them: layout, events, focus
 - `area:style` — `runtime/ui/style.ts` and `host/src/style/`
 - `area:runtime` — QuickJS, the DOM shim, the bridge and `protocol.json`
 - `area:io` — network and files, `runtime/io/` and `host/src/io/`

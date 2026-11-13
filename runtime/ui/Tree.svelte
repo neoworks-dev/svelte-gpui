@@ -14,9 +14,9 @@
 -->
 <script lang="ts" generics="T">
   import type { Snippet } from "svelte";
-  import Icon from "./Icon.svelte";
+  import Icon from "./Icon";
   import List from "./List.svelte";
-  import View from "./View.svelte";
+  import View from "./View";
   import { caretDown, caretRight } from "./icons";
   import type { TreeRow } from "./tree";
   import type { KeyEvent, PointerEvent } from "./events";

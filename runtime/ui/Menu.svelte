@@ -12,10 +12,10 @@
 -->
 <script lang="ts">
   import { untrack } from "svelte";
-  import Icon from "./Icon.svelte";
+  import Icon from "./Icon";
   import Scroll from "./Scroll.svelte";
-  import Text from "./Text.svelte";
-  import View from "./View.svelte";
+  import Text from "./Text";
+  import View from "./View";
   import { check } from "./icons";
   import { colors } from "./overlay-look";
   import type { MenuItem } from "./menu";

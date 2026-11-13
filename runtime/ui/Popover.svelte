@@ -19,8 +19,8 @@
 -->
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import View from "./View.svelte";
+  import Overlay from "./Overlay";
+  import View from "./View";
   import { focusedElement, isTopmost, pushOverlay, restoreFocus, type CloseReason, type PopoverApi } from "./overlay-stack";
   import { panel as panelLook } from "./overlay-look";
   import type { KeyEvent, OutsideEvent } from "./events";

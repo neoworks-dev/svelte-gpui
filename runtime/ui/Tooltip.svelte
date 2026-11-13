@@ -16,9 +16,9 @@
 
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import Text from "./Text.svelte";
-  import View from "./View.svelte";
+  import Overlay from "./Overlay";
+  import Text from "./Text";
+  import View from "./View";
   import { tip } from "./overlay-look";
   import type { Style } from "./style";
 
