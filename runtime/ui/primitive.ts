@@ -4,6 +4,8 @@
 // builds hundreds of primitives per screen. This is what Svelte's compiler would emit for the component if it
 // knew that the attributes are a fixed list, written once for all of them.
 
+// Apps type-check this file with their own tsconfig, which does not include the runtime's declarations.
+/// <reference path="../svelte-internal.d.ts" />
 import * as $ from "svelte/internal/client";
 import type { Component } from "svelte";
 import type { EventHandler, SElement } from "../dom/nodes";
