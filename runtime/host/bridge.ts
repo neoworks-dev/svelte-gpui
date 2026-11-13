@@ -96,15 +96,22 @@ export function flush(): void {
   host.apply(JSON.stringify(batch));
 }
 
+/**
+ * Forgets a removed node and all it holds, and cuts the links between them. A node tree is a web of
+ * references in both directions, which a reference-counting engine can only free when it runs its cycle
+ * collector; without the cuts every row that scrolled away stayed until the next collection.
+ */
 function forget(node: SNode): void {
-  nodes.delete(node.hostId);
+  if (node.hostId !== 0) {
+    nodes.delete(node.hostId);
+  }
   let child = node.firstChildNode;
   while (child !== null) {
-    if (child.hostId !== 0) {
-      forget(child);
-    }
-    child = child.nextSiblingNode;
+    const next = child.nextSiblingNode;
+    forget(child);
+    child = next;
   }
+  node.release();
 }
 
 /**
@@ -130,8 +137,11 @@ function announce(node: SNode): void {
   for (const [name, value] of element.attributes) {
     pending.push([SET_ATTRIBUTE, id, name, normalize(value)]);
   }
-  for (const [name, value] of element.style.declarations) {
-    pending.push([SET_STYLE, id, name, value]);
+  const declarations = element.declarations;
+  if (declarations !== null) {
+    for (const [name, value] of declarations) {
+      pending.push([SET_STYLE, id, name, value]);
+    }
   }
   for (const type of element.listeners.keys()) {
     pending.push([LISTEN, id, type]);
