@@ -60,6 +60,11 @@ export interface Transition {
   delay?: number;
   /** `"spring"`: `scale` overshoots and settles, for presses and pops; colours and opacity ease as `"ease"`. */
   easing?: "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "spring";
+  /**
+   * The scale's own timing, so a hover colour can take 120 ms while a press springs over 400:
+   * `{ duration: 120, scale: { duration: 400, easing: "spring" } }`. Without it the scale eases like the rest.
+   */
+  scale?: number | { duration?: number; easing?: Transition["easing"] };
 }
 
 export interface Style {

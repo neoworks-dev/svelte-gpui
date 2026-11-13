@@ -3,7 +3,7 @@
 use gpui::{CursorStyle, Rgba, SharedString};
 use serde_json::Value;
 
-use super::{Align, Dimension, Easing, Fill, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Transition};
+use super::{Align, Dimension, Easing, Fill, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Timing, Transition};
 
 impl Style {
     /// Sets one property from the style object. Returns false when it is not understood,
@@ -271,22 +271,43 @@ fn sides(value: &Value) -> Sides<Option<Dimension>> {
 
 fn transition(value: &Value) -> Option<Transition> {
     if let Some(duration) = number(value) {
-        return Some(Transition { duration_ms: duration, delay_ms: 0.0, easing: Easing::EASE, spring: false });
+        return Some(Transition {
+            duration_ms: duration,
+            delay_ms: 0.0,
+            easing: Easing::EASE,
+            spring: false,
+            scale: None,
+        });
     }
     let fields = value.as_object()?;
-    let spring = fields.get("easing").and_then(Value::as_str) == Some("spring");
-    let easing = match fields.get("easing").and_then(Value::as_str) {
+    let main = timing(value)?;
+    Some(Transition {
+        duration_ms: main.duration_ms,
+        delay_ms: fields.get("delay").and_then(number).unwrap_or(0.0),
+        easing: main.easing,
+        spring: main.spring,
+        scale: fields.get("scale").and_then(timing),
+    })
+}
+
+/// A duration and a curve: a number of milliseconds, or `{ duration?, easing? }`.
+fn timing(value: &Value) -> Option<Timing> {
+    if let Some(duration) = number(value) {
+        return Some(Timing { duration_ms: duration, easing: Easing::EASE, spring: false });
+    }
+    let fields = value.as_object()?;
+    let name = fields.get("easing").and_then(Value::as_str);
+    let easing = match name {
         Some("linear") => Easing::LINEAR,
         Some("ease-in") => Easing(0.42, 0.0, 1.0, 1.0),
         Some("ease-out") => Easing(0.0, 0.0, 0.58, 1.0),
         Some("ease-in-out") => Easing(0.42, 0.0, 0.58, 1.0),
         _ => Easing::EASE,
     };
-    Some(Transition {
+    Some(Timing {
         duration_ms: fields.get("duration").and_then(number).unwrap_or(150.0),
-        delay_ms: fields.get("delay").and_then(number).unwrap_or(0.0),
         easing,
-        spring,
+        spring: name == Some("spring"),
     })
 }
 

@@ -88,7 +88,8 @@ The values that trip people up:
   fades, it does not pass through black); a `color` one side leaves out is the inherited one. Animate
   size and position with `Tween` or `Spring` driving `translate`, `width` and so on.
 - `scale` paints an element and its contents larger or smaller around its centre without moving layout or hit
-  testing. A springy press is `transition: { duration: 400, easing: "spring" }` with `active={{ scale: 0.94 }}`;
+  testing. A springy press is `transition: { duration: 120, scale: { duration: 400, easing: "spring" } }` with `active={{ scale: 0.94 }}`
+  (the scale's own timing keeps the hover colour quick);
   `active` eases only on an element with a `transition`. Text is stretched while scaled, so keep it for presses and pops.
 - `zoom` scales an element's whole subtree in the host, like CSS's. A zoomable canvas sets
   it once on its layer instead of multiplying every child's sizes, so a zoom step restyles
