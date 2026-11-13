@@ -81,12 +81,14 @@ impl Animation {
         }
         let elapsed = now.duration_since(start).as_secs_f32() * 1000.0;
         let progress = (elapsed / transition.duration_ms.max(1.0)).clamp(0.0, 1.0);
-        if progress >= 1.0 {
+        let timing = transition.scale_timing();
+        let scale_progress = (elapsed / timing.duration_ms.max(1.0)).clamp(0.0, 1.0);
+        if progress >= 1.0 && scale_progress >= 1.0 {
             return (self.asked, 1.0);
         }
         let eased = transition.easing.at(progress);
         // Only the scale springs: a colour or an opacity that overshoots looks like a flicker.
-        let scaled = if transition.spring { spring(progress) } else { eased };
+        let scaled = if timing.spring { spring(scale_progress) } else { timing.easing.at(scale_progress) };
         let value = Eased {
             background: Fill::ease(self.from.background, self.to.background, eased),
             color: mix_option(self.from.color, self.to.color, eased),
@@ -94,7 +96,8 @@ impl Animation {
             opacity: self.from.opacity + (self.to.opacity - self.from.opacity) * eased,
             scale: self.from.scale + (self.to.scale - self.from.scale) * scaled,
         };
-        (value, progress)
+        // Still easing until the slower of the two has finished.
+        (value, progress.min(scale_progress))
     }
 }
 
@@ -161,7 +164,7 @@ mod tests {
     const TRANSPARENT: Rgba = Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
 
     fn linear(duration_ms: f32) -> Transition {
-        Transition { duration_ms, delay_ms: 0.0, easing: Easing::LINEAR, spring: false }
+        Transition { duration_ms, delay_ms: 0.0, easing: Easing::LINEAR, spring: false, scale: None }
     }
 
     fn eased(color: Option<Rgba>) -> Eased {
@@ -174,7 +177,8 @@ mod tests {
 
     #[test]
     fn a_spring_overshoots_once_and_ends_on_its_target() {
-        let transition = Transition { duration_ms: 400.0, delay_ms: 0.0, easing: Easing::EASE, spring: true };
+        let transition =
+            Transition { duration_ms: 400.0, delay_ms: 0.0, easing: Easing::EASE, spring: true, scale: None };
         let start = Instant::now();
         let mut animation = Animation::settled(scaled(1.0));
         animation.retarget(scaled(0.9), start, &transition, GREY);
@@ -187,8 +191,28 @@ mod tests {
     }
 
     #[test]
+    fn the_scale_keeps_its_own_timing() {
+        use crate::style::Timing;
+        let transition = Transition {
+            duration_ms: 100.0,
+            delay_ms: 0.0,
+            easing: Easing::LINEAR,
+            spring: false,
+            scale: Some(Timing { duration_ms: 400.0, easing: Easing::LINEAR, spring: false }),
+        };
+        let start = Instant::now();
+        let mut animation = Animation::settled(Eased { scale: 1.0, ..eased(Some(GREY)) });
+        animation.retarget(Eased { scale: 0.5, ..eased(Some(WHITE)) }, start, &transition, GREY);
+        let (at_200, progress) = animation.value_at(start + Duration::from_millis(200), &transition);
+        assert_eq!(at_200.color, Some(WHITE), "the colour finished after its 100 ms");
+        assert!((at_200.scale - 0.75).abs() < 1e-4, "the scale is halfway through its 400 ms: {}", at_200.scale);
+        assert!(progress < 1.0, "still easing until the scale is done");
+    }
+
+    #[test]
     fn colours_do_not_spring() {
-        let transition = Transition { duration_ms: 100.0, delay_ms: 0.0, easing: Easing::LINEAR, spring: true };
+        let transition =
+            Transition { duration_ms: 100.0, delay_ms: 0.0, easing: Easing::LINEAR, spring: true, scale: None };
         let start = Instant::now();
         let mut animation = Animation::settled(eased(Some(GREY)));
         animation.retarget(eased(Some(WHITE)), start, &transition, GREY);

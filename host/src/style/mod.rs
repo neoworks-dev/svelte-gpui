@@ -82,7 +82,7 @@ impl Easing {
     }
 }
 
-/// How changes to colours, opacity and scale ease: `transition: 150` or `{ duration, delay, easing }`.
+/// How changes to colours, opacity and scale ease: `transition: 150` or `{ duration, delay, easing, scale }`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transition {
     pub duration_ms: f32,
@@ -90,6 +90,26 @@ pub struct Transition {
     pub easing: Easing,
     /// `easing: "spring"`: the scale overshoots and settles; colours and opacity use `ease`.
     pub spring: bool,
+    /// The scale's own timing, when it has one: a hover colour wants 120 ms, a springy press 400.
+    pub scale: Option<Timing>,
+}
+
+/// How long and along which curve one property eases.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Timing {
+    pub duration_ms: f32,
+    pub easing: Easing,
+    pub spring: bool,
+}
+
+impl Transition {
+    /// How the scale eases: its own timing if it has one, else the transition's.
+    pub fn scale_timing(&self) -> Timing {
+        match self.scale {
+            Some(timing) => timing,
+            None => Timing { duration_ms: self.duration_ms, easing: self.easing, spring: self.spring },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

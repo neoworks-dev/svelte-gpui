@@ -204,15 +204,16 @@ It takes one of these:
 | Value | |
 |---|---|
 | `number` | The duration in ms, with `ease`. |
-| `{ duration?, delay?, easing? }` | `easing` is `"linear"`, `"ease"`, `"ease-in"`, `"ease-out"`, `"ease-in-out"` or `"spring"`. The duration defaults to 150. |
+| `{ duration?, delay?, easing?, scale? }` | `easing` is `"linear"`, `"ease"`, `"ease-in"`, `"ease-out"`, `"ease-in-out"` or `"spring"`. The duration defaults to 150. `scale` gives the scale its own `{ duration?, easing? }` (or a duration). |
 
 `"spring"` lets `scale` overshoot by about a fifth, swing back once and settle, which makes a
 press or a pop feel physical; colours and opacity ease as `"ease"` meanwhile. 350 to 450 ms
-suits it. A button that gives under the press:
+suits it, which is slow for a hover colour, so give the scale its own timing. A button whose
+hover colour takes 120 ms and that gives under the press:
 
 ```svelte
 <Button
-  style={{ ...look, transition: { duration: 400, easing: "spring" } }}
+  style={{ ...look, transition: { duration: 120, scale: { duration: 400, easing: "spring" } } }}
   active={{ scale: 0.94 }}
 >
 ```
