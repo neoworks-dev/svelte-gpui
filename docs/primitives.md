@@ -197,6 +197,7 @@ column or a fixed `height`.
 | `horizontal` | `boolean` | Scroll sideways instead of down. |
 | `anchor` | `"content" \| "end"` | What the host keeps in view while it lays out. A vertical scroller only; see below. |
 | `scrollbar` | `boolean \| Scrollbar` | `false` hides the scrollbar. `{ color?, activeColor?, width? }` tints it; see below. |
+| `rows` | `boolean` | The children are rows: big, and each changing on its own. The host keeps what each row painted and moves it as the scroller scrolls; see below. A vertical scroller only. `List` sets it. |
 | `onscroll` | `(p: ScrollPosition) => void` | The offset and how far it can go: `{ x, y, maxX, maxY }`. It fires when the offset changes, and also when the content grows or shrinks and `maxY` changes with it. |
 | `onlayout` | `(l: Layout) => void` | |
 | `extent`, `origin`, `onscrollbar` | `number`, `number`, `(offset: number) => void` | For content of which only a stretch is laid out, as `List` does for a very long list: see below. |
@@ -284,6 +285,20 @@ place, so put what should hold still directly in it (`List` does).
 `examples/stick-to-end` is a long chat of rows of unknown height, opened at its end, with buttons that grow the last
 row and a row above the window.
 
+### Rows
+
+With `rows`, each child of the scroller that holds a few dozen elements is drawn from a cache. The host keeps what the
+child painted and moves it as the scroller scrolls, so a frame of scrolling costs the layout and the painter one
+small leaf per row that did not change, however many elements the rows hold, and a row the app changes is drawn again
+by itself. Rows are moved by whole device pixels, so their text stays as sharp as when it was drawn. `List` sets
+`rows`, and nothing else is needed for its rows to hover, press, focus, change height, show images as they load, and
+hold scrollers of their own.
+
+A child is drawn this way when its height is its content's: no `grow`, no margins, no `width`, `translate` or
+`position: "absolute"`, and the scroller does not centre or lay out sideways. It is drawn in the open when it holds an
+`Input` or a view the app's own crate draws. A row is drawn again, not moved, for as long as the pointer is over it,
+and for as long as it holds an open `Overlay`.
+
 ## List
 
 A long list of rows, built only near the window. 100,000 items cost what a screenful does.
@@ -344,6 +359,11 @@ measured. This is what lets it hold a hundred thousand chat messages:
 - **Very long lists.** The host cannot draw at millions of pixels from the top, so the list lays out a stretch of
   a million pixels at a time and moves the stretch along as you scroll. You do not see it, and `onscroll` still
   counts from the top of the whole list.
+
+- **Scrolling costs what changed, not what is built.** The rows are drawn from a cache (`Scroll`'s `rows`), so a
+  scroll frame moves what the unchanged rows painted and lays out and paints only the rows that changed, which are
+  mostly the ones just built and the one under the pointer. A list of rows of sixty elements each scrolls at the
+  cost of a list of a few.
 
 Each row's size is read with `onresize` on a view around it, so a row costs one extra measuring layer.
 

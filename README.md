@@ -97,8 +97,9 @@ id, version and icon live in its `package.json`. See [docs/packaging.md](docs/pa
 - **The host** (`host/`) keeps a copy of the tree, parses each element's style object
   once per distinct value (`style/`), and draws every primitive as a GPUI element
   (`render/`). Large, stable parts of the tree become cached GPUI views, so a change
-  elsewhere does not rebuild them. `workbench/` is the window: input, focus, the clock
-  and what it reports back to the app.
+  elsewhere does not rebuild them, and the rows of a `List` are views that GPUI moves
+  while the list scrolls, so only a row that changed is laid out and painted again.
+  `workbench/` is the window: input, focus, the clock and what it reports back to the app.
 - **Network and files** (`fetch`, `WebSocket`, `files`) run on threads in the host
   (`host/src/io/`), and each result reaches the app as soon as it arrives. See
   [docs/io.md](docs/io.md).
@@ -120,7 +121,7 @@ From `@neoworks/svelte-gpui/ui`:
 | `Text` | A paragraph. Nested `Text` elements are runs inside it, with their own colour, weight, font or background, and the paragraph wraps as one. `pre` keeps whitespace. |
 | `Button` | Pressed by the pointer, or by Enter and Space while it has focus. `disabled`. |
 | `Input` | A text field the host edits, with input methods, selection, the clipboard, `multiline`, `secure`, `numeric`, `maxLength`, `bind:value`, `oninput`, `onsubmit` and `oncommit`. |
-| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. A mouse wheel glides to its target, a touchpad moves it 1:1, and an overlay scrollbar shows while it moves (`scrollbar` hides or tints it). `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
+| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. A mouse wheel glides to its target, a touchpad moves it 1:1, and an overlay scrollbar shows while it moves (`scrollbar` hides or tints it). `anchor` keeps the end, or what you are looking at, in place while the host lays out. `rows` draws big children from a cache while it scrolls. |
 | `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`, and a scrollbar that stands for the whole list. |
 | `Image` | A file path relative to the bundle, a `data:` URL, or an `http(s)` URL fetched on a thread and cached. It loads when it nears the window and is decoded no larger than it is drawn. |
 | `Icon` | SVG markup or a file, tinted with `color` or the text colour around it. The build loads `.svg` imports as text, so `import gear from "@phosphor-icons/core/regular/gear.svg"` works. |
@@ -182,6 +183,19 @@ The demo, on one machine:
 
 Most of the memory is GPUI itself: the system fonts it loads, the GPU driver, and
 Vulkan's loader.
+
+Scrolling a `List` of 1,079 songs in Drift (about 30 rows built, 1,900 nodes), 2026-11-13, a notched wheel, the
+average frame while scrolling, mean of three runs:
+
+| Drawing a frame (layout, painting, building elements) | 60 Hz output | 144 Hz output |
+|---|---|---|
+| Every built row laid out and painted each frame | 7.1 ms | 6.6 ms |
+| Rows that did not change moved, the rest drawn again | 3.0 ms | 2.1 ms |
+| Frames per second, the first way, then the second | 61, then 62 (display limited) | 112, then 158 |
+
+Of the 3.0 ms, the rows that changed take most: a row just built is drawn two or three times as its size and images
+settle, and the row under the pointer is drawn again each frame. A row that did not change costs about 20 µs to move.
+The rest of a frame is the app's JavaScript (about 4 ms at 60 Hz, mostly mounting the row that scrolls into view).
 
 ## Testing without a pointer
 
