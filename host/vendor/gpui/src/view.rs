@@ -36,6 +36,10 @@ struct RelocatableState {
     /// Where the view was when it was recorded, and its size.
     origin: Point<Pixels>,
     size: Size<Pixels>,
+    /// Its height before layout rounded it to device pixels. At a fractional scale the rounded height
+    /// depends on where the view sits, so a leaf given the rounded one shifted its neighbours by a pixel
+    /// whenever a view next to it was laid out afresh; this one comes out the same anywhere.
+    layout_height: Pixels,
     /// How far from `origin` it was last drawn.
     applied: Point<Pixels>,
     /// Whether the pointer was over the view when it was recorded, so what it painted may show hover.
@@ -56,9 +60,9 @@ pub enum ViewLayout {
     /// An ordinary or cached view: the element when it was rendered for layout, else nothing.
     Plain(Option<AnyElement>),
     /// A relocatable view that changed: rendered into the outer layout, so it has its own natural size.
-    Inline(AnyElement, FxHashSet<EntityId>),
+    Inline(AnyElement, FxHashSet<EntityId>, LayoutId),
     /// A relocatable view that did not change: a leaf of the size it had.
-    Leaf,
+    Leaf(LayoutId),
 }
 
 /// How far a relocatable view may differ in size from what it recorded and still be drawn from it.
@@ -238,7 +242,7 @@ impl AnyView {
                 && !state.stale
                 && !window.refreshing
                 && !window.dirty_views.contains(&entity_id);
-            let height = if unchanged { Some(state.size.height) } else { None };
+            let height = if unchanged { Some(state.layout_height) } else { None };
             (height, state)
         });
         if let Some(height) = kept_height {
@@ -247,7 +251,8 @@ impl AnyView {
             if matches!(root_style.size.height, Length::Auto) {
                 root_style.size.height = Length::Definite(height.into());
             }
-            return (window.request_layout(root_style, None, cx), ViewLayout::Leaf);
+            let layout_id = window.request_layout(root_style, None, cx);
+            return (layout_id, ViewLayout::Leaf(layout_id));
         }
         let (rendered, accessed_entities) = cx.detect_accessed_entities(|cx| {
             let mut element = (self.render)(self, window, cx);
@@ -255,7 +260,7 @@ impl AnyView {
             (element, layout_id)
         });
         let (element, layout_id) = rendered;
-        (layout_id, ViewLayout::Inline(element, accessed_entities))
+        (layout_id, ViewLayout::Inline(element, accessed_entities, layout_id))
     }
 
     /// Prepaints a relocatable view, recording what it makes unless it can be drawn from what it
@@ -269,14 +274,18 @@ impl AnyView {
         cx: &mut App,
     ) -> Option<AnyElement> {
         match layout {
-            ViewLayout::Inline(mut element, accessed_entities) => {
+            ViewLayout::Inline(mut element, accessed_entities, layout_id) => {
+                let layout_height = window.unrounded_layout_size(layout_id).height;
                 let recording = window.begin_prepaint_recording();
                 element.prepaint(window, cx);
                 let recorded = window.end_prepaint_recording(recording);
-                Self::keep_recording(global_id, bounds, recorded, accessed_entities, window);
+                Self::keep_recording(global_id, bounds, layout_height, recorded, accessed_entities, window);
                 Some(element)
             }
-            ViewLayout::Leaf => self.prepaint_leaf(global_id, bounds, window, cx),
+            ViewLayout::Leaf(layout_id) => {
+                let layout_height = window.unrounded_layout_size(layout_id).height;
+                self.prepaint_leaf(global_id, bounds, layout_height, window, cx)
+            }
             ViewLayout::Plain(element) => element,
         }
     }
@@ -284,6 +293,7 @@ impl AnyView {
     fn keep_recording(
         global_id: &GlobalElementId,
         bounds: Bounds<Pixels>,
+        layout_height: Pixels,
         recorded: crate::RecordedPrepaint,
         accessed_entities: FxHashSet<EntityId>,
         window: &mut Window,
@@ -295,6 +305,7 @@ impl AnyView {
             state.stale = false;
             state.origin = bounds.origin;
             state.size = bounds.size;
+            state.layout_height = layout_height;
             state.applied = Point::default();
             state.hovered = bounds.contains(&window.mouse_position());
             state.text_style = window.text_style();
@@ -315,14 +326,16 @@ impl AnyView {
         &mut self,
         global_id: &GlobalElementId,
         bounds: Bounds<Pixels>,
+        layout_height: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {
         let pointer = window.mouse_position();
         let fallback = window.with_element_state::<RelocatableState, _>(global_id, |state, window| {
             let mut state = state.unwrap_or_default();
+            // The height is compared before rounding: rounded, it changes with where the view sits.
             let same_size = (state.size.width.0 - bounds.size.width.0).abs() < SIZE_TOLERANCE
-                && (state.size.height.0 - bounds.size.height.0).abs() < SIZE_TOLERANCE;
+                && (state.layout_height.0 - layout_height.0).abs() < SIZE_TOLERANCE;
             // Hover is painted while recording, so a view the pointer is over, or was over when
             // it recorded, is drawn again.
             let touched = bounds.contains(&pointer) || state.hovered;
@@ -347,7 +360,7 @@ impl AnyView {
         if !fallback {
             return None;
         }
-        Some(self.prepaint_rerendered(global_id, bounds, window, cx))
+        Some(self.prepaint_rerendered(global_id, bounds, layout_height, window, cx))
     }
 
     /// Renders the view again at the width the layout around it gave it, and records it. If that
@@ -356,6 +369,7 @@ impl AnyView {
         &mut self,
         global_id: &GlobalElementId,
         bounds: Bounds<Pixels>,
+        layout_height: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -373,7 +387,7 @@ impl AnyView {
         let recording = window.begin_prepaint_recording();
         wrapper.prepaint_at(bounds.origin, window, cx);
         let recorded = window.end_prepaint_recording(recording);
-        Self::keep_recording(global_id, bounds, recorded, accessed_entities, window);
+        Self::keep_recording(global_id, bounds, layout_height, recorded, accessed_entities, window);
         // Only the height can have changed on its own: the width is the layout's to give, and was given.
         if (natural.height.0 - bounds.size.height.0).abs() >= RELAYOUT_TOLERANCE {
             window.with_element_state::<RelocatableState, _>(global_id, |state, _| {
