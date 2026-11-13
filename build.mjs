@@ -165,6 +165,33 @@ function dedupeSvelte(root) {
   };
 }
 
+// Svelte's `BranchManager`, which every `{#if}`, `{#each}`-less block, snippet and `{#key}` makes, keeps two
+// arrow functions as fields, and each holds the manager that holds it. QuickJS frees memory by counting
+// references and so can only free such a cycle by running its cycle collector, which scans the whole heap:
+// scrolling a list left a few kilobytes per block behind, and a collection every few rows. As methods the
+// two hold nothing. The build stops if Svelte's source no longer reads this way, so a new version is looked at.
+const branchManagerCycles = {
+  name: "branch-manager-cycles",
+  setup(build) {
+    build.onLoad({ filter: /svelte[\\/]src[\\/]internal[\\/]client[\\/]dom[\\/]blocks[\\/]branches\.js$/ }, async (args) => {
+      let source = await readFile(args.path, "utf8");
+      const replacements = [
+        ["#commit = (batch) => {", "#commit(batch) {"],
+        ["#discard = (batch) => {", "#discard(batch) {"],
+        ["batch.oncommit(this.#commit);", "batch.oncommit((settled) => this.#commit(settled));"],
+        ["batch.ondiscard(this.#discard);", "batch.ondiscard((dropped) => this.#discard(dropped));"],
+      ];
+      for (const [from, to] of replacements) {
+        if (!source.includes(from)) {
+          return { errors: [{ text: `svelte's branches.js no longer contains \`${from}\`; build.mjs (branchManagerCycles) needs a look` }] };
+        }
+        source = source.replace(from, to);
+      }
+      return { contents: source, loader: "js" };
+    });
+  },
+};
+
 // Writes each output to a temporary file and renames it into place, so a host that watches
 // the bundle never reads one half written. When the build has errors, the bundle is left as
 // it was, for the host to keep running, and the errors go to `OUTFILE.error` instead; the
@@ -231,6 +258,7 @@ export async function build(options) {
     loader: { ".svg": "text", ...options.loader },
     plugins: [
       dedupeSvelte(dirname(options.entry)),
+      branchManagerCycles,
       sveltePlugin,
       ...(options.plugins ?? []),
       writeAtomically(options),
