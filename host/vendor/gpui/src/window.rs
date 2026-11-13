@@ -8,7 +8,7 @@ use crate::{
     FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, InputHandler, IsZero,
     KeyBinding, KeyContext, KeyDownEvent, KeyEvent, Keystroke, KeystrokeEvent, LayoutId,
     LineLayoutIndex, Modifiers, ModifiersChangedEvent, MonochromeSprite, MouseButton, MouseEvent,
-    MouseMoveEvent, MouseUpEvent, Path, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
+    MouseMoveEvent, MouseUpEvent, PaintOperation, Path, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
     PlatformInputHandler, PlatformWindow, Point, PolychromeSprite, PromptButton, PromptLevel, Quad,
     Render, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams, Replay, ResizeEdge,
     SMOOTH_SVG_SCALE_FACTOR, SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y, ScaledPixels, Scene, Shadow,
@@ -664,6 +664,40 @@ pub(crate) struct DeferredDraw {
     paint_range: Range<PaintIndex>,
 }
 
+/// What a relocatable view's elements asked to be told when it moves.
+pub(crate) type RelocationHook = Rc<dyn Fn(Point<Pixels>)>;
+
+pub(crate) struct PrepaintRecording {
+    outer_clip: ContentMask<Pixels>,
+    outer_masks: Vec<ContentMask<Pixels>>,
+    start: PrepaintStateIndex,
+    hitboxes_start: usize,
+}
+
+pub(crate) struct RecordedPrepaint {
+    pub(crate) range: Range<PrepaintStateIndex>,
+    /// The hitboxes, with the view's own clips only.
+    pub(crate) hitboxes: Vec<Hitbox>,
+    pub(crate) hooks: Vec<RelocationHook>,
+    /// False when the view made something that cannot be drawn again somewhere else.
+    pub(crate) reusable: bool,
+}
+
+pub(crate) struct PaintRecording {
+    outer_clip: ContentMask<Pixels>,
+    outer_masks: Vec<ContentMask<Pixels>>,
+    outer_scene: Scene,
+    start: PaintIndex,
+}
+
+pub(crate) struct RecordedPaint {
+    pub(crate) range: Range<PaintIndex>,
+    /// What was painted, with the view's own clips only.
+    pub(crate) operations: Vec<PaintOperation>,
+    pub(crate) hooks: Vec<RelocationHook>,
+    pub(crate) reusable: bool,
+}
+
 pub(crate) struct Frame {
     pub(crate) focus: Option<FocusId>,
     pub(crate) window_active: bool,
@@ -864,6 +898,8 @@ pub struct Window {
     pub(crate) needs_present: Rc<Cell<bool>>,
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
+    /// One list per relocatable view being recorded: what its elements asked to be told when it moves.
+    relocation_hooks: Vec<Vec<RelocationHook>>,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
     pub(crate) focus: Option<FocusId>,
     focus_enabled: bool,
@@ -1247,6 +1283,7 @@ impl Window {
             needs_present,
             last_input_timestamp,
             refreshing: false,
+            relocation_hooks: Vec::new(),
             activation_observers: SubscriberSet::new(),
             focus: None,
             focus_enabled: true,
@@ -2343,6 +2380,121 @@ impl Window {
             range.start.scene_index..range.end.scene_index,
             &self.rendered_frame.scene,
         );
+    }
+
+    /// Asks to be told by how much the enclosing relocatable view (see [`AnyView::cached_relocatable`])
+    /// moved, each time it is drawn again from what it recorded at another position. For elements that
+    /// keep bounds of their own, which prepaint and paint do not refresh when the view is reused.
+    /// Does nothing outside such a view. Call it in prepaint or paint, whenever the bounds are recorded.
+    pub fn on_relocation(&mut self, hook: impl Fn(Point<Pixels>) + 'static) {
+        if let Some(hooks) = self.relocation_hooks.last_mut() {
+            hooks.push(Rc::new(hook));
+        }
+    }
+
+    /// Rounds a move to whole device pixels, so what is drawn again stays as sharp as when it was recorded.
+    pub(crate) fn snap_to_device_pixels(&self, delta: Point<Pixels>) -> Point<Pixels> {
+        let factor = self.scale_factor();
+        point(px((delta.x.0 * factor).round() / factor), px((delta.y.0 * factor).round() / factor))
+    }
+
+    fn unbounded_content_mask() -> ContentMask<Pixels> {
+        const REACH: f32 = 1_000_000.0;
+        ContentMask {
+            bounds: Bounds { origin: point(px(-REACH), px(-REACH)), size: size(px(2.0 * REACH), px(2.0 * REACH)) },
+        }
+    }
+
+    /// Starts recording a relocatable view's prepaint: its elements see no content mask of the
+    /// outside, so what is recorded holds only the view's own clips.
+    pub(crate) fn begin_prepaint_recording(&mut self) -> PrepaintRecording {
+        let outer_clip = self.content_mask();
+        self.relocation_hooks.push(Vec::new());
+        let outer_masks = mem::replace(&mut self.content_mask_stack, vec![Self::unbounded_content_mask()]);
+        PrepaintRecording {
+            outer_clip,
+            outer_masks,
+            start: self.prepaint_index(),
+            hitboxes_start: self.next_frame.hitboxes.len(),
+        }
+    }
+
+    /// Ends the recording and puts the hitboxes it made in the frame, clipped by the outside.
+    pub(crate) fn end_prepaint_recording(&mut self, recording: PrepaintRecording) -> RecordedPrepaint {
+        self.content_mask_stack = recording.outer_masks;
+        let hooks = self.relocation_hooks.pop().unwrap_or_default();
+        let end = self.prepaint_index();
+        let hitboxes = self.next_frame.hitboxes.split_off(recording.hitboxes_start);
+        self.push_relocated_hitboxes(&hitboxes, Point::default(), &recording.outer_clip);
+        let reusable = end.tooltips_index == recording.start.tooltips_index
+            && end.deferred_draws_index == recording.start.deferred_draws_index;
+        RecordedPrepaint { range: recording.start..end, hitboxes, hooks, reusable }
+    }
+
+    fn push_relocated_hitboxes(&mut self, hitboxes: &[Hitbox], delta: Point<Pixels>, clip: &ContentMask<Pixels>) {
+        for hitbox in hitboxes {
+            let mut moved = hitbox.clone();
+            moved.bounds.origin = moved.bounds.origin + delta;
+            moved.content_mask.bounds.origin = moved.content_mask.bounds.origin + delta;
+            moved.content_mask = moved.content_mask.intersect(clip);
+            if moved.bounds.intersect(&moved.content_mask.bounds).is_empty() {
+                continue;
+            }
+            self.next_frame.hitboxes.push(moved);
+        }
+    }
+
+    /// Reuses what a relocatable view prepainted, moved by `delta`. The hitboxes come from the view,
+    /// not from the last frame's list, because the view keeps them without the outside's clip.
+    pub(crate) fn reuse_prepaint_relocated(
+        &mut self,
+        mut range: Range<PrepaintStateIndex>,
+        hitboxes: &[Hitbox],
+        delta: Point<Pixels>,
+    ) {
+        range.end.hitboxes_index = range.start.hitboxes_index;
+        self.reuse_prepaint(range);
+        let clip = self.content_mask();
+        self.push_relocated_hitboxes(hitboxes, delta, &clip);
+    }
+
+    /// Starts recording a relocatable view's paint into a scene of its own, which sees no content
+    /// mask of the outside either.
+    pub(crate) fn begin_paint_recording(&mut self) -> PaintRecording {
+        let outer_clip = self.content_mask();
+        self.relocation_hooks.push(Vec::new());
+        let outer_masks = mem::replace(&mut self.content_mask_stack, vec![Self::unbounded_content_mask()]);
+        let start = self.paint_index();
+        let outer_scene = mem::take(&mut self.next_frame.scene);
+        PaintRecording { outer_clip, outer_masks, outer_scene, start }
+    }
+
+    /// Ends the recording and draws what it made into the frame, clipped by the outside.
+    pub(crate) fn end_paint_recording(&mut self, recording: PaintRecording) -> RecordedPaint {
+        self.content_mask_stack = recording.outer_masks;
+        let hooks = self.relocation_hooks.pop().unwrap_or_default();
+        let own_scene = mem::replace(&mut self.next_frame.scene, recording.outer_scene);
+        let operations = own_scene.paint_operations;
+        let clip = recording.outer_clip.scale(self.scale_factor()).bounds;
+        self.next_frame.scene.replay_relocated(&operations, Point::default(), &clip);
+        let mut end = self.paint_index();
+        end.scene_index = recording.start.scene_index;
+        let reusable = end.input_handlers_index == recording.start.input_handlers_index;
+        RecordedPaint { range: recording.start..end, operations, hooks, reusable }
+    }
+
+    /// Draws what a relocatable view painted, moved by `delta`, from the operations it kept.
+    pub(crate) fn reuse_paint_relocated(
+        &mut self,
+        mut range: Range<PaintIndex>,
+        operations: &[PaintOperation],
+        delta: Point<Pixels>,
+    ) {
+        range.end.scene_index = range.start.scene_index;
+        self.reuse_paint(range);
+        let factor = self.scale_factor();
+        let clip = self.content_mask().scale(factor).bounds;
+        self.next_frame.scene.replay_relocated(operations, delta.scale(factor), &clip);
     }
 
     /// Push a text style onto the stack, and call a function with that style active.
