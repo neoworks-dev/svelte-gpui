@@ -102,9 +102,9 @@ pub struct Interaction {
     pub images: Images,
     /// The scaled copy each image element last drew, which it keeps drawing while another loads.
     pub drawn_images: RefCell<HashMap<NodeId, Drawn>>,
-    /// The image elements still waiting for their source or a copy of it, so a finished job draws
-    /// again only the views they are in.
-    pub waiting_images: RefCell<HashSet<NodeId>>,
+    /// The image elements still waiting for their source or a copy of it, each with the key of the
+    /// job it waits for, so a finished job draws again only the views of the elements waiting for it.
+    pub waiting_images: RefCell<HashMap<NodeId, String>>,
 }
 
 impl Interaction {
@@ -134,7 +134,7 @@ impl Interaction {
             workbench: RefCell::new(Some(cx.weak_entity())),
             images,
             drawn_images: RefCell::new(HashMap::new()),
-            waiting_images: RefCell::new(HashSet::new()),
+            waiting_images: RefCell::new(HashMap::new()),
         }
     }
 

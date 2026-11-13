@@ -24,10 +24,11 @@ pub struct Images {
     states: Arc<Mutex<HashMap<String, ImageState>>>,
     /// Pixel sizes read from file headers, which cost a read each.
     sizes: Arc<Mutex<HashMap<PathBuf, Option<(u32, u32)>>>>,
-    /// A message for each background job that finishes, which wakes the window to draw again.
-    finished: UnboundedSender<()>,
+    /// The key of each background job that finishes (a source, or a scaled copy's key), which wakes
+    /// the window to draw again whatever waits for that key, and nothing else.
+    finished: UnboundedSender<String>,
     /// The other end of `finished`, for the window to listen on. There is only one.
-    wakeups: Arc<Mutex<Option<UnboundedReceiver<()>>>>,
+    wakeups: Arc<Mutex<Option<UnboundedReceiver<String>>>>,
     base: PathBuf,
     cache: PathBuf,
 }
@@ -57,7 +58,7 @@ impl Images {
     }
 
     /// The messages that say a background job finished, for the window to wait on. There is only one.
-    pub fn take_wakeups(&self) -> Option<UnboundedReceiver<()>> {
+    pub fn take_wakeups(&self) -> Option<UnboundedReceiver<String>> {
         self.wakeups.lock().expect("image wakeups").take()
     }
 
@@ -132,8 +133,8 @@ impl Images {
                 true => ImageState::Ready(path),
                 false => ImageState::Failed,
             };
-            states.lock().expect("image states").insert(url, state);
-            let _ = finished.unbounded_send(());
+            states.lock().expect("image states").insert(url.clone(), state);
+            let _ = finished.unbounded_send(url);
         });
         ImageState::Loading
     }
@@ -163,12 +164,18 @@ impl Images {
         if animated || natural <= width + width / 4 {
             return ImageState::Ready(path.clone());
         }
-        let key = format!("{}@{width}", path.display());
+        let key = scaled_key(path, width);
         if let Some(state) = self.states.lock().expect("image states").get(&key) {
             return state.clone();
         }
-        self.states.lock().expect("image states").insert(key.clone(), ImageState::Loading);
         let target = self.cache_path(&key);
+        // A copy made in an earlier run is ready now: a job would cost the row another frame.
+        if target.is_file() {
+            let state = ImageState::Ready(target);
+            self.states.lock().expect("image states").insert(key, state.clone());
+            return state;
+        }
+        self.states.lock().expect("image states").insert(key.clone(), ImageState::Loading);
         let source = path.clone();
         let states = self.states.clone();
         let finished = self.finished.clone();
@@ -177,11 +184,17 @@ impl Images {
                 true => ImageState::Ready(target),
                 false => ImageState::Ready(source),
             };
-            states.lock().expect("image states").insert(key, state);
-            let _ = finished.unbounded_send(());
+            states.lock().expect("image states").insert(key.clone(), state);
+            let _ = finished.unbounded_send(key);
         });
         ImageState::Loading
     }
+}
+
+/// What a scaled copy of `path`, `width` pixels wide, is known by: its state, and the message its job
+/// sends when it finishes.
+pub fn scaled_key(path: &PathBuf, width: u32) -> String {
+    format!("{}@{width}", path.display())
 }
 
 /// An image element's scaled copy as it was last drawn: which image, the width the copy was made
@@ -208,9 +221,6 @@ pub fn copy_width(current: Option<u32>, wanted: u32) -> u32 {
 
 /// Writes a copy of `source` that is `width` pixels wide.
 fn shrink(source: &PathBuf, target: &PathBuf, width: u32) -> bool {
-    if target.is_file() {
-        return true;
-    }
     let Ok(decoded) = image::open(source) else {
         return false;
     };
@@ -286,14 +296,46 @@ mod tests {
         assert_eq!(images.scaled(&wide, 64), ImageState::Loading);
 
         let deadline = Instant::now() + Duration::from_secs(10);
-        while wakeups.try_recv().is_err() {
+        let finished = loop {
+            if let Ok(key) = wakeups.try_recv() {
+                break key;
+            }
             assert!(Instant::now() < deadline, "the job finished without waking the window");
             std::thread::sleep(Duration::from_millis(5));
-        }
+        };
+        assert_eq!(finished, scaled_key(&wide, 64), "the wakeup names the copy that is ready");
         match images.scaled(&wide, 64) {
             ImageState::Ready(scaled) => assert_ne!(scaled, wide, "the scaled copy is a file of its own"),
             other => panic!("expected the scaled copy, got {other:?}"),
         }
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    /// A copy an earlier run made is on disk already: it is ready at once, with no job to wait for,
+    /// so a row scrolled into view draws its picture in its first frame.
+    #[test]
+    fn a_copy_made_in_an_earlier_run_is_ready_at_once() {
+        let directory = scratch("earlier");
+        let wide = directory.join("wide.png");
+        image::RgbImage::new(400, 10).save(&wide).expect("write the picture");
+        let cache = directory.join("cache");
+        let earlier = Images::with_cache(directory.clone(), cache.clone());
+        let mut earlier_wakeups = earlier.take_wakeups().expect("the receiver is there once");
+        assert_eq!(earlier.scaled(&wide, 64), ImageState::Loading);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while earlier_wakeups.try_recv().is_err() {
+            assert!(Instant::now() < deadline, "the first run's job never finished");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let later = Images::with_cache(directory.clone(), cache);
+        let mut later_wakeups = later.take_wakeups().expect("the receiver is there once");
+        match later.scaled(&wide, 64) {
+            ImageState::Ready(scaled) => assert_ne!(scaled, wide, "the scaled copy is a file of its own"),
+            other => panic!("expected the copy from the earlier run at once, got {other:?}"),
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(later_wakeups.try_recv().is_err(), "no job ran, so nothing wakes the window");
         let _ = std::fs::remove_dir_all(directory);
     }
 

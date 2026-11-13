@@ -210,14 +210,21 @@ impl Workbench {
         }
     }
 
-    /// Has the views drawn again that hold an image still waiting for its file or a copy of it, which
-    /// is what a finished image job can change. They record again whatever they still wait for.
-    fn dirty_views_waiting_for_images(&self, cx: &mut Context<Self>) {
-        let waiting: Vec<NodeId> = self.interaction.waiting_images.borrow_mut().drain().collect();
+    /// Has the views drawn again that hold an image waiting for one of the `finished` jobs. Images
+    /// waiting for other jobs stay waiting, and their views are left alone: during a fast scroll a
+    /// dozen rows wait at once, and drawing all of them again for each job costs whole frames.
+    fn dirty_views_waiting_for(&self, finished: &HashSet<String>, cx: &mut Context<Self>) {
+        let mut waiting = self.interaction.waiting_images.borrow_mut();
+        let ready: Vec<NodeId> =
+            waiting.iter().filter(|(_, key)| finished.contains(*key)).map(|(image, _)| *image).collect();
+        for image in &ready {
+            waiting.remove(image);
+        }
+        drop(waiting);
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
         let mut views: HashSet<NodeId> = HashSet::new();
-        for image in waiting {
+        for image in ready {
             if let Some(root) = self.enclosing_view(&tree, image) {
                 views.insert(root);
             }

@@ -1,6 +1,8 @@
 //! What the window learned that the app hears about: focus, scrolling, layout, images
 //! and the window's size.
 
+use std::collections::HashSet;
+
 use gpui::{Context, Window};
 
 use super::Workbench;
@@ -126,10 +128,13 @@ impl Workbench {
         };
         cx.spawn(async move |this, cx| {
             use futures::StreamExt;
-            while wakeups.next().await.is_some() {
+            while let Some(first) = wakeups.next().await {
                 // Jobs that finished together are one redraw.
-                while wakeups.try_recv().is_ok() {}
-                if this.update(cx, |workbench, cx| workbench.images_finished(cx)).is_err() {
+                let mut finished = HashSet::from([first]);
+                while let Ok(key) = wakeups.try_recv() {
+                    finished.insert(key);
+                }
+                if this.update(cx, |workbench, cx| workbench.images_finished(&finished, cx)).is_err() {
                     return;
                 }
             }
@@ -137,11 +142,11 @@ impl Workbench {
         .detach();
     }
 
-    /// An image job finished: the views that may show the image are drawn again, and the app hears
+    /// Image jobs finished: the views of the images waiting for them are drawn again, and the app hears
     /// of images that loaded or failed.
-    fn images_finished(&mut self, cx: &mut Context<Self>) {
+    fn images_finished(&mut self, finished: &HashSet<String>, cx: &mut Context<Self>) {
         self.report_images(cx);
-        self.dirty_views_waiting_for_images(cx);
+        self.dirty_views_waiting_for(finished, cx);
         cx.notify();
     }
 

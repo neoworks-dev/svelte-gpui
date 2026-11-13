@@ -7,7 +7,7 @@ use gpui::{Div, Img, ObjectFit, SharedString, StyledImage, canvas, img, px, svg}
 
 use super::{Inherited, Painter, attribute, is_far_away};
 use crate::assets::register_svg;
-use crate::images::{Drawn, ImageState, copy_width};
+use crate::images::{Drawn, ImageState, copy_width, scaled_key};
 use crate::style::Style;
 use crate::tree::{Node, NodeId};
 
@@ -64,7 +64,7 @@ impl Painter<'_> {
         let path = match images.state(source) {
             ImageState::Ready(path) => path,
             ImageState::Loading => {
-                self.interaction.waiting_images.borrow_mut().insert(id);
+                self.interaction.waiting_images.borrow_mut().insert(id, source.to_string());
                 return element;
             }
             ImageState::Failed => return element,
@@ -97,8 +97,8 @@ impl Painter<'_> {
                 file
             }
             _ => {
-                // The copy of this size is still being made; the view is drawn again when a job finishes.
-                self.interaction.waiting_images.borrow_mut().insert(id);
+                // The copy of this size is still being made; the view is drawn again when its job finishes.
+                self.interaction.waiting_images.borrow_mut().insert(id, scaled_key(&path, width));
                 match &drawn {
                     Some(drawn) => drawn.file.clone(),
                     None => return element,
