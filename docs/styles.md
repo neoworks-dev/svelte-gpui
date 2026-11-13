@@ -105,7 +105,7 @@ included.
 
 | Property | Values | |
 |---|---|---|
-| `background` | `Color` | |
+| `background` | `Color` \| `LinearGradient` | A colour, or a linear gradient; see below. |
 | `opacity` | `number` | 0 to 1, for the element and everything inside it. |
 | `borderWidth` | `Sides<number>` | |
 | `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` | `number` | |
@@ -113,6 +113,33 @@ included.
 | `radius` | `number` \| `[topLeft, topRight, bottomRight, bottomLeft]` | Corner radius. |
 | `shadow` | `Shadow` \| `Shadow[]` \| `null` | `{ x?, y?, blur?, spread?, color? }`. The colour defaults to black at 30%. |
 | `cursor` | `"default"` \| `"pointer"` \| `"text"` \| `"grab"` \| `"grabbing"` \| `"crosshair"` \| `"col-resize"` \| `"row-resize"` \| `"nwse-resize"` \| `"nesw-resize"` \| `"not-allowed"` | The pointer's shape over the element. `nwse-resize` points from top left to bottom right and `nesw-resize` from top right to bottom left, for resizing from a corner. |
+
+### Gradients
+
+`background` also takes a linear gradient between two colours:
+
+```svelte
+<View style={{ height: 400, background: { angle: "to bottom", from: "#5b3a8c", to: "transparent" } }} />
+```
+
+| Field | Values | |
+|---|---|---|
+| `angle` | `number` \| `"to top"` \| `"to right"` \| `"to bottom"` \| `"to left"` | Degrees as in CSS: 0 points up and a larger angle turns clockwise, so 180 runs downwards. The default is `"to bottom"`. |
+| `from` | `Color` \| `{ color, at? }` | The colour at the start. `at` is where it sits along the gradient line, from 0 at the start of the box to 1 at its end, and defaults to 0. |
+| `to` | `Color` \| `{ color, at? }` | The colour at the end. `at` defaults to 1. |
+
+There are exactly two stops, because that is what GPUI's renderer draws; more bands are
+two boxes, one over the other. Before the first stop and after the last the gradient
+holds that stop's colour, so `from: { color, at: 0.3 }` is flat until 30%. Positions are
+shares of the box, not pixels: for a wash that ends 400 pixels down, give the box that
+height. A corner direction such as CSS's `to bottom right` is not offered, because it
+depends on the box's shape; give an angle.
+
+Colours mix in sRGB, as CSS's `linear-gradient` does. A fully `transparent` end takes the
+hue of the other one, so a fade to `transparent` stays the colour it fades from and does not
+go grey. The gradient is computed per pixel, so it has no layers to show steps between.
+
+A gradient has no effect on a `Text`'s highlight, which stays a plain colour.
 
 ## Text
 
@@ -166,7 +193,7 @@ When the app needs to know, for example to show something else on hover, use
 
 ## Transitions
 
-`transition` eases changes to `background`, `color`, `borderColor` and `opacity`. It
+`transition` eases changes to `background` (gradients too), `color`, `borderColor` and `opacity`. It
 covers entering and leaving `hover`, and any change to `style` itself, such as a
 selected row changing colour. `active` and `focus` apply at once.
 
@@ -180,6 +207,10 @@ It takes one of these:
 Colours ease as CSS's do, in premultiplied alpha: going to or from `transparent` fades
 the other colour in or out and never passes through black. A `color` that one side leaves
 out is the text colour the element inherits.
+
+A `background` that changes between gradients eases the angle, and each stop's colour and
+position. Between a gradient and a plain colour, the colour counts as a gradient of that one
+colour, and a missing `background` as a gradient of nothing.
 
 Sizes, positions and `translate` are not eased by `transition`. Animate them with a
 `Tween` or `Spring` instead; see [Motion](motion.md).

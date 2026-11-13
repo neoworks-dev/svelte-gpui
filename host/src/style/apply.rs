@@ -149,8 +149,8 @@ pub fn apply<T: Styled>(mut element: T, style: &Style) -> T {
     if style.clip == Some(true) {
         element = element.overflow_hidden();
     }
-    if let Some(colour) = style.background {
-        element = element.bg(colour);
+    if let Some(fill) = style.background {
+        element = element.bg(fill.to_gpui());
     }
     if let Some(opacity) = style.opacity {
         element = element.opacity(opacity);

@@ -3,7 +3,7 @@
 use gpui::{CursorStyle, Rgba, SharedString};
 use serde_json::Value;
 
-use super::{Align, Dimension, Easing, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Transition};
+use super::{Align, Dimension, Easing, Fill, Justify, MONO, SANS, Shadow, Sides, Style, TextAlign, Transition};
 
 impl Style {
     /// Sets one property from the style object. Returns false when it is not understood,
@@ -82,7 +82,10 @@ impl Style {
                 self.translate = Some((x, y));
             }
             "transition" => self.transition = transition(value),
-            "background" => self.background = colour_of(value),
+            "background" => {
+                self.background = Fill::parse(value);
+                return self.background.is_some();
+            }
             "opacity" => self.opacity = number(value),
             "borderWidth" => self.border_width = sides(value).map(|side| side.and_then(pixels_of)),
             "borderTopWidth" => self.border_width[0] = number(value),

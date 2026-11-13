@@ -71,13 +71,17 @@ These are the only keys; anything else is ignored. See `docs/styles.md` for valu
 The values that trip people up:
 
 - `flex: 1` grows from a basis of 0, as in React Native.
+- `background` is a colour or a linear gradient, `{ angle?, from, to }`: `angle` in degrees (0 up, 180 down, the
+  default) or `"to top" | "to right" | "to bottom" | "to left"`; `from` and `to` are a colour or `{ color, at? }`
+  with `at` a share of the box (0 to 1, defaulting to 0 and 1). Exactly two stops. Mixed in sRGB; a `transparent`
+  end takes the other end's hue. It transitions like a colour.
 - `justify` takes `"between"` and `"around"`.
 - `align` takes `"start"`, `"center"`, `"end"`, `"stretch"` and `"baseline"`.
 - `padding` is a number, `[vertical, horizontal]` or `[top, right, bottom, left]`.
 - `radius` is a number or four corners.
 - `fontFamily` is `"sans"` (Geist), `"mono"` (JetBrains Mono) or an installed font.
 - `lineHeight` is in pixels.
-- `transition` eases only `background`, `color`, `borderColor` and `opacity`, in premultiplied alpha (`transparent`
+- `transition` eases only `background` (gradients too), `color`, `borderColor` and `opacity`, in premultiplied alpha (`transparent`
   fades, it does not pass through black); a `color` one side leaves out is the inherited one. Animate
   size and position with `Tween` or `Spring` driving `translate`, `width` and so on.
 - `zoom` scales an element's whole subtree in the host, like CSS's. A zoomable canvas sets

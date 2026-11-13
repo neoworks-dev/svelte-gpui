@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 use gpui::Rgba;
 
 use super::{Computed, Painter};
-use crate::style::{self};
+use crate::style::{self, Fill, mix};
 use crate::tree::NodeId;
 
 /// The properties a transition eases between.
 #[derive(Clone, Copy, PartialEq)]
 pub struct Eased {
-    background: Option<Rgba>,
+    background: Option<Fill>,
     color: Option<Rgba>,
     border: Option<Rgba>,
     opacity: f32,
@@ -25,20 +25,6 @@ pub struct Animation {
     asked: Eased,
     /// When the easing begins, delay included; None once it has finished.
     start: Option<Instant>,
-}
-
-/// A colour easing towards another, in premultiplied alpha as CSS does: a colour that is
-/// fading in or out keeps its own hue, and does not pass through black on its way from or to
-/// `transparent`.
-fn mix(from: Rgba, to: Rgba, amount: f32) -> Rgba {
-    let from_weight = from.a * (1.0 - amount);
-    let to_weight = to.a * amount;
-    let alpha = from_weight + to_weight;
-    if alpha <= 0.0 {
-        return Rgba { a: 0.0, ..to };
-    }
-    let channel = |from_channel: f32, to_channel: f32| (from_channel * from_weight + to_channel * to_weight) / alpha;
-    Rgba { r: channel(from.r, to.r), g: channel(from.g, to.g), b: channel(from.b, to.b), a: alpha }
 }
 
 /// A colour easing towards another; a missing one counts as transparent.
@@ -92,7 +78,7 @@ impl Animation {
         }
         let eased = transition.easing.at(progress);
         let value = Eased {
-            background: mix_option(self.from.background, self.to.background, eased),
+            background: Fill::ease(self.from.background, self.to.background, eased),
             color: mix_option(self.from.color, self.to.color, eased),
             border: mix_option(self.from.border, self.to.border, eased),
             opacity: self.from.opacity + (self.to.opacity - self.from.opacity) * eased,

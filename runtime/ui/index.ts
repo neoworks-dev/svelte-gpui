@@ -27,5 +27,17 @@ export type { TreeRow } from "./tree";
 export type { CloseReason, PopoverApi } from "./overlay-stack";
 export * as overlayLook from "./overlay-look";
 export { encode, merge } from "./style";
-export type { Align, Color, Pen, Scrollbar, Shadow, Sides, Size, Style, Transition } from "./style";
+export type {
+  Align,
+  Color,
+  GradientStop,
+  LinearGradient,
+  Pen,
+  Scrollbar,
+  Shadow,
+  Sides,
+  Size,
+  Style,
+  Transition,
+} from "./style";
 export type { FileDragEvent, KeyEvent, Layout, Modifiers, OutsideEvent, PointerEvent, ScrollPosition, WheelEvent } from "./events";
