@@ -5,6 +5,7 @@ interface Built {
   above: number;
   below: number;
   anchor: string | null;
+  rowsAttribute: string | null;
 }
 
 interface Run {
@@ -119,6 +120,14 @@ describe("List's scrollbar", () => {
     expect(run.dragged.offset).toBe(50000);
     expect(run.dragged.fixed.rows).toContain("fixed 2500");
     expect(run.dragged.fixed.rows).not.toContain("fixed 0");
+  });
+});
+
+describe("List rows drawn from a cache", () => {
+  test("tell the host their scroller holds rows, so each is kept as it was painted and moved while it scrolls", () => {
+    expect(run.opened.chat.rowsAttribute).toBe("");
+    expect(run.opened.plain.rowsAttribute).toBe("");
+    expect(run.opened.fixed.rowsAttribute).toBe("");
   });
 });
 

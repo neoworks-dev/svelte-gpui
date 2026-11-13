@@ -166,11 +166,12 @@ impl Workbench {
         &mut self,
         root: NodeId,
         inherited: render::Inherited,
+        row: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
-        let painter = Painter::new(&tree, &self.interaction, Some(root));
+        let painter = Painter::new(&tree, &self.interaction, Some(root), row);
         painter.view_content(root, inherited, cx)
     }
 
@@ -206,6 +207,23 @@ impl Workbench {
             if let Some(node) = tree.nodes.get(&next) {
                 pending.extend(node.children.iter().copied());
             }
+        }
+    }
+
+    /// Has the views drawn again that hold an image still waiting for its file or a copy of it, which
+    /// is what a finished image job can change. They record again whatever they still wait for.
+    fn dirty_views_waiting_for_images(&self, cx: &mut Context<Self>) {
+        let waiting: Vec<NodeId> = self.interaction.waiting_images.borrow_mut().drain().collect();
+        let tree = self.svelte.tree.clone();
+        let tree = tree.borrow();
+        let mut views: HashSet<NodeId> = HashSet::new();
+        for image in waiting {
+            if let Some(root) = self.enclosing_view(&tree, image) {
+                views.insert(root);
+            }
+        }
+        for root in views {
+            self.dirty_view(root, cx);
         }
     }
 
@@ -333,7 +351,7 @@ impl Render for Workbench {
         }
         let tree = self.svelte.tree.clone();
         let tree = tree.borrow();
-        let painter = Painter::new(&tree, &self.interaction, None);
+        let painter = Painter::new(&tree, &self.interaction, None, false);
         let document = painter.document(cx);
         let document = match self.error_overlay(window, cx) {
             Some(overlay) => div().size_full().relative().child(document).child(overlay).into_any_element(),

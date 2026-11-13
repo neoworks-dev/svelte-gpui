@@ -38,6 +38,12 @@
     anchor?: "content" | "end";
     /** `false` hides the scrollbar, an object tints it. */
     scrollbar?: boolean | Scrollbar;
+    /**
+     * The children are rows: big and each changing on its own. The host keeps what each painted and moves it
+     * as the scroller scrolls, so a row that did not change costs nothing, and only a row that changed is drawn
+     * again. Vertical only. `List` sets it.
+     */
+    rows?: boolean;
     /** The whole length of the content, when only a stretch of it is laid out here. */
     extent?: number;
     /** Where the laid-out stretch starts in the whole content. */
@@ -55,6 +61,7 @@
     look: encode(props.style),
     horizontal: props.horizontal ? "" : undefined,
     anchor: props.anchor,
+    rows: props.rows ? "" : undefined,
     scrollbar: props.scrollbar === undefined ? undefined : JSON.stringify(props.scrollbar),
     extent: props.extent === undefined ? undefined : String(props.extent),
     origin: props.origin === undefined ? undefined : String(props.origin),

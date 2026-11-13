@@ -86,7 +86,7 @@ function scrollers(): Node[] {
 }
 
 /** What a list has built: the rows' texts in order, and the heights of the two spacers around them. */
-function built(scroller: Node): { rows: string[]; above: number; below: number; anchor: unknown } {
+function built(scroller: Node): { rows: string[]; above: number; below: number; anchor: unknown; rowsAttribute: unknown } {
   const height = (node: Node): number => JSON.parse(String(node.attributes.look ?? "{}")).height ?? 0;
   const children = scroller.children.filter((node) => node.tag === "g-view");
   const rows = children.slice(1, -1);
@@ -95,6 +95,7 @@ function built(scroller: Node): { rows: string[]; above: number; below: number; 
     above: height(children[0]),
     below: height(children[children.length - 1]),
     anchor: scroller.attributes.anchor ?? null,
+    rowsAttribute: scroller.attributes.rows ?? null,
   };
 }
 
