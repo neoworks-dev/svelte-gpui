@@ -58,7 +58,8 @@ export interface LinearGradient {
 export interface Transition {
   duration?: number;
   delay?: number;
-  easing?: "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out";
+  /** `"spring"`: `scale` overshoots and settles, for presses and pops; colours and opacity ease as `"ease"`. */
+  easing?: "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "spring";
 }
 
 export interface Style {
@@ -112,6 +113,13 @@ export interface Style {
   /** Moves the element from where layout put it, in pixels: `[x, y]`. */
   translate?: [number, number];
   /**
+   * Paints the element and everything in it larger or smaller around its centre: `0.94` while a
+   * button is held, `1.25` for a pop. Layout and hit testing keep the real box, so nothing around it
+   * moves. It eases under `transition`, and springs with `easing: "spring"`. In `active`, it needs a
+   * `transition` on the element: the host then lays the pressed style over the style itself.
+   */
+  scale?: number;
+  /**
    * Multiplies every length in the element and everything inside it, as CSS's `zoom` does:
    * sizes, positions, padding, gaps, borders, radii, shadows and text. Zooms inside multiply.
    */
@@ -131,7 +139,7 @@ export interface Style {
   radius?: number | [number, number, number, number];
   shadow?: Shadow | Shadow[] | null;
   cursor?: "default" | "pointer" | "text" | "grab" | "grabbing" | "crosshair" | "col-resize" | "row-resize" | "nwse-resize" | "nesw-resize" | "not-allowed";
-  /** Eases changes of colour, gradient and opacity, including hover: a duration in milliseconds, or the details. */
+  /** Eases changes of colour, gradient, opacity and scale, including hover and press: a duration in milliseconds, or the details. */
   transition?: number | Transition;
 
   // Text. Children inherit these.

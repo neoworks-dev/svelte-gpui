@@ -3,8 +3,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ScrollDelta,
-    ScrollWheelEvent,
+    AnyElement, ClickEvent, Context, Div, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ScrollDelta, ScrollWheelEvent,
 };
 
 use super::{Computed, Painter, Primitive};
@@ -23,6 +23,7 @@ impl Painter<'_> {
         primitive: Primitive,
         computed: &Computed,
         eased: bool,
+        eases_press: bool,
         cx: &mut Context<Workbench>,
     ) -> AnyElement {
         let mut element = element.id(id as usize);
@@ -34,6 +35,27 @@ impl Painter<'_> {
             element = element.on_hover(cx.listener(move |workbench, hovered: &bool, _window, cx| {
                 workbench.hover_changed(id, *hovered, cx);
             }));
+        }
+        if eases_press && !disabled {
+            element = element
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |workbench, _: &MouseDownEvent, _window, cx| {
+                        workbench.press_changed(id, true, cx);
+                    }),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(move |workbench, _: &MouseUpEvent, _window, cx| {
+                        workbench.press_changed(id, false, cx);
+                    }),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |workbench, _: &MouseUpEvent, _window, cx| {
+                        workbench.press_changed(id, false, cx);
+                    }),
+                );
         }
         let focusable = (primitive.focusable() && !disabled) || node.attributes.contains_key("focusable");
         if focusable {

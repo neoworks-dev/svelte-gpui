@@ -464,7 +464,7 @@ impl Painter<'_> {
                 workbench.pressed_outside_overlay(id, event.position, event.modifiers, button, cx);
             }));
         }
-        let content = self.interactive(content, id, node, Primitive::View, computed, false, cx);
+        let content = self.interactive(content, id, node, Primitive::View, computed, false, false, cx);
         let layer = number(node, "layer", 0.0).max(0.0) as usize;
         Some(Overlay::new(id, content, placement_of(node, at.is_some()), anchor, at, layer).into_any_element())
     }

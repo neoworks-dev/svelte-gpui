@@ -62,6 +62,7 @@ do: children stretch across by default, and `flex: 1` grows from nothing.
 | `top`, `right`, `bottom`, `left` | `Size` | |
 | `overflow` | `"visible"` \| `"hidden"` | `"hidden"` clips children, including to rounded corners. |
 | `translate` | `[x, y]` | Moves the element after layout, in pixels. Use it for drags and offsets. |
+| `scale` | `number` | Paints the element and everything in it larger or smaller around its centre. Layout and hit testing keep the real box, so nothing around it moves. For presses and pops; see Transitions. |
 | `zoom` | `number` | Multiplies every length in the element and everything inside it. See below. |
 
 Later siblings draw over earlier ones; there is no `zIndex`. To put something on top,
@@ -193,16 +194,32 @@ When the app needs to know, for example to show something else on hover, use
 
 ## Transitions
 
-`transition` eases changes to `background` (gradients too), `color`, `borderColor` and `opacity`. It
-covers entering and leaving `hover`, and any change to `style` itself, such as a
-selected row changing colour. `active` and `focus` apply at once.
+`transition` eases changes to `background` (gradients too), `color`, `borderColor`, `opacity` and
+`scale`. It covers entering and leaving `hover` and `active` (the press), and any change to `style`
+itself, such as a selected row changing colour. `focus` applies at once, and so does `active` on an
+element without a transition.
 
 It takes one of these:
 
 | Value | |
 |---|---|
 | `number` | The duration in ms, with `ease`. |
-| `{ duration?, delay?, easing? }` | `easing` is `"linear"`, `"ease"`, `"ease-in"`, `"ease-out"` or `"ease-in-out"`. The duration defaults to 150. |
+| `{ duration?, delay?, easing? }` | `easing` is `"linear"`, `"ease"`, `"ease-in"`, `"ease-out"`, `"ease-in-out"` or `"spring"`. The duration defaults to 150. |
+
+`"spring"` lets `scale` overshoot by about a fifth, swing back once and settle, which makes a
+press or a pop feel physical; colours and opacity ease as `"ease"` meanwhile. 350 to 450 ms
+suits it. A button that gives under the press:
+
+```svelte
+<Button
+  style={{ ...look, transition: { duration: 400, easing: "spring" } }}
+  active={{ scale: 0.94 }}
+>
+```
+
+A pop is the app setting `scale` for a moment, as `examples/press-spring` does with a heart.
+While the scale is not 1, text and icons are stretched from their usual raster, which is
+invisible in a press or a pop but soft if an element stays scaled.
 
 Colours ease as CSS's do, in premultiplied alpha: going to or from `transparent` fades
 the other colour in or out and never passes through black. A `color` that one side leaves

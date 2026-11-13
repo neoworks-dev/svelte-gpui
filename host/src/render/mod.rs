@@ -20,6 +20,7 @@ mod press;
 mod primitive;
 mod roots;
 mod rows;
+mod scaled;
 mod scrollbar;
 mod scroller;
 mod text;
@@ -53,6 +54,7 @@ use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
 use rows::RowPlan;
+use scaled::scaled;
 use scroller::{Extent, Scroller, SharedScroller};
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
@@ -72,6 +74,8 @@ pub struct Interaction {
     pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
     /// Elements the pointer is over, for hover styles that ease instead of snapping.
     pub hovered: RefCell<HashSet<NodeId>>,
+    /// Elements the primary button is held down on, for `active` styles that ease.
+    pub pressed: RefCell<HashSet<NodeId>>,
     /// Transitions in flight, by element.
     pub animations: RefCell<HashMap<NodeId, Animation>>,
     /// Set while painting when something is still easing, so another frame is asked for.
@@ -118,6 +122,7 @@ impl Interaction {
             fields,
             bounds: Rc::new(RefCell::new(HashMap::new())),
             hovered: RefCell::new(HashSet::new()),
+            pressed: RefCell::new(HashSet::new()),
             animations: RefCell::new(HashMap::new()),
             animating: Cell::new(false),
             animating_ids: RefCell::new(HashSet::new()),
@@ -148,6 +153,7 @@ impl Interaction {
         self.bounds.borrow_mut().clear();
         self.fields.borrow_mut().clear();
         self.hovered.borrow_mut().clear();
+        self.pressed.borrow_mut().clear();
         self.animations.borrow_mut().clear();
         self.animating.set(false);
         self.animating_ids.borrow_mut().clear();
@@ -456,6 +462,8 @@ impl<'a> Painter<'a> {
             }
         }
         let eased = computed.style.transition.is_some();
+        // An `active` style eases only if the host lays it over the style, which needs the press.
+        let eases_press = eased && computed.active.is_some();
         if eased {
             self.ease_style(id, &mut computed, inherited.colour);
         }
@@ -494,11 +502,12 @@ impl<'a> Painter<'a> {
         if node.observed() || listens_for_pointer(node) || listens_for_drag(node) {
             element = element.child(self.measure(id));
         }
-        let drawn = self.interactive(element, id, node, primitive, &computed, eased, cx);
+        let drawn = self.interactive(element, id, node, primitive, &computed, eased, eases_press, cx);
         let drawn = match (anchored_slots, anchoring_of(node)) {
             (Some(slots), Some(anchoring)) => self.anchored(drawn, id, anchoring, slots),
             _ => drawn,
         };
+        let drawn = scaled(drawn, computed.style.scale);
         if primitive == Primitive::Scroll {
             return Some(self.scroller(drawn, id, node, &inherited));
         }

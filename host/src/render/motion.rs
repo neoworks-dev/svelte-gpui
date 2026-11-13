@@ -15,6 +15,14 @@ pub struct Eased {
     color: Option<Rgba>,
     border: Option<Rgba>,
     opacity: f32,
+    scale: f32,
+}
+
+/// A damped spring from 0 to 1 over `progress` 0 to 1: it overshoots by about a fifth, swings back
+/// once and settles, which makes a press or a pop feel physical. It ends within 0.3% of 1, and
+/// `value_at` hands over the exact target at the end.
+fn spring(progress: f32) -> f32 {
+    1.0 - (-6.0 * progress).exp() * (12.0 * progress).cos()
 }
 
 /// A transition in flight: from where the element was to where its style now says.
@@ -77,20 +85,23 @@ impl Animation {
             return (self.asked, 1.0);
         }
         let eased = transition.easing.at(progress);
+        // Only the scale springs: a colour or an opacity that overshoots looks like a flicker.
+        let scaled = if transition.spring { spring(progress) } else { eased };
         let value = Eased {
             background: Fill::ease(self.from.background, self.to.background, eased),
             color: mix_option(self.from.color, self.to.color, eased),
             border: mix_option(self.from.border, self.to.border, eased),
             opacity: self.from.opacity + (self.to.opacity - self.from.opacity) * eased,
+            scale: self.from.scale + (self.to.scale - self.from.scale) * scaled,
         };
         (value, progress)
     }
 }
 
 impl Painter<'_> {
-    /// Applies hover to the style itself, and eases from the last drawn colours to the new
-    /// ones. Elements that ease take hover from the host rather than GPUI's refinement.
-    /// `inherited_colour` is the text colour the element's parent hands down.
+    /// Applies hover, then the pressed (`active`) style, to the style itself, and eases from the last
+    /// drawn colours and scale to the new ones. Elements that ease take hover and press from the host
+    /// rather than GPUI's refinements. `inherited_colour` is the text colour the element's parent hands down.
     pub(super) fn ease_style(&self, id: NodeId, computed: &mut Computed, inherited_colour: Rgba) {
         if self.interaction.hovered.borrow().contains(&id) {
             if let Some(hover) = computed.hover.take() {
@@ -98,6 +109,12 @@ impl Painter<'_> {
             }
         }
         computed.hover = None;
+        if self.interaction.pressed.borrow().contains(&id) {
+            if let Some(active) = computed.active.take() {
+                computed.style.overlay(&active);
+            }
+        }
+        computed.active = None;
         let style = &mut computed.style;
         let Some(transition) = style.transition.clone() else {
             return;
@@ -107,6 +124,7 @@ impl Painter<'_> {
             color: style.color,
             border: style.border_color,
             opacity: style.opacity.unwrap_or(1.0),
+            scale: style.scale.unwrap_or(1.0),
         };
         let now = Instant::now();
         let mut animations = self.interaction.animations.borrow_mut();
@@ -127,6 +145,9 @@ impl Painter<'_> {
         if shown.opacity < 1.0 || style.opacity.is_some() {
             style.opacity = Some(shown.opacity);
         }
+        if (shown.scale - 1.0).abs() > f32::EPSILON || style.scale.is_some() {
+            style.scale = Some(shown.scale);
+        }
     }
 }
 
@@ -140,11 +161,42 @@ mod tests {
     const TRANSPARENT: Rgba = Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
 
     fn linear(duration_ms: f32) -> Transition {
-        Transition { duration_ms, delay_ms: 0.0, easing: Easing::LINEAR }
+        Transition { duration_ms, delay_ms: 0.0, easing: Easing::LINEAR, spring: false }
     }
 
     fn eased(color: Option<Rgba>) -> Eased {
-        Eased { background: None, color, border: None, opacity: 1.0 }
+        Eased { background: None, color, border: None, opacity: 1.0, scale: 1.0 }
+    }
+
+    fn scaled(scale: f32) -> Eased {
+        Eased { background: None, color: None, border: None, opacity: 1.0, scale }
+    }
+
+    #[test]
+    fn a_spring_overshoots_once_and_ends_on_its_target() {
+        let transition = Transition { duration_ms: 400.0, delay_ms: 0.0, easing: Easing::EASE, spring: true };
+        let start = Instant::now();
+        let mut animation = Animation::settled(scaled(1.0));
+        animation.retarget(scaled(0.9), start, &transition, GREY);
+        let lowest = (1..40)
+            .map(|step| animation.value_at(start + Duration::from_millis(step * 10), &transition).0.scale)
+            .fold(f32::MAX, f32::min);
+        assert!(lowest < 0.89, "it swings past the target, to {lowest}");
+        let (end, progress) = animation.value_at(start + Duration::from_millis(400), &transition);
+        assert_eq!((end.scale, progress), (0.9, 1.0));
+    }
+
+    #[test]
+    fn colours_do_not_spring() {
+        let transition = Transition { duration_ms: 100.0, delay_ms: 0.0, easing: Easing::LINEAR, spring: true };
+        let start = Instant::now();
+        let mut animation = Animation::settled(eased(Some(GREY)));
+        animation.retarget(eased(Some(WHITE)), start, &transition, GREY);
+        for step in 1..10 {
+            let (value, _) = animation.value_at(start + Duration::from_millis(step * 10), &transition);
+            let red = value.color.expect("a colour").r;
+            assert!((GREY.r..=WHITE.r).contains(&red), "the colour stays between its ends, at {red}");
+        }
     }
 
     #[test]

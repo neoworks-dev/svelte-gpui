@@ -82,12 +82,14 @@ impl Easing {
     }
 }
 
-/// How changes to colours and opacity ease: `transition: 150` or `{ duration, delay, easing }`.
+/// How changes to colours, opacity and scale ease: `transition: 150` or `{ duration, delay, easing }`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transition {
     pub duration_ms: f32,
     pub delay_ms: f32,
     pub easing: Easing,
+    /// `easing: "spring"`: the scale overshoots and settles; colours and opacity use `ease`.
+    pub spring: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +129,9 @@ pub struct Style {
     pub clip: Option<bool>,
     /// An offset from where layout put the element, in pixels.
     pub translate: Option<(f32, f32)>,
+    /// A factor the element and everything in it are painted at, around its centre. Layout and hit
+    /// testing keep its real size, so a press or a pop moves nothing around it.
+    pub scale: Option<f32>,
     pub transition: Option<Transition>,
     pub background: Option<Fill>,
     pub opacity: Option<f32>,
@@ -227,6 +232,7 @@ impl Style {
             absolute,
             clip,
             translate,
+            scale,
             transition,
             background,
             opacity,
