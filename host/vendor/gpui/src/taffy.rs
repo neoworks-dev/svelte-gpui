@@ -231,6 +231,13 @@ impl TaffyLayoutEngine {
             .expect(EXPECT_MESSAGE);
     }
 
+    /// The size layout gave a node before rounding it to device pixels. A rounded size depends on where
+    /// the node sits, so only this one can be given again elsewhere and come out the same.
+    pub fn unrounded_size(&self, id: LayoutId, scale_factor: f32) -> Size<Pixels> {
+        let layout = self.taffy.unrounded_layout(id.into());
+        size(Pixels(layout.size.width / scale_factor), Pixels(layout.size.height / scale_factor))
+    }
+
     pub fn layout_bounds(&mut self, id: LayoutId, scale_factor: f32) -> Bounds<Pixels> {
         if let Some(layout) = self.absolute_layout_bounds.get(&id).cloned() {
             return layout;

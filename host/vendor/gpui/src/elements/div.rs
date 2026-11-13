@@ -1763,7 +1763,11 @@ impl Interactivity {
                 scroll_handle_state.bounds = bounds;
             }
 
-            *scroll_offset
+            // Patched for svelte-gpui: the content moves by whole device pixels. A relocatable view
+            // moved by a fraction of one lands up to a pixel away from where it would be painted fresh,
+            // so at a fractional scale its neighbours jumped whenever one of them was drawn again. The
+            // stored offset keeps its fraction, so small touchpad steps still add up.
+            window.snap_to_device_pixels(*scroll_offset)
         } else {
             Point::default()
         }

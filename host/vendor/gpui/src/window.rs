@@ -3466,6 +3466,13 @@ impl Window {
         bounds
     }
 
+    /// The size layout gave `layout_id` before rounding it to device pixels (see
+    /// `TaffyLayoutEngine::unrounded_size`).
+    pub(crate) fn unrounded_layout_size(&self, layout_id: LayoutId) -> Size<Pixels> {
+        let scale_factor = self.scale_factor();
+        self.layout_engine.as_ref().unwrap().unrounded_size(layout_id, scale_factor)
+    }
+
     /// This method should be called during `prepaint`. You can use
     /// the returned [Hitbox] during `paint` or in an event handler
     /// to determine whether the inserted hitbox was the topmost.
