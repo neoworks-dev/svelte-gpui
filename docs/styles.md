@@ -177,6 +177,10 @@ It takes one of these:
 | `number` | The duration in ms, with `ease`. |
 | `{ duration?, delay?, easing? }` | `easing` is `"linear"`, `"ease"`, `"ease-in"`, `"ease-out"` or `"ease-in-out"`. The duration defaults to 150. |
 
+Colours ease as CSS's do, in premultiplied alpha: going to or from `transparent` fades
+the other colour in or out and never passes through black. A `color` that one side leaves
+out is the text colour the element inherits.
+
 Sizes, positions and `translate` are not eased by `transition`. Animate them with a
 `Tween` or `Spring` instead; see [Motion](motion.md).
 
