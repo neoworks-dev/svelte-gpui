@@ -1270,8 +1270,11 @@ impl Window {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DispatchEventResult {
+/// What an input event did, as `Window::dispatch_event` reports it.
+pub struct DispatchEventResult {
+    /// Whether no handler stopped the event.
     pub propagate: bool,
+    /// Whether a handler prevented the default action.
     pub default_prevented: bool,
 }
 

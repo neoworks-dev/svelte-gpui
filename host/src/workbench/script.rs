@@ -1,6 +1,6 @@
 //! Scripted steps (`--do press:Save`), for testing where nobody can click.
 
-use gpui::{Context, Keystroke, Window};
+use gpui::{Context, Keystroke, PlatformInput, Window};
 
 use super::Workbench;
 use crate::render::{self};
@@ -99,7 +99,61 @@ fn pointer_argument(argument: &str) -> Result<(f32, f32, i32), String> {
     }
 }
 
+/// A wheel step: `wheel:X,Y:DY`, `wheel:X,Y:DX,DY` or either with `,px` last, at a window position. The
+/// deltas are lines, as a notched wheel sends, or pixels, as a touchpad does, and follow GPUI's
+/// sign: a negative one moves the content up, which scrolls down.
+fn wheel_event(position: &str, argument: &str) -> Result<gpui::ScrollWheelEvent, String> {
+    let (x, y, _) = pointer_argument(position)?;
+    let mut fields: Vec<&str> = argument.split(',').map(str::trim).collect();
+    let precise = fields.last() == Some(&"px");
+    if precise {
+        fields.pop();
+    }
+    let number =
+        |text: &str| text.parse::<f32>().map_err(|_| format!("cannot read {text:?} as a number in {argument:?}"));
+    let (dx, dy) = match fields.as_slice() {
+        [dy] => (0.0, number(dy)?),
+        [dx, dy] => (number(dx)?, number(dy)?),
+        _ => return Err(format!("expected DY or DX,DY, with ,px for pixels, not {argument:?}")),
+    };
+    let delta = if precise {
+        gpui::ScrollDelta::Pixels(gpui::point(gpui::px(dx), gpui::px(dy)))
+    } else {
+        gpui::ScrollDelta::Lines(gpui::point(dx, dy))
+    };
+    Ok(gpui::ScrollWheelEvent {
+        position: gpui::point(gpui::px(x), gpui::px(y)),
+        delta,
+        modifiers: Default::default(),
+        touch_phase: gpui::TouchPhase::Moved,
+    })
+}
+
 impl Workbench {
+    /// Hands GPUI an input event once this step has finished: its handlers update the workbench, which a
+    /// step is already doing.
+    fn dispatch_later(event: PlatformInput, window: &mut Window, cx: &mut Context<Self>) {
+        Self::dispatch_after(event, 0, window, cx);
+    }
+
+    /// The same, `milliseconds` after the step.
+    fn dispatch_after(event: PlatformInput, milliseconds: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if milliseconds == 0 {
+            window.defer(cx, move |window, cx| {
+                window.dispatch_event(event, cx);
+            });
+            return;
+        }
+        cx.spawn_in(window, async move |_, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(milliseconds)).await;
+            cx.update(|window, cx| {
+                window.dispatch_event(event, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// What the scripted steps did so far, for the summary.
     pub(crate) fn step_summary(&self, total: usize) -> Vec<String> {
         self.steps.summary(total)
@@ -136,6 +190,24 @@ impl Workbench {
             self.frame_times.clear();
             self.frame_target = frames;
             cx.notify();
+            return Ok(());
+        }
+        if action == "mouse" {
+            // Several positions, `x,y;x,y;…`, are a pointer travelling, one move every 8 ms.
+            for (index, position) in needle.split(';').enumerate() {
+                let (x, y, _) = pointer_argument(position)?;
+                let event = gpui::MouseMoveEvent {
+                    position: gpui::point(gpui::px(x), gpui::px(y)),
+                    pressed_button: None,
+                    modifiers: Default::default(),
+                };
+                Self::dispatch_after(PlatformInput::MouseMove(event), index as u64 * 8, window, cx);
+            }
+            return Ok(());
+        }
+        if action == "wheel" {
+            let event = wheel_event(needle, argument)?;
+            Self::dispatch_later(PlatformInput::ScrollWheel(event), window, cx);
             return Ok(());
         }
         if matches!(action, "press" | "click" | "hover" | "unhover" | "focus" | "poke") && !argument.is_empty() {

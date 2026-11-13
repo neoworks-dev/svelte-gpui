@@ -24,6 +24,8 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 |---|---|
 | `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. Focus moves as it does for a real press: to the nearest element at or above the target that takes it, or to nothing, unless an element above the target has `keepFocus`. |
 | `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves the nearest element at or above the target that listens for `hover`. |
+| `mouse:X,Y` | Moves the pointer to a window position through GPUI, as a real one does: whatever is under it is hovered, with the `hover` style and `onhover` it has, and the one it left is not. Several positions, `mouse:X,Y;X,Y;X,Y`, are a pointer travelling, a move every 8 ms. It takes no target, and it hovers what `hover:` cannot, an element that eases but has no `onhover`. |
+| `wheel:X,Y:DY`, `wheel:X,Y:DX,DY` | A mouse wheel at a window position, through GPUI. The deltas are in lines, as a notched wheel sends them, and negative ones scroll down: `wheel:300,200:-3` is three notches. `,px` last (`wheel:300,200:0,-30,px`) makes them pixels, as a touchpad sends them. |
 | `focus:TARGET` | Gives focus to the nearest element at or above the target that can take it. |
 | `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. On a view the app's crate draws (`g-element`), the keys go through GPUI to the view, as a keyboard's do. |
 | `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. On a `g-element`, it goes through GPUI to the view first, and what the view leaves alone bubbles to the UI. |
