@@ -22,7 +22,7 @@
 <script lang="ts" generics="T">
   import { untrack, type Snippet } from "svelte";
   import Scroll from "./Scroll.svelte";
-  import View from "./View.svelte";
+  import View from "./View";
   import { Heights } from "./heights";
   import type { Layout, ScrollPosition } from "./events";
   import type { Scrollbar, Style } from "./style";

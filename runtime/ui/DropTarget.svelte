@@ -13,7 +13,7 @@
 -->
 <script lang="ts" generics="T">
   import { onMount, type Snippet } from "svelte";
-  import View from "./View.svelte";
+  import View from "./View";
   import { accepts, addTarget, dragging, type DragInfo } from "./dnd.svelte";
   import type { Layout } from "./events";
   import type { Style } from "./style";

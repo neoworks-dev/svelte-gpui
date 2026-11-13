@@ -20,7 +20,7 @@
   import type { Snippet } from "svelte";
   import Menu from "./Menu.svelte";
   import Popover from "./Popover.svelte";
-  import View from "./View.svelte";
+  import View from "./View";
   import type { MenuItem } from "./menu";
   import type { PointerEvent } from "./events";
   import type { Style } from "./style";

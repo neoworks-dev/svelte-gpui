@@ -10,8 +10,8 @@ do not exist. Code written from web habits compiles and then draws nothing. `fet
 `WebSocket` and a `files` API do exist, run by the host (`docs/io.md`).
 
 Full docs: `docs/` in the svelte-gpui repo. Start at `docs/README.md`. The types in
-`runtime/ui/style.ts`, `runtime/ui/events.ts` and each `runtime/ui/*.svelte` `Props`
-are the reference. The app in `examples/demo` uses every feature.
+`runtime/ui/style.ts`, `runtime/ui/events.ts` and each primitive's `Props` (`runtime/ui/View.ts`,
+`Text.ts`, … and the `runtime/ui/*.svelte` components) are the reference. The app in `examples/demo` uses every feature.
 
 ## Rules
 
@@ -34,6 +34,9 @@ are the reference. The app in `examples/demo` uses every feature.
 7. **No DOM or browser storage.** Measure with `onlayout`. Reach a primitive's methods
    with `bind:this`. There is no `document` and no `getBoundingClientRect`. For
    storage, write files with `files`.
+8. **A primitive draws its `children` once.** `View`, `Text`, `Button` and `Overlay` take
+   the snippet they get when they are made. Put what changes inside it, in an `{#if}` or
+   an `{#each}`, rather than passing a different snippet later.
 
 ## Primitives at a glance
 

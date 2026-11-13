@@ -49,6 +49,10 @@ nothing the browser provides exists.
 
 ## One thing that bites
 
+- **A primitive draws its `children` snippet once, when it is made.** `View`, `Text`, `Button` and `Overlay` are
+  built for speed (`runtime/ui/primitive.ts`), and a snippet that is not there at the start, or that is swapped
+  for another one later, is not noticed. Put what changes inside the snippet, in an `{#if}` or an `{#each}`, as
+  nearly every component does anyway.
 - **A bare `x;` or `void x;` is deleted by the build.** The TypeScript step runs before Svelte compiles
   `$state`, and drops an expression statement that looks pure, so it cannot be used to make a `$derived`
   or `$effect` depend on a variable. Use the variable in an expression the code needs.

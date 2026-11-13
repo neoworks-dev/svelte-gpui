@@ -20,8 +20,8 @@
 -->
 <script lang="ts" generics="T">
   import type { Snippet } from "svelte";
-  import Overlay from "./Overlay.svelte";
-  import View from "./View.svelte";
+  import Overlay from "./Overlay";
+  import View from "./View";
   import { beginDrag, dragging, endDrag, moveDrag } from "./dnd.svelte";
   import type { Layout, PointerEvent } from "./events";
   import type { Style } from "./style";

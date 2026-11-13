@@ -14,11 +14,11 @@
 </script>
 
 <script lang="ts" generics="T">
-  import Button from "./Button.svelte";
-  import Icon from "./Icon.svelte";
+  import Button from "./Button";
+  import Icon from "./Icon";
   import Menu from "./Menu.svelte";
   import Popover from "./Popover.svelte";
-  import Text from "./Text.svelte";
+  import Text from "./Text";
   import { caretUpDown } from "./icons";
   import { colors } from "./overlay-look";
   import type { MenuItem } from "./menu";

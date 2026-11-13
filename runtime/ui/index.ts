@@ -1,18 +1,18 @@
 // The primitives a svelte-gpui app is built from. Each draws as one GPUI element;
 // there is no HTML and no CSS underneath.
 
-export { default as View } from "./View.svelte";
-export { default as Text } from "./Text.svelte";
-export { default as Button } from "./Button.svelte";
+export { default as View } from "./View";
+export { default as Text } from "./Text";
+export { default as Button } from "./Button";
 export { default as Input } from "./Input.svelte";
 export { default as Scroll } from "./Scroll.svelte";
-export { default as Image } from "./Image.svelte";
-export { default as Icon } from "./Icon.svelte";
+export { default as Image } from "./Image";
+export { default as Icon } from "./Icon";
 export { default as List } from "./List.svelte";
 export { default as Tree } from "./Tree.svelte";
 export { default as Presence } from "./Presence.svelte";
 export { default as Canvas } from "./Canvas.svelte";
-export { default as Overlay } from "./Overlay.svelte";
+export { default as Overlay } from "./Overlay";
 export { default as Popover } from "./Popover.svelte";
 export { default as Tooltip } from "./Tooltip.svelte";
 export { default as Menu } from "./Menu.svelte";
