@@ -1,13 +1,12 @@
 <!--
-  Scrollers to try the wheel on, each with a line that says where it is:
+  Four scrollers to try the wheel and the scrollbar on, each with a line that says where it is:
 
   - a `Scroll` of eighty rows with a smaller `Scroll` inside it, which keeps the wheel until it is at its end;
-  - a horizontal `Scroll`, and another vertical one;
+  - a horizontal `Scroll`;
   - a `List` of a hundred thousand rows of one height, taller than the host lays out at once;
   - a `List` of three thousand rows of different heights, which are measured as they are drawn.
 
-  Drive it with `wheel:X,Y:DY` steps; see docs/testing.md. Each move of the outer, inner and measured scrollers
-  is logged with its time, which shows how a notch arrives.
+  Drive it with `wheel:X,Y:DY` and `mouse:X,Y` steps; see docs/testing.md.
 -->
 <script lang="ts">
   import { List, Scroll, Text, View } from "@neoworks/svelte-gpui/ui";
@@ -82,12 +81,19 @@
           </View>
         {/each}
       </Scroll>
-      <Text style={caption}>Another Scroll, to wheel in</Text>
-      <Scroll style={frame}>
-        {#each rows as row}
-          <Text style={{ padding: 6 }}>Row {row}</Text>
-        {/each}
-      </Scroll>
+      <Text style={caption}>A tinted scrollbar, and none (<Text style={{ fontFamily: "mono" }}>scrollbar=false</Text>)</Text>
+      <View style={{ ...frame, direction: "row", gap: 8, background: undefined }}>
+        <Scroll style={frame} scrollbar={{ color: "#8b5cf6aa", activeColor: "#c4b5fd", width: 8 }}>
+          {#each rows as row}
+            <Text style={{ padding: 6 }}>Violet {row}</Text>
+          {/each}
+        </Scroll>
+        <Scroll style={frame} scrollbar={false}>
+          {#each rows as row}
+            <Text style={{ padding: 6 }}>Bare {row}</Text>
+          {/each}
+        </Scroll>
+      </View>
     </View>
   </View>
   <View style={{ flex: 1, minHeight: 0, direction: "row", gap: 12 }}>

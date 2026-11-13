@@ -19,6 +19,7 @@ mod overlay;
 mod press;
 mod primitive;
 mod roots;
+mod scrollbar;
 mod scroller;
 mod text;
 
@@ -50,7 +51,7 @@ use press::{captured_pointer, press_ends_focus};
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
-use scroller::{Scroller, SharedScroller};
+use scroller::{Extent, Scroller, SharedScroller};
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
 
@@ -476,19 +477,26 @@ impl<'a> Painter<'a> {
             _ => drawn,
         };
         if primitive == Primitive::Scroll {
-            return Some(self.scroller(drawn, id, node));
+            return Some(self.scroller(drawn, id, node, &inherited));
         }
         Some(drawn)
     }
 
-    /// A scroller, wrapped so its wheel glides.
-    fn scroller(&self, scroller: AnyElement, id: NodeId, node: &Node) -> AnyElement {
+    /// A scroller, wrapped so its wheel glides and it draws a scrollbar.
+    fn scroller(&self, scroller: AnyElement, id: NodeId, node: &Node, inherited: &Inherited) -> AnyElement {
         let state = self.interaction.scrollers.borrow_mut().entry(id).or_default().clone();
+        let number = |name: &str| node.attributes.get(name).and_then(|text| text.parse::<f32>().ok());
+        let extent = number("extent").map(|total| Extent { total, origin: number("origin").unwrap_or(0.0) });
         Scroller {
             inner: scroller,
+            node: id,
             handle: self.interaction.scroll_handle(id),
             horizontal: node.attributes.contains_key("horizontal"),
             state,
+            look: scrollbar::BarLook::parse(node.attributes.get("scrollbar").map(String::as_str)),
+            extent,
+            text: inherited.colour,
+            workbench: self.interaction.workbench.borrow().clone(),
         }
         .into_any_element()
     }

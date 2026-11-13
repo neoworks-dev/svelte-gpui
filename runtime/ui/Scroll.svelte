@@ -13,10 +13,21 @@
     the end, content that grows or shrinks (a row changing height, rows added, text wrapping again
     after a resize) keeps the end in view. Scrolling away from the end lets go of it, and scrolling
     back, or to an offset at or past `maxY`, pins it again.
+
+  The mouse wheel glides: a notch of a wheel moves the content over about 150 ms, and a notch that comes while
+  one is under way adds to where it is heading. A touchpad's deltas move it 1:1. `scrollTo` and `scrollBy` jump.
+
+  An overlay scrollbar lies over the edge of the content. It shows while the content scrolls or the pointer is
+  near the edge, fades out after about a second, can be dragged, and jumps to where its track is pressed.
+  `scrollbar={false}` hides it, and `scrollbar={{ color }}` tints it.
+
+  `extent`, `origin` and `onscrollbar` are for content of which only a stretch is laid out, as `List` does for
+  lists taller than the host can draw at once: the bar then stands for the whole of it, and dragging it asks the
+  app to scroll, because only the app can get there.
 -->
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
-  import { encode, type Style } from "./style";
+  import { encode, type Scrollbar, type Style } from "./style";
   import { offsetAfter } from "./scroll";
   import { itself, listener, type Layout, type ScrollPosition } from "./events";
 
@@ -25,6 +36,14 @@
     horizontal?: boolean;
     /** What the host keeps in view as the content changes: the window's content, or that and the end. Vertical only. */
     anchor?: "content" | "end";
+    /** `false` hides the scrollbar, an object tints it. */
+    scrollbar?: boolean | Scrollbar;
+    /** The whole length of the content, when only a stretch of it is laid out here. */
+    extent?: number;
+    /** Where the laid-out stretch starts in the whole content. */
+    origin?: number;
+    /** The scrollbar was dragged to `offset`, counted over the whole content. Without it the scroller goes there itself. */
+    onscrollbar?: (offset: number) => void;
     onscroll?: (position: ScrollPosition) => void;
     onlayout?: (layout: Layout) => void;
     children?: Snippet;
@@ -36,6 +55,14 @@
     look: encode(props.style),
     horizontal: props.horizontal ? "" : undefined,
     anchor: props.anchor,
+    scrollbar: props.scrollbar === undefined ? undefined : JSON.stringify(props.scrollbar),
+    extent: props.extent === undefined ? undefined : String(props.extent),
+    origin: props.origin === undefined ? undefined : String(props.origin),
+    // Only a scroller that shows a stretch of something longer hears its bar: the host scrolls the others itself.
+    onscrollbar:
+      props.extent === undefined
+        ? undefined
+        : (event: { offset: number }) => (props.onscrollbar ? props.onscrollbar(event.offset) : scrollTo(event.offset - (props.origin ?? 0))),
     // Always listened to, so that `position()` is known before anything has asked for it.
     onscroll: (position: ScrollPosition) => {
       remember(position);

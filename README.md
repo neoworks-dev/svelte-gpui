@@ -120,8 +120,8 @@ From `@neoworks/svelte-gpui/ui`:
 | `Text` | A paragraph. Nested `Text` elements are runs inside it, with their own colour, weight, font or background, and the paragraph wraps as one. `pre` keeps whitespace. |
 | `Button` | Pressed by the pointer, or by Enter and Space while it has focus. `disabled`. |
 | `Input` | A text field the host edits, with input methods, selection, the clipboard, `multiline`, `secure`, `numeric`, `maxLength`, `bind:value`, `oninput`, `onsubmit` and `oncommit`. |
-| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. A mouse wheel glides to its target, and a touchpad moves it 1:1. `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
-| `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`. |
+| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. A mouse wheel glides to its target, a touchpad moves it 1:1, and an overlay scrollbar shows while it moves (`scrollbar` hides or tints it). `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
+| `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`, and a scrollbar that stands for the whole list. |
 | `Image` | A file path relative to the bundle, a `data:` URL, or an `http(s)` URL fetched on a thread and cached. It loads when it nears the window and is decoded no larger than it is drawn. |
 | `Icon` | SVG markup or a file, tinted with `color` or the text colour around it. The build loads `.svg` imports as text, so `import gear from "@phosphor-icons/core/regular/gear.svg"` works. |
 | `Canvas` | Pixels to paint into. The host keeps a buffer at the window's scale and rasterises each call with tiny-skia as it arrives: `begin`, `lineTo`, `end`, `line`, `fillRect`, `fillCircle`, `clear`. A stroke costs the same however much is already drawn. Takes the pointer events `View` does. |
@@ -194,6 +194,8 @@ on an attribute with `@name=value`:
 - `--do down:TEXT:x,y`, `move:TEXT:x,y` and `up:TEXT:x,y` drive the pointer, in window
   coordinates.
 - `--do scroll:TEXT:PIXELS` scrolls the nearest scrolling ancestor.
+- `--do mouse:X,Y`, `mousedown:X,Y`, `mouseup:X,Y` and `wheel:X,Y:LINES` send real pointer input through GPUI: hover
+  styles, scrollbar drags, mouse-wheel glides.
 - `--do drop:TEXT:/a/file,/another` drops files from another program on what listens for `ondrop`.
 
 `--report` and `--exit-after-ms` print memory, timings and the tree's shape.

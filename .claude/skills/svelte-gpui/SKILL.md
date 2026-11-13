@@ -43,8 +43,8 @@ are the reference. The app in `examples/demo` uses every feature.
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph; any other element inside is an inline box sized by its `width`/`height` (or the font size), moved by `verticalAlign` | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onselect onkey` | `focus()`, `blur()`, `select(start?, end?)`, `getSelection()` gives `{ start, end, firstRow, lastRow }` |
-| `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)` (both jump), `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
-| `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
+| `Scroll` | `style horizontal anchor scrollbar onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below; `scrollbar={false}` hides the overlay scrollbar, `scrollbar={{ color, activeColor, width }}` tints it; `extent origin onscrollbar` are for content of which only a stretch is laid out) | `scrollTo(offset)`, `scrollBy(delta)` (both jump), `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
+| `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style scrollbar` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
 | `Canvas` | `style vector ondown onmove onup onhover onwheel onlayout`; `vector` paints shapes as paths, for drawings redrawn whole | `begin(x,y,pen) lineTo end line fillRect fillCircle clear` |
@@ -98,12 +98,18 @@ size. Scrolling back to the end, or `scrollTo` at or past `maxY`, pins it again.
 second part only. Only the scroller's own children are kept in place, and it is vertical only. Use it instead of
 `scrollTo` in an effect to follow a chat or a log: it needs no round trip. `examples/stick-to-end` shows it.
 
-## The wheel
+## Wheel and scrollbar
 
-Every `Scroll` and `List` has a smooth wheel from the host, with no code of yours. A wheel notch (a line delta) glides to
-its target in about 150 ms, easing out, and a notch that comes mid-glide extends the target; touchpad pixel deltas move 1:1;
-the innermost scroller that can move keeps the wheel. `scrollTo`, `scrollBy`, `scrollToIndex` and `anchor` act at once.
-Do not smooth scrolling yourself with a `Tween` on `scrollTo`. Test it with `wheel` steps, which go through GPUI.
+Every `Scroll` and `List` has both, from the host, with no code of yours. A wheel notch (a line delta) glides to its target
+in about 150 ms, easing out, and a notch that comes mid-glide extends the target; touchpad pixel deltas move 1:1; the
+innermost scroller that can move keeps the wheel. `scrollTo`, `scrollBy`, `scrollToIndex`, a scrollbar drag and `anchor`
+act at once and end a glide. Do not smooth scrolling yourself with a `Tween` on `scrollTo`.
+
+The overlay scrollbar shows while the content scrolls or the pointer is within 16 px of the edge, holds a second, fades,
+thickens under the pointer, drags, and jumps to where the track is pressed. It stands for the whole content (a `List`'s
+whole height, however few rows are built). Tint it for a theme with `scrollbar={{ color }}` (by default it is the text
+colour, translucent) or hide it with `scrollbar={false}`. Test it with `mouse`, `mousedown`, `mouseup` and `wheel` steps,
+which go through GPUI; `down`/`up` steps do not reach a scrollbar.
 
 ## Network and files
 
@@ -262,7 +268,8 @@ one. `docs/testing.md` lists the steps:
 - `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit` (`press` and `down` move focus as a real press does);
 - `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
-- `mouse:X,Y` (a real pointer move through GPUI: hover styles and `onhover` follow; `X,Y;X,Y` travels) and
+- `mouse:X,Y`, `mousedown:X,Y` and `mouseup:X,Y` (real pointer input through GPUI: hover styles and `onhover` follow,
+  a scrollbar can be dragged; `X,Y;X,Y` travels; `mouse:X,Y,0` moves with the left button held, as a drag does) and
   `wheel:X,Y:DY` (notches, negative scrolls down; `-1;-1;-1` is three in a row; `,px` last for touchpad pixels);
 - `scroll`, `wait`, `frames`.
 

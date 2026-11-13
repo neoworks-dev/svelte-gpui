@@ -16,6 +16,8 @@ interface Run {
   backAtEnd: { chat: Built; scrollRequests: number };
   toEnd: { chat: Built; scrollRequests: number; offset: number };
   tall: Built;
+  bar: { extent: string | null; origin: string | null };
+  dragged: { fixed: Built; scrollRequests: number; offset: number };
 }
 
 let run: Run;
@@ -99,6 +101,22 @@ describe("List with rows taller than its window", () => {
     // reaches into the one before.
     expect(rows).toEqual(["tall 58", "tall 59"]);
     expect(below).toBe(0);
+  });
+});
+
+describe("List's scrollbar", () => {
+  test("is told the height of the whole list, and where the rows the host has start in it", () => {
+    // 5002 rows of 20 px.
+    expect(run.bar.extent).toBe("100040");
+    expect(run.bar.origin).toBe("0");
+  });
+
+  test("scrolls the list to where it was dragged, and builds the rows there in the same step", () => {
+    // One call to `scrollTo` is two operations, one for each axis.
+    expect(run.dragged.scrollRequests).toBe(2);
+    expect(run.dragged.offset).toBe(50000);
+    expect(run.dragged.fixed.rows).toContain("fixed 2500");
+    expect(run.dragged.fixed.rows).not.toContain("fixed 0");
   });
 });
 

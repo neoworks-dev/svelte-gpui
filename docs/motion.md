@@ -24,9 +24,10 @@ style says now. It does this in Rust, without running JavaScript per frame. See
 
 ## Scrolling
 
-The host glides a mouse wheel's notches to their target over about 150 ms, in Rust, with no JavaScript per frame. It
-asks for a frame from the display only while one is under way, so it follows the display's refresh rate and an idle
-scroller costs nothing. See [Scroll](primitives.md#the-wheel).
+The host animates two things in a scroller by itself, with no JavaScript per frame: a mouse wheel's notches glide to
+their target over about 150 ms, and the scrollbar fades out a second after the content stopped moving. Both ask for a
+frame from the display only while they run, so they follow its refresh rate and an idle scroller costs nothing. See
+[Scroll](primitives.md#the-wheel).
 
 ## Svelte transitions with Presence
 
