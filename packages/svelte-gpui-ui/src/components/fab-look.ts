@@ -1,6 +1,6 @@
 import type { Color, Style } from "@neoworks/svelte-gpui/ui";
 import { typeStyle, type Theme } from "../theme";
-import { borderStyle, focusStyle, pillRadius, pressedSolidOpacity, stateTransition, visibleShadows, type StateStyles } from "./look";
+import { borderStyle, focusStyle, pillRadius, pressed, stateTransition, visibleShadows, type StateStyles } from "./look";
 
 export type FabVariant = "primary" | "surface" | "accent";
 export type FabSize = "sm" | "md" | "lg";
@@ -33,14 +33,14 @@ function variantColors(theme: Theme, variant: FabVariant): VariantColors {
       background: colors.accent,
       color: colors.onAccent,
       hover: { background: colors.accentHover },
-      active: { background: colors.accentHover, opacity: pressedSolidOpacity },
+      active: { background: colors.accentHover },
     };
   }
   return {
     background: colors.fill,
     color: colors.onFill,
     hover: { background: colors.fillHover },
-    active: { background: colors.fillHover, opacity: pressedSolidOpacity },
+    active: { background: colors.fillHover },
   };
 }
 
@@ -78,7 +78,7 @@ export function fabLook(theme: Theme, options: FabOptions): StateStyles {
       ...shapeStyle(options),
     },
     hover: { ...colors.hover, shadow: visibleShadows(theme.shadows.overlay) },
-    active: { ...colors.active, shadow: lift },
+    active: pressed({ ...colors.active, shadow: lift }),
     focus: focusStyle(theme, { hasBackground: true, hasBorder: false }, lift),
   };
 }

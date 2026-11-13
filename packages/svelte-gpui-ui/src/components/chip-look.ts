@@ -1,6 +1,6 @@
 import type { Color, Shadow, Style } from "@neoworks/svelte-gpui/ui";
 import { typeStyle, type Theme } from "../theme";
-import { disabledOpacity, focusStyle, pillRadius, pressedSolidOpacity, stateTransition, type StateStyles } from "./look";
+import { disabledOpacity, focusStyle, pillRadius, pressed, stateTransition, type StateStyles } from "./look";
 
 export type ChipVariant = "assist" | "filter" | "input" | "suggestion";
 
@@ -92,7 +92,7 @@ export function chipLook(theme: Theme, options: ChipOptions): StateStyles {
       ...shapeStyle(options),
     },
     hover: { background: colors.hoverBackground },
-    active: { background: colors.hoverBackground, opacity: pressedSolidOpacity },
+    active: pressed({ background: colors.hoverBackground }),
     focus: focusStyle(theme, { hasBackground: colors.background !== undefined, hasBorder: true }, colors.shadow),
     disabledStyle: { opacity: disabledOpacity },
   };
@@ -119,7 +119,7 @@ export function chipRemoveLook(theme: Theme): StateStyles {
       transition: stateTransition,
     },
     hover: { background: colors.hover, color: colors.text },
-    active: { background: colors.pressed, color: colors.text },
+    active: pressed({ background: colors.pressed, color: colors.text }),
     focus: focusStyle(theme, { hasBackground: false, hasBorder: true }),
     disabledStyle: { opacity: disabledOpacity },
   };
