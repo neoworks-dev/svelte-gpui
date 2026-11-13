@@ -111,6 +111,8 @@
       return;
     }
     const leave = pushOverlay(entry);
+    // Listened to only while open: a list of rows has a popover in each, and none is open.
+    window.addEventListener("keydown", escape);
     untrack(() => {
       before = focusedElement();
       reason = undefined;
@@ -119,6 +121,7 @@
       }
     });
     return () => {
+      window.removeEventListener("keydown", escape);
       leave();
       if (giveFocusBack && reason !== "outside") {
         restoreFocus(before);
@@ -140,8 +143,6 @@
     }
   }
 </script>
-
-<svelte:window onkeydown={escape} />
 
 {#snippet floating()}
   <Overlay
