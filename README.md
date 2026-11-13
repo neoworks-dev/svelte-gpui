@@ -120,7 +120,7 @@ From `@neoworks/svelte-gpui/ui`:
 | `Text` | A paragraph. Nested `Text` elements are runs inside it, with their own colour, weight, font or background, and the paragraph wraps as one. `pre` keeps whitespace. |
 | `Button` | Pressed by the pointer, or by Enter and Space while it has focus. `disabled`. |
 | `Input` | A text field the host edits, with input methods, selection, the clipboard, `multiline`, `secure`, `numeric`, `maxLength`, `bind:value`, `oninput`, `onsubmit` and `oncommit`. |
-| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
+| `Scroll` | Content that scrolls, vertically or `horizontal`, with `onscroll` and `scrollTo()`. A mouse wheel glides to its target, and a touchpad moves it 1:1. `anchor` keeps the end, or what you are looking at, in place while the host lays out. |
 | `List` | Only the rows near the window are built, so 100,000 items cost what a screenful does. Rows of one height (`rowHeight`), or of different heights, which it measures as they are drawn while the window keeps its place. `scrollToIndex()`, `stickToEnd`. |
 | `Image` | A file path relative to the bundle, a `data:` URL, or an `http(s)` URL fetched on a thread and cached. It loads when it nears the window and is decoded no larger than it is drawn. |
 | `Icon` | SVG markup or a file, tinted with `color` or the text colour around it. The build loads `.svg` imports as text, so `import gear from "@phosphor-icons/core/regular/gear.svg"` works. |

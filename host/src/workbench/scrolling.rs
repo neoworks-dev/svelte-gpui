@@ -3,7 +3,7 @@
 use gpui::{Context, point, px};
 
 use super::Workbench;
-use crate::tree::Command;
+use crate::tree::{Command, NodeId};
 
 impl Workbench {
     /// Moves the scrolling elements the app just asked to move, before anything is drawn. A
@@ -27,7 +27,15 @@ impl Workbench {
             });
         }
         for id in moved {
+            self.stop_gliding(id);
             self.touch(id, cx);
+        }
+    }
+
+    /// A scroller that was asked to be somewhere stays there: what its wheel had left to cover is forgotten.
+    pub(super) fn stop_gliding(&self, id: NodeId) {
+        if let Some(state) = self.interaction.scrollers.borrow().get(&id) {
+            state.borrow_mut().glide.cancel();
         }
     }
 }

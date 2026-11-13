@@ -130,13 +130,8 @@ fn wheel_event(position: &str, argument: &str) -> Result<gpui::ScrollWheelEvent,
 }
 
 impl Workbench {
-    /// Hands GPUI an input event once this step has finished: its handlers update the workbench, which a
-    /// step is already doing.
-    fn dispatch_later(event: PlatformInput, window: &mut Window, cx: &mut Context<Self>) {
-        Self::dispatch_after(event, 0, window, cx);
-    }
-
-    /// The same, `milliseconds` after the step.
+    /// Hands GPUI an input event `milliseconds` after the step, and at once when that is none, but not
+    /// while the step runs: GPUI's handlers update the workbench, which a step is already doing.
     fn dispatch_after(event: PlatformInput, milliseconds: u64, window: &mut Window, cx: &mut Context<Self>) {
         if milliseconds == 0 {
             window.defer(cx, move |window, cx| {
@@ -206,8 +201,11 @@ impl Workbench {
             return Ok(());
         }
         if action == "wheel" {
-            let event = wheel_event(needle, argument)?;
-            Self::dispatch_later(PlatformInput::ScrollWheel(event), window, cx);
+            // Several deltas, `-1;-1;-1`, are notches in quick succession, one every 8 ms.
+            for (index, delta) in argument.split(';').enumerate() {
+                let event = wheel_event(needle, delta)?;
+                Self::dispatch_after(PlatformInput::ScrollWheel(event), index as u64 * 8, window, cx);
+            }
             return Ok(());
         }
         if matches!(action, "press" | "click" | "hover" | "unhover" | "focus" | "poke") && !argument.is_empty() {

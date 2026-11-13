@@ -310,6 +310,7 @@ impl Workbench {
                     return false;
                 };
                 handle.set_offset(point(px(-left), px(-top)));
+                self.stop_gliding(*id);
                 // A view that holds the scroller keeps what it drew until it is told otherwise.
                 self.touch(*id, cx);
                 true

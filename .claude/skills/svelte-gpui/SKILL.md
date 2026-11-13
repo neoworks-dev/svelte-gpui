@@ -43,7 +43,7 @@ are the reference. The app in `examples/demo` uses every feature.
 | `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph; any other element inside is an inline box sized by its `width`/`height` (or the font size), moved by `verticalAlign` | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onselect onkey` | `focus()`, `blur()`, `select(start?, end?)`, `getSelection()` gives `{ start, end, firstRow, lastRow }` |
-| `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
+| `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)` (both jump), `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
 | `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
 | `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
 | `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
@@ -97,6 +97,13 @@ the user scrolls up, the child at the top of the window stays where it is on scr
 size. Scrolling back to the end, or `scrollTo` at or past `maxY`, pins it again. `anchor="content"` does the
 second part only. Only the scroller's own children are kept in place, and it is vertical only. Use it instead of
 `scrollTo` in an effect to follow a chat or a log: it needs no round trip. `examples/stick-to-end` shows it.
+
+## The wheel
+
+Every `Scroll` and `List` has a smooth wheel from the host, with no code of yours. A wheel notch (a line delta) glides to
+its target in about 150 ms, easing out, and a notch that comes mid-glide extends the target; touchpad pixel deltas move 1:1;
+the innermost scroller that can move keeps the wheel. `scrollTo`, `scrollBy`, `scrollToIndex` and `anchor` act at once.
+Do not smooth scrolling yourself with a `Tween` on `scrollTo`. Test it with `wheel` steps, which go through GPUI.
 
 ## Network and files
 
@@ -256,7 +263,7 @@ one. `docs/testing.md` lists the steps:
 - `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
 - `mouse:X,Y` (a real pointer move through GPUI: hover styles and `onhover` follow; `X,Y;X,Y` travels) and
-  `wheel:X,Y:DY` (notches, negative scrolls down; `,px` last for touchpad pixels);
+  `wheel:X,Y:DY` (notches, negative scrolls down; `-1;-1;-1` is three in a row; `,px` last for touchpad pixels);
 - `scroll`, `wait`, `frames`.
 
 Targets are text, `@attr=value` or `@tag=g-canvas`. A colon in a target is written `\:`
