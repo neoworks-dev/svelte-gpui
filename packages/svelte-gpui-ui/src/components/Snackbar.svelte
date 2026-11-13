@@ -23,13 +23,23 @@
     dismissible?: boolean;
     /** Milliseconds before it closes by itself. 0 keeps it until dismissed. */
     duration?: number;
+    /** Pixels between the window's bottom edge and the snackbar, to keep it above a bar that sits there. */
+    bottomGap?: number;
     onclose?: () => void;
   }
 
-  let { open = $bindable(false), message, actionLabel, onaction, dismissible = false, duration = 5000, onclose }: Props = $props();
+  let {
+    open = $bindable(false),
+    message,
+    actionLabel,
+    onaction,
+    dismissible = false,
+    duration = 5000,
+    bottomGap = 24,
+    onclose,
+  }: Props = $props();
 
   const theme = $derived(currentTheme());
-  const bottomGap = 24;
   const snackbarLayer = 2;
   const liftMilliseconds = 300;
 
