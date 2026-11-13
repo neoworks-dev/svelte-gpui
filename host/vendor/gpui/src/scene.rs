@@ -124,6 +124,36 @@ impl Scene {
         }
     }
 
+    /// Draws recorded operations again, moved by `delta` and clipped to `clip`. What `clip` leaves
+    /// nothing of is not inserted at all. The operations were recorded under a content mask that
+    /// only holds the recording view's own clips, so intersecting with `clip` here is what the outer
+    /// content mask would have done while painting.
+    pub fn replay_relocated(
+        &mut self,
+        operations: &[PaintOperation],
+        delta: Point<ScaledPixels>,
+        clip: &Bounds<ScaledPixels>,
+    ) {
+        for operation in operations {
+            match operation {
+                PaintOperation::Primitive(primitive) => {
+                    if !primitive.survives(delta, clip) {
+                        continue;
+                    }
+                    let mut moved = primitive.clone();
+                    moved.relocate(delta, clip);
+                    self.insert_primitive(moved);
+                }
+                PaintOperation::StartLayer(bounds) => {
+                    let mut moved = *bounds;
+                    moved.origin = moved.origin + delta;
+                    self.push_layer(moved);
+                }
+                PaintOperation::EndLayer => self.pop_layer(),
+            }
+        }
+    }
+
     pub fn finish(&mut self) {
         self.shadows.sort_by_key(|shadow| shadow.order);
         self.quads.sort_by_key(|quad| quad.order);
@@ -189,6 +219,7 @@ pub(crate) enum PrimitiveKind {
     Surface,
 }
 
+#[derive(Clone)]
 pub(crate) enum PaintOperation {
     Primitive(Primitive),
     StartLayer(Bounds<ScaledPixels>),
@@ -216,6 +247,55 @@ impl Primitive {
             Primitive::MonochromeSprite(sprite) => &sprite.bounds,
             Primitive::PolychromeSprite(sprite) => &sprite.bounds,
             Primitive::Surface(surface) => &surface.bounds,
+        }
+    }
+
+    fn content_mask_mut(&mut self) -> &mut ContentMask<ScaledPixels> {
+        match self {
+            Primitive::Shadow(shadow) => &mut shadow.content_mask,
+            Primitive::Quad(quad) => &mut quad.content_mask,
+            Primitive::Path(path) => &mut path.content_mask,
+            Primitive::Underline(underline) => &mut underline.content_mask,
+            Primitive::MonochromeSprite(sprite) => &mut sprite.content_mask,
+            Primitive::PolychromeSprite(sprite) => &mut sprite.content_mask,
+            Primitive::Surface(surface) => &mut surface.content_mask,
+        }
+    }
+
+    fn bounds_mut(&mut self) -> &mut Bounds<ScaledPixels> {
+        match self {
+            Primitive::Shadow(shadow) => &mut shadow.bounds,
+            Primitive::Quad(quad) => &mut quad.bounds,
+            Primitive::Path(path) => &mut path.bounds,
+            Primitive::Underline(underline) => &mut underline.bounds,
+            Primitive::MonochromeSprite(sprite) => &mut sprite.bounds,
+            Primitive::PolychromeSprite(sprite) => &mut sprite.bounds,
+            Primitive::Surface(surface) => &mut surface.bounds,
+        }
+    }
+
+    /// Whether anything of this primitive is left visible once it is moved by `delta` and clipped to `clip`.
+    pub fn survives(&self, delta: Point<ScaledPixels>, clip: &Bounds<ScaledPixels>) -> bool {
+        let mut bounds = *self.bounds();
+        bounds.origin = bounds.origin + delta;
+        let mut mask = self.content_mask().bounds;
+        mask.origin = mask.origin + delta;
+        !bounds.intersect(&mask).intersect(clip).is_empty()
+    }
+
+    /// Moves the primitive by `delta` and clips its content mask to `clip`.
+    pub fn relocate(&mut self, delta: Point<ScaledPixels>, clip: &Bounds<ScaledPixels>) {
+        let bounds = self.bounds_mut();
+        bounds.origin = bounds.origin + delta;
+        let mask = self.content_mask_mut();
+        mask.bounds.origin = mask.bounds.origin + delta;
+        mask.bounds = mask.bounds.intersect(clip);
+        if let Primitive::Path(path) = self {
+            for vertex in &mut path.vertices {
+                vertex.xy_position = vertex.xy_position + delta;
+                vertex.content_mask.bounds.origin = vertex.content_mask.bounds.origin + delta;
+                vertex.content_mask.bounds = vertex.content_mask.bounds.intersect(clip);
+            }
         }
     }
 
