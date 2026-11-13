@@ -63,9 +63,15 @@ export function setBackend(next: NodeBackend): void {
   backend = next;
 }
 
+// What the subclasses share by kind sits on their prototypes, not in each instance: the app makes tens of
+// thousands of nodes, and every field set in a constructor is paid for each of them.
 export class SNode {
-  nodeType = 0;
-  nodeName = "#node";
+  declare nodeType: number;
+
+  get nodeName(): string {
+    return "#node";
+  }
+
   parentNode: SNode | null = null;
   /** The host's id for this node, or 0 when it is only a mould or a comment. */
   hostId = 0;
@@ -302,11 +308,22 @@ export class SNode {
     node.nextSiblingNode = null;
     node.prevSiblingNode = null;
   }
+
+  /** Cuts every link between this node and the ones around it, for a node that is gone for good. */
+  release(): void {
+    this.firstChildNode = null;
+    this.lastChildNode = null;
+    this.parentNode = null;
+    this.nextSiblingNode = null;
+    this.prevSiblingNode = null;
+  }
 }
 
 export class SText extends SNode {
-  override nodeType = TEXT_NODE;
-  override nodeName = "#text";
+  override get nodeName(): string {
+    return "#text";
+  }
+
   data: string;
 
   constructor(data = "") {
@@ -343,8 +360,10 @@ export class SText extends SNode {
 }
 
 export class SComment extends SNode {
-  override nodeType = COMMENT_NODE;
-  override nodeName = "#comment";
+  override get nodeName(): string {
+    return "#comment";
+  }
+
   data: string;
 
   constructor(data = "") {
@@ -366,8 +385,9 @@ export class SComment extends SNode {
 }
 
 export class SFragment extends SNode {
-  override nodeType = DOCUMENT_FRAGMENT_NODE;
-  override nodeName = "#document-fragment";
+  override get nodeName(): string {
+    return "#document-fragment";
+  }
 
   override cloneNode(deep?: boolean): SFragment {
     const copy = new SFragment();
@@ -443,25 +463,28 @@ export class SStyle {
 }
 
 export class SElement extends SNode {
-  override nodeType = ELEMENT_NODE;
   /** The lowercase name, which is what the host and selectors use. */
   readonly localName: string;
+
+  override get nodeName(): string {
+    return this.localName.toUpperCase();
+  }
 
   /** The name as the DOM reports an HTML element's: uppercase. */
   get tagName(): string {
     return this.localName.toUpperCase();
   }
 
-  readonly attributes = new Map<string, unknown>();
-  readonly style: SStyle;
-  readonly listeners = new Map<string, Set<EventHandler>>();
-  content: SFragment | null = null;
+  // Most elements carry no listener and no inline style, and many no attribute until the app sets one,
+  // so these are made when first needed. Their defaults are on the prototype.
+  private declare attributeMap: Map<string, unknown> | null;
+  private declare listenerMap: Map<string, Set<EventHandler>> | null;
+  private declare styleObject: SStyle | null;
+  declare content: SFragment | null;
 
   constructor(tagName: string) {
     super();
     this.localName = tagName;
-    this.nodeName = tagName.toUpperCase();
-    this.style = new SStyle(this);
     if (tagName === "template") {
       this.content = new SFragment();
     }
@@ -470,8 +493,37 @@ export class SElement extends SNode {
     }
   }
 
+  get attributes(): Map<string, unknown> {
+    if (this.attributeMap === null) {
+      this.attributeMap = new Map();
+    }
+    return this.attributeMap;
+  }
+
+  get listeners(): Map<string, Set<EventHandler>> {
+    if (this.listenerMap === null) {
+      this.listenerMap = new Map();
+    }
+    return this.listenerMap;
+  }
+
+  get style(): SStyle {
+    if (this.styleObject === null) {
+      this.styleObject = new SStyle(this);
+    }
+    return this.styleObject;
+  }
+
+  /** The inline declarations, or nothing when none were ever set. */
+  get declarations(): Map<string, string> | null {
+    return this.styleObject === null ? null : this.styleObject.declarations;
+  }
+
   getAttribute(name: string): unknown {
-    const value = this.attributes.get(name);
+    if (this.attributeMap === null) {
+      return null;
+    }
+    const value = this.attributeMap.get(name);
     if (value === undefined) {
       return null;
     }
@@ -479,7 +531,7 @@ export class SElement extends SNode {
   }
 
   hasAttribute(name: string): boolean {
-    return this.attributes.has(name);
+    return this.attributeMap !== null && this.attributeMap.has(name);
   }
 
   setAttribute(name: string, value: unknown): void {
@@ -487,16 +539,27 @@ export class SElement extends SNode {
       this.style.cssText = value;
       return;
     }
-    if (this.attributes.get(name) === value) {
+    const attributes = this.attributes;
+    if (attributes.get(name) === value) {
       return;
     }
-    this.attributes.set(name, value);
+    attributes.set(name, value);
     backend.attributeChanged(this, name, value);
   }
 
   removeAttribute(name: string): void {
-    this.attributes.delete(name);
+    if (this.attributeMap !== null) {
+      this.attributeMap.delete(name);
+    }
     backend.attributeChanged(this, name, null);
+  }
+
+  /** Lets go of what this holds that points back at it, so the engine can free it without a cycle collection. */
+  override release(): void {
+    super.release();
+    this.attributeMap = null;
+    this.listenerMap = null;
+    this.styleObject = null;
   }
 
   set innerHTML(html: string) {
@@ -508,17 +571,17 @@ export class SElement extends SNode {
   }
 
   /** Layout as the host last measured it; zero until the host reports. */
-  clientWidth = 0;
-  clientHeight = 0;
-  offsetWidth = 0;
-  offsetHeight = 0;
+  declare clientWidth: number;
+  declare clientHeight: number;
+  declare offsetWidth: number;
+  declare offsetHeight: number;
   /** Where the host last measured the element in the window. */
-  boxLeft = 0;
-  boxTop = 0;
-  scrollWidth = 0;
-  scrollHeight = 0;
-  scrollLeftValue = 0;
-  scrollTopValue = 0;
+  declare boxLeft: number;
+  declare boxTop: number;
+  declare scrollWidth: number;
+  declare scrollHeight: number;
+  declare scrollLeftValue: number;
+  declare scrollTopValue: number;
 
   get scrollTop(): number {
     return this.scrollTopValue;
@@ -596,17 +659,20 @@ export class SElement extends SNode {
   }
 
   override addEventListener(type: string, handler: EventHandler): void {
-    let handlers = this.listeners.get(type);
+    const listeners = this.listeners;
+    let handlers = listeners.get(type);
     if (handlers === undefined) {
       handlers = new Set();
-      this.listeners.set(type, handlers);
+      listeners.set(type, handlers);
     }
     handlers.add(handler);
     backend.listenerAdded(this, type, handler);
   }
 
   override removeEventListener(type: string, handler: EventHandler): void {
-    this.listeners.get(type)?.delete(handler);
+    if (this.listenerMap !== null) {
+      this.listenerMap.get(type)?.delete(handler);
+    }
     backend.listenerRemoved(this, type);
   }
 
@@ -630,11 +696,15 @@ export class SElement extends SNode {
 
   override cloneNode(deep?: boolean): SElement {
     const copy = new SElement(this.localName);
-    for (const [name, value] of this.attributes) {
-      copy.setAttribute(name, value);
+    if (this.attributeMap !== null) {
+      for (const [name, value] of this.attributeMap) {
+        copy.setAttribute(name, value);
+      }
     }
-    for (const [name, value] of this.style.declarations) {
-      copy.style.setProperty(name, value);
+    if (this.styleObject !== null) {
+      for (const [name, value] of this.styleObject.declarations) {
+        copy.style.setProperty(name, value);
+      }
     }
     if (deep !== true) {
       return copy;
@@ -647,6 +717,28 @@ export class SElement extends SNode {
     return copy;
   }
 }
+
+Object.assign(SNode.prototype, { nodeType: 0 });
+Object.assign(SText.prototype, { nodeType: TEXT_NODE });
+Object.assign(SComment.prototype, { nodeType: COMMENT_NODE });
+Object.assign(SFragment.prototype, { nodeType: DOCUMENT_FRAGMENT_NODE });
+Object.assign(SElement.prototype, {
+  nodeType: ELEMENT_NODE,
+  attributeMap: null,
+  listenerMap: null,
+  styleObject: null,
+  content: null,
+  clientWidth: 0,
+  clientHeight: 0,
+  offsetWidth: 0,
+  offsetHeight: 0,
+  boxLeft: 0,
+  boxTop: 0,
+  scrollWidth: 0,
+  scrollHeight: 0,
+  scrollLeftValue: 0,
+  scrollTopValue: 0,
+});
 
 // Assigned by parse.ts to keep the parser out of this module's imports.
 export let parseInto: (target: SNode, html: string) => void = () => {};
