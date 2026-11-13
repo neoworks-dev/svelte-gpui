@@ -179,7 +179,7 @@ impl Painter<'_> {
                     let here = inherited.under(&computed.style);
                     let before = paragraph.runs.len();
                     self.flow(*child, &here, preserve, paragraph, cx);
-                    if let Some(background) = computed.style.background {
+                    if let Some(background) = computed.style.background.and_then(|fill| fill.solid()) {
                         for run in &mut paragraph.runs[before..] {
                             run.background_color = Some(Hsla::from(background));
                         }

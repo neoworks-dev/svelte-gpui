@@ -11,9 +11,11 @@ use gpui::{CursorStyle, Rgba, SharedString};
 use serde_json::Value;
 
 mod apply;
+mod fill;
 mod parse;
 
 pub use apply::apply;
+pub use fill::{Fill, mix};
 pub use parse::parse_colour;
 
 /// A size: pixels, a share of the parent, or `auto`.
@@ -126,7 +128,7 @@ pub struct Style {
     /// An offset from where layout put the element, in pixels.
     pub translate: Option<(f32, f32)>,
     pub transition: Option<Transition>,
-    pub background: Option<Rgba>,
+    pub background: Option<Fill>,
     pub opacity: Option<f32>,
     pub border_width: Sides<Option<f32>>,
     pub border_color: Option<Rgba>,

@@ -36,6 +36,25 @@ export interface Scrollbar {
   width?: number;
 }
 
+/** One end of a gradient: a colour, or a colour and where it sits along the gradient line. */
+export type GradientStop = Color | { color: Color; at?: number };
+
+/**
+ * A linear gradient between two colours. The renderer draws exactly two stops; a gradient
+ * with more bands is two boxes, or a box over a box.
+ */
+export interface LinearGradient {
+  /**
+   * Degrees as in CSS: 0 points up and a larger angle turns clockwise, so 180 runs downwards.
+   * Or a side: `"to top"`, `"to right"`, `"to bottom"` or `"to left"`. The default is `"to bottom"`.
+   */
+  angle?: number | "to top" | "to right" | "to bottom" | "to left";
+  /** The colour at the start. Its `at` is 0 unless it says otherwise. */
+  from: GradientStop;
+  /** The colour at the end. Its `at` is 1 unless it says otherwise. */
+  to: GradientStop;
+}
+
 export interface Transition {
   duration?: number;
   delay?: number;
@@ -99,7 +118,8 @@ export interface Style {
   zoom?: number;
 
   // Paint.
-  background?: Color;
+  /** A colour, or a linear gradient. */
+  background?: Color | LinearGradient;
   opacity?: number;
   borderWidth?: Sides<number>;
   borderTopWidth?: number;
@@ -111,7 +131,7 @@ export interface Style {
   radius?: number | [number, number, number, number];
   shadow?: Shadow | Shadow[] | null;
   cursor?: "default" | "pointer" | "text" | "grab" | "grabbing" | "crosshair" | "col-resize" | "row-resize" | "nwse-resize" | "nesw-resize" | "not-allowed";
-  /** Eases changes of colour and opacity, including hover: a duration in milliseconds, or the details. */
+  /** Eases changes of colour, gradient and opacity, including hover: a duration in milliseconds, or the details. */
   transition?: number | Transition;
 
   // Text. Children inherit these.
