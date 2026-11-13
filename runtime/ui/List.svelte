@@ -134,13 +134,23 @@
     }
     return Math.min(items.length, byCount, indexAt(end + viewport) + 1);
   });
+  /**
+   * The entries handed to the `{#each}`. A row is told when its entry is a new object, and then works out everything
+   * it shows again, so an entry that still holds the same item at the same index must stay the same object. Every
+   * measured row and every step of the window makes this list again, and a row of a hundred elements costs the
+   * app milliseconds each time it is worked out.
+   */
+  let previousEntries = new Map<number, { item: T; index: number }>();
   const shown = $derived.by(() => {
     heightsAt(version);
-    const out: { item: T; index: number }[] = [];
+    const entries = new Map<number, { item: T; index: number }>();
     for (let index = first; index < last; index++) {
-      out.push({ item: items[index], index });
+      const item = items[index];
+      const kept = previousEntries.get(index);
+      entries.set(index, kept !== undefined && kept.item === item ? kept : { item, index });
     }
-    return out;
+    previousEntries = entries;
+    return [...entries.values()];
   });
   /** The height of the rows above the first one built, and of those below the last, as the list counts them. */
   const spaceAbove = $derived.by(() => {

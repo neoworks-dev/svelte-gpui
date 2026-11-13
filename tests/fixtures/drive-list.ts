@@ -108,7 +108,7 @@ function layOut(scroller: Node, heightOf: (text: string) => number): void {
 }
 
 const log: Record<string, unknown> = {};
-const [chat, plain, fixed, tall] = scrollers();
+const [chat, plain, fixed, tall, counted] = scrollers();
 globals.__event(chat.id, "layout", JSON.stringify({ x: 0, y: 0, width: 400, height: 600 }));
 
 log.opened = { chat: built(chat), plain: built(plain), fixed: built(fixed), scrollRequests };
@@ -160,5 +160,18 @@ const requestsBeforeDrag = scrollRequests;
 globals.__event(fixed.id, "scrollbar", JSON.stringify({ offset: 50000 }));
 globals.__settle();
 log.dragged = { fixed: built(fixed), scrollRequests: scrollRequests - requestsBeforeDrag, offset: lastScrollOffset };
+
+// A list whose rows are worked out once each: measuring a row, or the window moving by one, must not make the rows
+// that stay in place work out their text again.
+globals.__event(counted.id, "layout", JSON.stringify({ x: 0, y: 0, width: 400, height: 600 }));
+layOut(counted, () => 50);
+const countedRows = built(counted).rows.length;
+const evaluationsBefore = globals.__page.evaluations;
+layOut(counted, (text) => 50 + (Number(text.split(" ")[1]) % 3) * 10);
+log.remeasured = { rows: countedRows, evaluations: globals.__page.evaluations - evaluationsBefore };
+const evaluationsBeforeScroll = globals.__page.evaluations;
+globals.__event(counted.id, "scroll", JSON.stringify({ x: 0, y: 50, maxX: 0, maxY: 100000 }));
+layOut(counted, () => 50);
+log.scrolledByARow = { rows: built(counted).rows.length, evaluations: globals.__page.evaluations - evaluationsBeforeScroll };
 
 process.stdout.write(`\n@@${JSON.stringify(log)}\n`);

@@ -18,6 +18,8 @@ interface Run {
   tall: Built;
   bar: { extent: string | null; origin: string | null };
   dragged: { fixed: Built; scrollRequests: number; offset: number };
+  remeasured: { rows: number; evaluations: number };
+  scrolledByARow: { rows: number; evaluations: number };
 }
 
 let run: Run;
@@ -129,5 +131,18 @@ describe("List without stickToEnd", () => {
   test("with fixed rows has nothing above that can change, so it anchors nothing", () => {
     expect(run.opened.fixed.anchor).toBeNull();
     expect(run.opened.fixed.rows[0]).toBe("fixed 0");
+  });
+});
+
+describe("List rows that stay in place", () => {
+  test("do not work out their content again when another row is measured", () => {
+    expect(run.remeasured.rows).toBeGreaterThan(10);
+    expect(run.remeasured.evaluations).toBe(0);
+  });
+
+  test("do not work out their content again when the window moves by a row", () => {
+    // Only the rows that come into the window are worked out, a few at most, not all of those built.
+    expect(run.scrolledByARow.rows).toBeGreaterThan(10);
+    expect(run.scrolledByARow.evaluations).toBeLessThan(4);
   });
 });
