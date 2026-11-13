@@ -1,6 +1,6 @@
 import type { Color, Style } from "@neoworks/svelte-gpui/ui";
 import type { Theme } from "../theme";
-import { borderStyle, disabledOpacity, focusStyle, pillRadius, pressedSolidOpacity, stateTransition, type StateStyles } from "./look";
+import { borderStyle, disabledOpacity, focusStyle, pillRadius, pressed, stateTransition, type StateStyles } from "./look";
 
 export type IconButtonVariant = "standard" | "filled" | "tonal" | "outlined";
 export type IconButtonSize = "sm" | "md" | "lg";
@@ -19,11 +19,11 @@ interface Colors {
 
 function quietColors(theme: Theme, selected: boolean): Colors {
   const { colors } = theme;
-  const pressed = { background: colors.pressed, color: colors.text };
+  const pressedColors = { background: colors.pressed, color: colors.text };
   if (selected) {
-    return { color: colors.text, hover: { background: colors.hover }, active: pressed };
+    return { color: colors.text, hover: { background: colors.hover }, active: pressedColors };
   }
-  return { color: colors.muted, hover: { background: colors.hover, color: colors.text }, active: pressed };
+  return { color: colors.muted, hover: { background: colors.hover, color: colors.text }, active: pressedColors };
 }
 
 function filledColors(theme: Theme, toggledOff: boolean): Colors {
@@ -40,7 +40,7 @@ function filledColors(theme: Theme, toggledOff: boolean): Colors {
     background: colors.fill,
     color: colors.onFill,
     hover: { background: colors.fillHover },
-    active: { background: colors.fillHover, opacity: pressedSolidOpacity },
+    active: { background: colors.fillHover },
   };
 }
 
@@ -108,7 +108,7 @@ export function iconButtonLook(theme: Theme, options: IconButtonOptions): StateS
       ...borderStyle(colors.borderColor),
     },
     hover: colors.hover,
-    active: colors.active,
+    active: pressed(colors.active),
     focus: focusStyle(theme, { hasBackground: colors.background !== undefined, hasBorder: colors.borderColor !== undefined }),
     disabledStyle: { opacity: disabledOpacity },
   };

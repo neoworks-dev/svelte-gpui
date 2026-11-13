@@ -12,12 +12,22 @@ export interface StateStyles {
   disabledStyle?: Style;
 }
 
-export const stateTransition: Transition = { duration: 300, easing: "ease-out" };
+/** Colours ease out over 300 ms; a press springs, so a control gives under the pointer and bounces back. */
+export const stateTransition: Transition = {
+  duration: 300,
+  easing: "ease-out",
+  scale: { duration: 420, easing: "spring" },
+};
 
 export const disabledOpacity = 0.4;
 
-/** The pressed look of a solid fill, which the web draws by scaling the element down to 96%. */
-export const pressedSolidOpacity = 0.88;
+/** How far a pressed control shrinks, as the web's controls do. */
+export const pressedScale = 0.96;
+
+/** A control's pressed style: its own colours, and the shrink every pressable control springs to. */
+export function pressed(active: Style): Style {
+  return { ...active, scale: pressedScale };
+}
 
 /** The host draws no shadow whose blur is 0, so a hard-edged ring is given the smallest blur that shows. */
 const smallestVisibleBlur = 1;

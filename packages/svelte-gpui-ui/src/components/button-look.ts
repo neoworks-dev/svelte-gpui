@@ -1,6 +1,6 @@
 import type { Color, Style } from "@neoworks/svelte-gpui/ui";
 import { typeStyle, type Theme, type TypeRole } from "../theme";
-import { borderStyle, disabledOpacity, focusStyle, pillRadius, pressedSolidOpacity, stateTransition, type StateStyles } from "./look";
+import { borderStyle, disabledOpacity, focusStyle, pillRadius, pressed, stateTransition, type StateStyles } from "./look";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "accent" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -25,7 +25,7 @@ function solidColors(background: Color, color: Color, hoverBackground: Color): V
     background,
     color,
     hover: { background: hoverBackground },
-    active: { background: hoverBackground, opacity: pressedSolidOpacity },
+    active: { background: hoverBackground },
   };
 }
 
@@ -93,7 +93,7 @@ export function buttonLook(theme: Theme, options: ButtonOptions): StateStyles {
       ...shapeStyle(options),
     },
     hover: colors.hover,
-    active: colors.active,
+    active: pressed(colors.active),
     focus: focusStyle(theme, { hasBackground: colors.background !== undefined, hasBorder: colors.borderColor !== undefined }),
     disabledStyle: { opacity: disabledOpacity },
   };
