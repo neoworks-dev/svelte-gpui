@@ -65,7 +65,7 @@ These are the only keys; anything else is ignored. See `docs/styles.md` for valu
   columnGap padding paddingX paddingY padding{Top,Right,Bottom,Left} margin marginX
   marginY margin{Top,Right,Bottom,Left} display`
 - **Size and position:** `width height size minWidth minHeight maxWidth maxHeight
-  aspectRatio position inset top right bottom left overflow translate zoom`
+  aspectRatio position inset top right bottom left overflow translate scale zoom`
 - **Paint:** `background opacity borderWidth border{Top,Right,Bottom,Left}Width
   borderColor radius shadow cursor transition`
 - **Text:** `color fontSize fontWeight fontFamily lineHeight italic underline
@@ -84,9 +84,12 @@ The values that trip people up:
 - `radius` is a number or four corners.
 - `fontFamily` is `"sans"` (Geist), `"mono"` (JetBrains Mono) or an installed font.
 - `lineHeight` is in pixels.
-- `transition` eases only `background` (gradients too), `color`, `borderColor` and `opacity`, in premultiplied alpha (`transparent`
+- `transition` eases only `background` (gradients too), `color`, `borderColor`, `opacity` and `scale`, in premultiplied alpha (`transparent`
   fades, it does not pass through black); a `color` one side leaves out is the inherited one. Animate
   size and position with `Tween` or `Spring` driving `translate`, `width` and so on.
+- `scale` paints an element and its contents larger or smaller around its centre without moving layout or hit
+  testing. A springy press is `transition: { duration: 400, easing: "spring" }` with `active={{ scale: 0.94 }}`;
+  `active` eases only on an element with a `transition`. Text is stretched while scaled, so keep it for presses and pops.
 - `zoom` scales an element's whole subtree in the host, like CSS's. A zoomable canvas sets
   it once on its layer instead of multiplying every child's sizes, so a zoom step restyles
   one element. Pointer positions and measured sizes stay in window pixels.

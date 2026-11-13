@@ -81,6 +81,7 @@ impl Style {
                 let y = parts.get(1).copied().flatten().unwrap_or(0.0);
                 self.translate = Some((x, y));
             }
+            "scale" => self.scale = number(value),
             "transition" => self.transition = transition(value),
             "background" => {
                 self.background = Fill::parse(value);
@@ -270,9 +271,10 @@ fn sides(value: &Value) -> Sides<Option<Dimension>> {
 
 fn transition(value: &Value) -> Option<Transition> {
     if let Some(duration) = number(value) {
-        return Some(Transition { duration_ms: duration, delay_ms: 0.0, easing: Easing::EASE });
+        return Some(Transition { duration_ms: duration, delay_ms: 0.0, easing: Easing::EASE, spring: false });
     }
     let fields = value.as_object()?;
+    let spring = fields.get("easing").and_then(Value::as_str) == Some("spring");
     let easing = match fields.get("easing").and_then(Value::as_str) {
         Some("linear") => Easing::LINEAR,
         Some("ease-in") => Easing(0.42, 0.0, 1.0, 1.0),
@@ -284,6 +286,7 @@ fn transition(value: &Value) -> Option<Transition> {
         duration_ms: fields.get("duration").and_then(number).unwrap_or(150.0),
         delay_ms: fields.get("delay").and_then(number).unwrap_or(0.0),
         easing,
+        spring,
     })
 }
 

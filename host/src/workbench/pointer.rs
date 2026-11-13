@@ -27,6 +27,17 @@ impl Workbench {
         }
     }
 
+    /// The primary button went down on an element whose `active` style eases, or came up: it is
+    /// drawn again with or without that style, which the host lays over its style like hover.
+    pub(crate) fn press_changed(&mut self, id: NodeId, pressed: bool, cx: &mut Context<Self>) {
+        let mut set = self.interaction.pressed.borrow_mut();
+        let changed = if pressed { set.insert(id) } else { set.remove(&id) };
+        drop(set);
+        if changed {
+            self.touch(id, cx);
+        }
+    }
+
     /// The element that hears the pointer until the button is released, if any.
     pub fn captured(&self) -> Option<NodeId> {
         self.captured

@@ -849,6 +849,18 @@ impl Frame {
     }
 }
 
+/// Patched for svelte-gpui: how painting is scaled, as a map of device points `p ↦ p·factor + offset`,
+/// so nested scales compose into one.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ElementScale {
+    factor: f32,
+    offset: Point<ScaledPixels>,
+}
+
+impl ElementScale {
+    const IDENTITY: ElementScale = ElementScale { factor: 1.0, offset: Point { x: ScaledPixels(0.0), y: ScaledPixels(0.0) } };
+}
+
 /// Holds the state for a specific window.
 pub struct Window {
     pub(crate) handle: AnyWindowHandle,
@@ -871,6 +883,8 @@ pub struct Window {
     pub(crate) text_style_stack: Vec<TextStyleRefinement>,
     pub(crate) rendered_entity_stack: Vec<EntityId>,
     pub(crate) element_offset_stack: Vec<Point<Pixels>>,
+    /// Patched for svelte-gpui: the scales painting is under, innermost last (see `with_element_scale`).
+    pub(crate) element_scale_stack: Vec<ElementScale>,
     pub(crate) element_opacity: f32,
     pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
@@ -1257,6 +1271,7 @@ impl Window {
             text_style_stack: Vec::new(),
             rendered_entity_stack: Vec::new(),
             element_offset_stack: Vec::new(),
+            element_scale_stack: Vec::new(),
             content_mask_stack: Vec::new(),
             element_opacity: 1.0,
             requested_autoscroll: None,
@@ -2698,6 +2713,62 @@ impl Window {
         let (task, _) = cx.fetch_asset::<A>(source);
         task.now_or_never()
     }
+    /// Patched for svelte-gpui: paints what `f` paints scaled by `factor` around `center`, on top of
+    /// any scale it is already under. Only what is painted grows or shrinks: layout, hit testing and
+    /// content masks stay as they were, which is what a press or a pop needs. Text and icons are
+    /// stretched from their rasterised size while the scale is not 1. Paint phase only.
+    pub fn with_element_scale<R>(
+        &mut self,
+        center: Point<Pixels>,
+        factor: f32,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.invalidator.debug_assert_paint();
+        if (factor - 1.0).abs() < f32::EPSILON {
+            return f(self);
+        }
+        let center = center.scale(self.scale_factor());
+        let current = self.current_element_scale();
+        // p ↦ current(center + (p − center)·factor)
+        let scale = ElementScale {
+            factor: current.factor * factor,
+            offset: point(
+                ScaledPixels(current.factor * center.x.0 * (1.0 - factor) + current.offset.x.0),
+                ScaledPixels(current.factor * center.y.0 * (1.0 - factor) + current.offset.y.0),
+            ),
+        };
+        self.element_scale_stack.push(scale);
+        let result = f(self);
+        self.element_scale_stack.pop();
+        result
+    }
+
+    fn current_element_scale(&self) -> ElementScale {
+        self.element_scale_stack.last().copied().unwrap_or(ElementScale::IDENTITY)
+    }
+
+    /// Device-pixel bounds as the current element scale paints them.
+    fn scale_painted_bounds(&self, bounds: Bounds<ScaledPixels>) -> Bounds<ScaledPixels> {
+        let Some(scale) = self.element_scale_stack.last() else {
+            return bounds;
+        };
+        Bounds {
+            origin: point(
+                ScaledPixels(bounds.origin.x.0 * scale.factor + scale.offset.x.0),
+                ScaledPixels(bounds.origin.y.0 * scale.factor + scale.offset.y.0),
+            ),
+            size: size(
+                ScaledPixels(bounds.size.width.0 * scale.factor),
+                ScaledPixels(bounds.size.height.0 * scale.factor),
+            ),
+        }
+    }
+
+    /// The factor lengths (radii, borders, blur) are painted at under the current element scale.
+    fn painted_length_factor(&self) -> f32 {
+        self.current_element_scale().factor
+    }
+
     /// Obtain the current element offset. This method should only be called during the
     /// prepaint phase of element drawing.
     pub fn element_offset(&self) -> Point<Pixels> {
@@ -2981,16 +3052,18 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
+        let length_factor = scale_factor * self.painted_length_factor();
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
         for shadow in shadows {
             let shadow_bounds = (bounds + shadow.offset).dilate(shadow.spread_radius);
+            let bounds = self.scale_painted_bounds(shadow_bounds.scale(scale_factor));
             self.next_frame.scene.insert_primitive(Shadow {
                 order: 0,
-                blur_radius: shadow.blur_radius.scale(scale_factor),
-                bounds: shadow_bounds.scale(scale_factor),
+                blur_radius: shadow.blur_radius.scale(length_factor),
+                bounds,
                 content_mask: content_mask.scale(scale_factor),
-                corner_radii: corner_radii.scale(scale_factor),
+                corner_radii: corner_radii.scale(length_factor),
                 color: shadow.color.opacity(opacity),
             });
         }
@@ -3009,16 +3082,18 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
+        let length_factor = scale_factor * self.painted_length_factor();
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
+        let bounds = self.scale_painted_bounds(quad.bounds.scale(scale_factor));
         self.next_frame.scene.insert_primitive(Quad {
             order: 0,
-            bounds: quad.bounds.scale(scale_factor),
+            bounds,
             content_mask: content_mask.scale(scale_factor),
             background: quad.background.opacity(opacity),
             border_color: quad.border_color.opacity(opacity),
-            corner_radii: quad.corner_radii.scale(scale_factor),
-            border_widths: quad.border_widths.scale(scale_factor),
+            corner_radii: quad.corner_radii.scale(length_factor),
+            border_widths: quad.border_widths.scale(length_factor),
             border_style: quad.border_style,
         });
     }
@@ -3063,14 +3138,16 @@ impl Window {
         };
         let content_mask = self.content_mask();
         let element_opacity = self.element_opacity();
+        let length_factor = scale_factor * self.painted_length_factor();
+        let bounds = self.scale_painted_bounds(bounds.scale(scale_factor));
 
         self.next_frame.scene.insert_primitive(Underline {
             order: 0,
             pad: 0,
-            bounds: bounds.scale(scale_factor),
+            bounds,
             content_mask: content_mask.scale(scale_factor),
             color: style.color.unwrap_or_default().opacity(element_opacity),
-            thickness: style.thickness.scale(scale_factor),
+            thickness: style.thickness.scale(length_factor),
             wavy: if style.wavy { 1 } else { 0 },
         });
     }
@@ -3094,13 +3171,15 @@ impl Window {
         };
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
+        let length_factor = scale_factor * self.painted_length_factor();
+        let bounds = self.scale_painted_bounds(bounds.scale(scale_factor));
 
         self.next_frame.scene.insert_primitive(Underline {
             order: 0,
             pad: 0,
-            bounds: bounds.scale(scale_factor),
+            bounds,
             content_mask: content_mask.scale(scale_factor),
-            thickness: style.thickness.scale(scale_factor),
+            thickness: style.thickness.scale(length_factor),
             color: style.color.unwrap_or_default().opacity(opacity),
             wavy: 0,
         });
@@ -3150,10 +3229,10 @@ impl Window {
                     Ok(Some((size, Cow::Owned(bytes))))
                 })?
                 .expect("Callback above only errors or returns Some");
-            let bounds = Bounds {
+            let bounds = self.scale_painted_bounds(Bounds {
                 origin: glyph_origin.map(|px| px.floor()) + raster_bounds.origin.map(Into::into),
                 size: tile.bounds.size.map(Into::into),
-            };
+            });
             let content_mask = self.content_mask().scale(scale_factor);
             self.next_frame.scene.insert_primitive(MonochromeSprite {
                 order: 0,
@@ -3207,10 +3286,10 @@ impl Window {
                 })?
                 .expect("Callback above only errors or returns Some");
 
-            let bounds = Bounds {
+            let bounds = self.scale_painted_bounds(Bounds {
                 origin: glyph_origin.map(|px| px.floor()) + raster_bounds.origin.map(Into::into),
                 size: tile.bounds.size.map(Into::into),
-            };
+            });
             let content_mask = self.content_mask().scale(scale_factor);
             let opacity = self.element_opacity();
 
@@ -3276,12 +3355,13 @@ impl Window {
                 .map(|value| ScaledPixels(value.0 as f32 / SMOOTH_SVG_SCALE_FACTOR)),
         };
 
+        let svg_bounds = self.scale_painted_bounds(
+            svg_bounds.map_origin(|origin| origin.round()).map_size(|size| size.ceil()),
+        );
         self.next_frame.scene.insert_primitive(MonochromeSprite {
             order: 0,
             pad: 0,
-            bounds: svg_bounds
-                .map_origin(|origin| origin.round())
-                .map_size(|size| size.ceil()),
+            bounds: svg_bounds,
             content_mask,
             color: color.opacity(element_opacity),
             tile,
@@ -3325,16 +3405,16 @@ impl Window {
             })?
             .expect("Callback above only returns Some");
         let content_mask = self.content_mask().scale(scale_factor);
-        let corner_radii = corner_radii.scale(scale_factor);
+        let corner_radii = corner_radii.scale(scale_factor * self.painted_length_factor());
         let opacity = self.element_opacity();
+        let bounds =
+            self.scale_painted_bounds(bounds.map_origin(|origin| origin.floor()).map_size(|size| size.ceil()));
 
         self.next_frame.scene.insert_primitive(PolychromeSprite {
             order: 0,
             pad: 0,
             grayscale,
-            bounds: bounds
-                .map_origin(|origin| origin.floor())
-                .map_size(|size| size.ceil()),
+            bounds,
             content_mask,
             corner_radii,
             tile,
