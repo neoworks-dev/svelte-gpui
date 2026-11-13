@@ -77,7 +77,8 @@ The values that trip people up:
 - `radius` is a number or four corners.
 - `fontFamily` is `"sans"` (Geist), `"mono"` (JetBrains Mono) or an installed font.
 - `lineHeight` is in pixels.
-- `transition` eases only `background`, `color`, `borderColor` and `opacity`. Animate
+- `transition` eases only `background`, `color`, `borderColor` and `opacity`, in premultiplied alpha (`transparent`
+  fades, it does not pass through black); a `color` one side leaves out is the inherited one. Animate
   size and position with `Tween` or `Spring` driving `translate`, `width` and so on.
 - `zoom` scales an element's whole subtree in the host, like CSS's. A zoomable canvas sets
   it once on its layer instead of multiplying every child's sizes, so a zoom step restyles

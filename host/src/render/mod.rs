@@ -426,7 +426,7 @@ impl<'a> Painter<'a> {
         }
         let eased = computed.style.transition.is_some();
         if eased {
-            self.ease_style(id, &mut computed);
+            self.ease_style(id, &mut computed, inherited.colour);
         }
         let style = &computed.style;
         let inherited = inherited.under(style);

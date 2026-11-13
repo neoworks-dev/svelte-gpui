@@ -21,17 +21,24 @@ pub struct Eased {
 pub struct Animation {
     from: Eased,
     to: Eased,
+    /// What the style asked for, before a text colour it leaves out was filled in for the easing.
+    asked: Eased,
     /// When the easing begins, delay included; None once it has finished.
     start: Option<Instant>,
 }
 
+/// A colour easing towards another, in premultiplied alpha as CSS does: a colour that is
+/// fading in or out keeps its own hue, and does not pass through black on its way from or to
+/// `transparent`.
 fn mix(from: Rgba, to: Rgba, amount: f32) -> Rgba {
-    Rgba {
-        r: from.r + (to.r - from.r) * amount,
-        g: from.g + (to.g - from.g) * amount,
-        b: from.b + (to.b - from.b) * amount,
-        a: from.a + (to.a - from.a) * amount,
+    let from_weight = from.a * (1.0 - amount);
+    let to_weight = to.a * amount;
+    let alpha = from_weight + to_weight;
+    if alpha <= 0.0 {
+        return Rgba { a: 0.0, ..to };
     }
+    let channel = |from_channel: f32, to_channel: f32| (from_channel * from_weight + to_channel * to_weight) / alpha;
+    Rgba { r: channel(from.r, to.r), g: channel(from.g, to.g), b: channel(from.b, to.b), a: alpha }
 }
 
 /// A colour easing towards another; a missing one counts as transparent.
@@ -45,10 +52,35 @@ fn mix_option(from: Option<Rgba>, to: Option<Rgba>, amount: f32) -> Option<Rgba>
 }
 
 impl Animation {
+    /// An element that has only ever looked like `target`.
+    fn settled(target: Eased) -> Self {
+        Animation { from: target, to: target, asked: target, start: None }
+    }
+
+    /// Begins easing from where the element is at `now` to `target`.
+    fn retarget(&mut self, target: Eased, now: Instant, transition: &style::Transition, inherited: Rgba) {
+        let (current, _) = self.value_at(now, transition);
+        self.from = current;
+        self.to = target;
+        self.asked = target;
+        self.start = Some(now + Duration::from_secs_f32(transition.delay_ms / 1000.0));
+        self.fill_text_colour(inherited);
+    }
+
+    /// A text colour a style leaves out is the one the element inherits, not transparent: easing
+    /// to or from a colour that only the other end names would otherwise make the text fade in or out.
+    fn fill_text_colour(&mut self, inherited: Rgba) {
+        match (self.from.color, self.to.color) {
+            (Some(_), None) => self.to.color = Some(inherited),
+            (None, Some(_)) => self.from.color = Some(inherited),
+            _ => {}
+        }
+    }
+
     /// Where the easing has got to at `now`, and how far along it is.
     fn value_at(&self, now: Instant, transition: &style::Transition) -> (Eased, f32) {
         let Some(start) = self.start else {
-            return (self.to, 1.0);
+            return (self.asked, 1.0);
         };
         if now < start {
             return (self.from, 0.0);
@@ -56,7 +88,7 @@ impl Animation {
         let elapsed = now.duration_since(start).as_secs_f32() * 1000.0;
         let progress = (elapsed / transition.duration_ms.max(1.0)).clamp(0.0, 1.0);
         if progress >= 1.0 {
-            return (self.to, 1.0);
+            return (self.asked, 1.0);
         }
         let eased = transition.easing.at(progress);
         let value = Eased {
@@ -72,7 +104,8 @@ impl Animation {
 impl Painter<'_> {
     /// Applies hover to the style itself, and eases from the last drawn colours to the new
     /// ones. Elements that ease take hover from the host rather than GPUI's refinement.
-    pub(super) fn ease_style(&self, id: NodeId, computed: &mut Computed) {
+    /// `inherited_colour` is the text colour the element's parent hands down.
+    pub(super) fn ease_style(&self, id: NodeId, computed: &mut Computed, inherited_colour: Rgba) {
         if self.interaction.hovered.borrow().contains(&id) {
             if let Some(hover) = computed.hover.take() {
                 computed.style.overlay(&hover);
@@ -91,12 +124,9 @@ impl Painter<'_> {
         };
         let now = Instant::now();
         let mut animations = self.interaction.animations.borrow_mut();
-        let animation = animations.entry(id).or_insert(Animation { from: target, to: target, start: None });
-        if animation.to != target {
-            let (current, _) = animation.value_at(now, &transition);
-            animation.from = current;
-            animation.to = target;
-            animation.start = Some(now + Duration::from_secs_f32(transition.delay_ms / 1000.0));
+        let animation = animations.entry(id).or_insert_with(|| Animation::settled(target));
+        if animation.asked != target {
+            animation.retarget(target, now, &transition, inherited_colour);
         }
         let (shown, progress) = animation.value_at(now, &transition);
         if progress < 1.0 {
@@ -111,5 +141,62 @@ impl Painter<'_> {
         if shown.opacity < 1.0 || style.opacity.is_some() {
             style.opacity = Some(shown.opacity);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::{Easing, Transition};
+
+    const WHITE: Rgba = Rgba { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    const GREY: Rgba = Rgba { r: 0.5, g: 0.5, b: 0.5, a: 1.0 };
+    const TRANSPARENT: Rgba = Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+
+    fn linear(duration_ms: f32) -> Transition {
+        Transition { duration_ms, delay_ms: 0.0, easing: Easing::LINEAR }
+    }
+
+    fn eased(color: Option<Rgba>) -> Eased {
+        Eased { background: None, color, border: None, opacity: 1.0 }
+    }
+
+    #[test]
+    fn easing_from_transparent_keeps_the_colour_it_fades_to() {
+        let halfway = mix(TRANSPARENT, WHITE, 0.5);
+        assert_eq!((halfway.r, halfway.g, halfway.b), (1.0, 1.0, 1.0));
+        assert_eq!(halfway.a, 0.5);
+        let fading = mix(WHITE, TRANSPARENT, 0.25);
+        assert_eq!((fading.r, fading.a), (1.0, 0.75));
+    }
+
+    #[test]
+    fn a_translucent_colour_mixes_by_how_much_it_covers() {
+        let faint = Rgba { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
+        let halfway = mix(GREY, faint, 0.5);
+        assert!((halfway.a - 0.6).abs() < 1e-6);
+        assert!(halfway.r > GREY.r && halfway.r < 1.0);
+    }
+
+    #[test]
+    fn a_text_colour_the_style_leaves_out_eases_from_the_inherited_one() {
+        let start = Instant::now();
+        let mut animation = Animation::settled(eased(None));
+        animation.retarget(eased(Some(WHITE)), start, &linear(100.0), GREY);
+        let (halfway, progress) = animation.value_at(start + Duration::from_millis(50), &linear(100.0));
+        assert!(progress < 1.0);
+        let colour = halfway.color.expect("the text keeps a colour while it eases");
+        assert_eq!(colour.a, 1.0);
+        assert!(colour.r > GREY.r && colour.r < WHITE.r);
+    }
+
+    #[test]
+    fn a_finished_transition_goes_back_to_inheriting() {
+        let start = Instant::now();
+        let mut animation = Animation::settled(eased(Some(WHITE)));
+        animation.retarget(eased(None), start, &linear(100.0), GREY);
+        let (finished, progress) = animation.value_at(start + Duration::from_millis(100), &linear(100.0));
+        assert_eq!(progress, 1.0);
+        assert_eq!(finished.color, None);
     }
 }
