@@ -174,7 +174,7 @@ The demo, on one machine:
 
 | | |
 |---|---|
-| Mount, including Svelte's runtime | 8 ms, 191 nodes |
+| Mount, including Svelte's runtime | 8 ms, 191 nodes (2026-11-13, with 232 nodes: 7 to 8 ms, where it took 11 to 13 before primitives were one effect each) |
 | Memory, first section | 198 MB PSS, of which QuickJS holds 2 MB |
 | Building GPUI elements for a frame | 0.02 to 0.05 ms |
 | The list section, 100,000 rows in JS | 679 nodes in the host, 29 MB in QuickJS |
@@ -195,7 +195,27 @@ average frame while scrolling, mean of three runs:
 
 Of the 3.0 ms, the rows that changed take most: a row just built is drawn two or three times as its size and images
 settle, and the row under the pointer is drawn again each frame. A row that did not change costs about 20 µs to move.
-The rest of a frame is the app's JavaScript (about 4 ms at 60 Hz, mostly mounting the row that scrolls into view).
+The rest of a frame is the app's JavaScript, mostly mounting the row that scrolls into view. A Drift row is about
+70 nodes: 30 primitives inside 18 of the app's own components. The same scroll, 2026-11-13, three runs each, in the
+real host, the figures as the range of the three:
+
+| JavaScript | before | after |
+|---|---|---|
+| Per row that scrolls in, all events counted (scroll, layout, resize, load) | 4.8 to 5.2 ms | 3.4 to 3.5 ms |
+| Per frame, at 60 Hz | 3.8 to 4.0 ms | 2.6 ms |
+
+And in QuickJS alone, CPU time with no window, mounting one Drift row, three runs of ten rounds of a hundred rows:
+
+| Mounting one row | ms |
+|---|---|
+| Before | 3.2 to 3.4 |
+| Primitives are one effect each (`runtime/ui/primitive.ts`) | 2.2 |
+| Nodes made lazily, and freed without a cycle collection | 1.76 |
+| Svelte's block managers no longer hold themselves | 1.64 |
+
+What is left of the 1.64 ms is Svelte's reactivity for the row's own components, about 95 effects and 50 deriveds
+(60%), the node tree and its operations (25%), the primitives (7%) and the app's own code. Each effect or
+derived costs 2 to 4 µs in QuickJS when made alone and an `{#if}` about 12 µs.
 
 ## Testing without a pointer
 
