@@ -45,9 +45,20 @@ function tokenFromPage(): string | null {
   }
 }
 
+/** The page is in a frame of its own app (one view of several side by side), not a tab of its own. */
+function framed(): boolean {
+  try {
+    return window.parent !== window && window.parent.location.origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function open(token: string): Connection {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new BrowserWebSocket(`${scheme}://${location.host}/io?token=${token}`);
+  // A frame keeps its own session next to the page's; a tab or a reload takes the app's over.
+  const alongside = framed() ? "&alongside=1" : "";
+  const socket = new BrowserWebSocket(`${scheme}://${location.host}/io?token=${token}${alongside}`);
   socket.binaryType = "arraybuffer";
   const opened = new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });

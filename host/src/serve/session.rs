@@ -67,8 +67,9 @@ pub(super) fn completion_message(completion: &Completion) -> Vec<u8> {
     message
 }
 
-/// Runs the session of a connection whose request the checks accepted, until it ends.
-pub(super) fn run(stream: TcpStream, shared: &Shared) {
+/// Runs the session of a connection whose request the checks accepted, until it ends. One
+/// `alongside` runs next to the page's own session instead of taking it over.
+pub(super) fn run(stream: TcpStream, shared: &Shared, alongside: bool) {
     // The clone shares the socket, so what is set on it applies to the stream tungstenite owns.
     let Ok(raw) = stream.try_clone() else { return };
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
@@ -86,12 +87,18 @@ pub(super) fn run(stream: TcpStream, shared: &Shared) {
         return;
     }
 
-    // This connection takes the app's session, and the one that had it ends.
-    let mine = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let before = shared.holder.lock().unwrap_or_else(PoisonError::into_inner).replace(poller.clone());
-    if let Some(before) = before {
-        let _ = before.notify();
-    }
+    // This connection takes the app's session, and the one that had it ends; one `alongside` (a
+    // frame the page opened beside itself) neither takes it nor gives it up.
+    let mine = if alongside {
+        None
+    } else {
+        let mine = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let before = shared.holder.lock().unwrap_or_else(PoisonError::into_inner).replace(poller.clone());
+        if let Some(before) = before {
+            let _ = before.notify();
+        }
+        Some(mine)
+    };
 
     let bundle = shared.dir.join("index.html");
     let io = Io::new(bundle.to_str(), &shared.allow_files, shared.commands.clone());
@@ -138,11 +145,12 @@ fn pump(
     io: &Io,
     finished: &Receiver<Completion>,
     shared: &Shared,
-    mine: u64,
+    mine: Option<u64>,
 ) {
     let mut events = Events::new();
     loop {
-        if shared.stopping.load(Ordering::SeqCst) || shared.generation.load(Ordering::SeqCst) != mine {
+        let taken_over = mine.is_some_and(|mine| shared.generation.load(Ordering::SeqCst) != mine);
+        if shared.stopping.load(Ordering::SeqCst) || taken_over {
             return;
         }
         while let Ok(completion) = finished.try_recv() {

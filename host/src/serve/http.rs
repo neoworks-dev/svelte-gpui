@@ -121,7 +121,8 @@ pub(super) fn handle(mut stream: TcpStream, shared: &Shared) {
             respond(&mut stream, 403, "Forbidden", "text/plain", why, false);
             return;
         }
-        session::run(stream, shared);
+        // A frame the page opened beside itself (`alongside=1`) keeps its own session next to the page's.
+        session::run(stream, shared, head.query("alongside") == Some("1"));
         return;
     }
     consume(&mut stream, length);
@@ -144,10 +145,12 @@ fn consume(stream: &mut TcpStream, length: usize) {
     let _ = stream.read_exact(&mut sink);
 }
 
+/// The page may be framed by itself only (an app showing two of its views side by side), never by
+/// another site.
 fn respond(stream: &mut TcpStream, status: u16, reason: &str, content_type: &str, body: &[u8], only_head: bool) {
     let head = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
-         Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\n\
+         Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: SAMEORIGIN\r\n\
          Referrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
         body.len()
     );
