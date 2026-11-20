@@ -28,6 +28,15 @@ const hasFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.t
 const inField = (target: EventTarget | null): boolean =>
   target instanceof Element && target.closest("input, textarea, select, [contenteditable]") !== null;
 
+/** Whether the page has text selected that begins or ends inside `node`: a drag selected it. */
+const selectedWithin = (node: Node): boolean => {
+  const selection = document.getSelection();
+  if (selection === null || selection.isCollapsed || selection.toString() === "") {
+    return false;
+  }
+  return node.contains(selection.anchorNode) || node.contains(selection.focusNode);
+};
+
 export interface Interaction {
   readonly hovered: boolean;
   readonly pressed: boolean;
@@ -146,6 +155,11 @@ export function interaction(read: () => Interactive): Interaction {
         const box = node.getBoundingClientRect();
         // A key pressing a button reports no pointer: the middle of the element is where it was.
         const keyboard = event.detail === 0 && event.clientX === 0 && event.clientY === 0;
+        // A drag that selected text in here ends in a click too: that was selecting, not pressing, and
+        // what the press would do (open, toggle, draw anew) would throw the selection away.
+        if (!keyboard && selectedWithin(node)) {
+          return;
+        }
         const { ctrlKey, shiftKey, altKey, metaKey } = event;
         props.onpress(
           pointerEventOf(
