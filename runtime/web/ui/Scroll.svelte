@@ -71,12 +71,24 @@
   let pinned = false;
   /** The child at the top of the window, and how far below the top edge it was. */
   let anchored: { child: Element; offset: number } | null = null;
+  /** Where the scroller was when `anchored` was taken. */
+  let rememberedTop = 0;
 
   function remember(node: HTMLElement): void {
-    const top = node.getBoundingClientRect().top;
+    rememberedTop = node.scrollTop;
+    const window = node.getBoundingClientRect();
     anchored = null;
     for (const child of node.children) {
+      // An empty child is room, as a list's spacer for the rows it has not built: there is nothing
+      // in it to keep in view, and when the list builds rows in it, it moves by their height.
+      if (child.childElementCount === 0 && (child.textContent ?? "").trim() === "") {
+        continue;
+      }
       const box = child.getBoundingClientRect();
+      if (box.top >= window.bottom) {
+        return;
+      }
+      const top = window.top;
       if (box.bottom > top + 0.01) {
         anchored = { child, offset: box.top - top };
         return;
@@ -89,7 +101,13 @@
     if (props.horizontal || props.anchor === undefined) {
       return;
     }
-    if (props.anchor === "end" && pinned) {
+    if (Math.abs(node.scrollTop - rememberedTop) >= 1) {
+      // It was scrolled since it last looked, and the scroll event that says so comes with the next
+      // frame: what it remembered, being at the end or the child at the top, is from before, and
+      // keeping that would undo the scroll, as a fast drag of the scrollbar to the middle of a list
+      // pinned to its end was thrown back to the end. Where it is now is what counts.
+      pinned = props.anchor === "end" && read(node).maxY - node.scrollTop <= 1;
+    } else if (props.anchor === "end" && pinned) {
       node.scrollTop = node.scrollHeight;
     } else if (anchored !== null && anchored.child.isConnected) {
       const moved = anchored.child.getBoundingClientRect().top - node.getBoundingClientRect().top - anchored.offset;

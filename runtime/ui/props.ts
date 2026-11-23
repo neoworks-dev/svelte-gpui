@@ -217,8 +217,12 @@ export interface ListProps<T> {
   items: T[];
   /** The height of every row, in pixels. Leave it out for rows of different heights. */
   rowHeight?: number;
-  /** What a row not measured yet counts as, before any has been. The default is 40. */
-  estimatedRowHeight?: number;
+  /**
+   * What a row not measured yet counts as: one height for every row, or a guess per item, asked once
+   * when the row joins the list. The closer it is, the less the scrollbar moves as rows are drawn. The
+   * default is 40.
+   */
+  estimatedRowHeight?: number | ((item: T, index: number) => number);
   row: Snippet<[T, number]>;
   /** Keeps a row's state, and its measured height, with its item as the list changes. */
   key?: (item: T, index: number) => unknown;

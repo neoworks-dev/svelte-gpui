@@ -4,7 +4,9 @@
 
   With `rowHeight`, every row has that height, so where each sits is known without looking at it.
   Without it, rows may differ in height. Each row is measured as it is drawn (a row's height is
-  what its content comes to), and rows not measured yet count as the average of those that are.
+  what its content comes to), and a row not measured yet counts as its estimate, `estimatedRowHeight`:
+  one number for every row, or a guess per item, given once when the row joins the list. Measuring a
+  row changes only that row, so the rows not drawn yet, and the scrollbar, stay where they were.
   The rows that are built sit in the scroller one under the other, between two empty spacers that
   stand for the rows above and below them, so the host lays out their real heights at once. The
   scroller keeps the end in view (`stickToEnd`) or the row at the top of the window (otherwise) while
@@ -49,7 +51,18 @@
 
   // Where rows are: by arithmetic when they share a height, from `heights` when they are measured.
   // `heights` is not reactive; `version` says when it changed.
-  let heights = new Heights(untrack(() => items.length), untrack(() => estimatedRowHeight));
+  /** What row `index` of `list` counts as until it is measured. */
+  const guessFor =
+    (list: T[]): ((index: number) => number) =>
+    (index) => {
+      const estimate = estimatedRowHeight;
+      return typeof estimate === "function" ? estimate(list[index], index) : estimate;
+    };
+  let heights = new Heights(
+    untrack(() => items.length),
+    untrack(() => (typeof estimatedRowHeight === "number" ? estimatedRowHeight : 40)),
+    untrack(() => guessFor(items)),
+  );
   let version = $state(0);
   const topOf = (index: number): number => (measured ? heights.top(index) : index * (rowHeight ?? 0));
   const indexAt = (offset: number): number =>
@@ -148,13 +161,13 @@
       keyOf(list[0], 0) === seen.first &&
       keyOf(list[seen.length - 1], seen.length - 1) === seen.last;
     if (!key || appended || seen.length === 0) {
-      heights.resize(length);
+      heights.resize(length, guessFor(list));
     } else {
       const remembered = new Float64Array(length);
       for (let index = 0; index < length; index++) {
         remembered[index] = known.get(key(list[index], index)) ?? 0;
       }
-      heights.replace(length, remembered);
+      heights.replace(length, remembered, guessFor(list));
       relocateAnchor(list);
     }
     seen = { length, first: length > 0 ? keyOf(list[0], 0) : undefined, last: length > 0 ? keyOf(list[length - 1], length - 1) : undefined };

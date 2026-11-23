@@ -257,7 +257,7 @@ above and below, so the host lays out their real heights at once.
 |---|---|---|
 | `items` | `T[]` | Read as a whole: pass a new array when it changes, as `$derived` and `.filter()` do. |
 | `rowHeight` | `number` | Every row's height, in pixels. Leave it out for rows that differ. |
-| `estimatedRowHeight` | `number` | Without `rowHeight`: what a row not measured yet counts as, before any has been. The default is 40. |
+| `estimatedRowHeight` | `number \| (item, index) => number` | Without `rowHeight`: what a row not measured yet counts as, one height for all or a guess per item, asked once as the row joins. The closer, the steadier the scrollbar. The default is 40. |
 | `row` | `Snippet<[T, number]>` | Draws one row, from the item and its index. |
 | `key` | `(item: T, index: number) => unknown` | Keeps a row's state, and its measured height, with its item when the list changes. |
 | `overscan` | `number` | How many rows past each edge are built anyway, as long as they start within a window's height of it. The default is 8. |
