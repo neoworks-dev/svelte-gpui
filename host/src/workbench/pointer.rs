@@ -39,6 +39,7 @@ impl Workbench {
 
     /// The pointer moved anywhere in the window while an element holds it.
     pub(crate) fn captured_motion(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
+        self.text_mouse_move(event, cx);
         let Some(id) = self.captured else {
             return;
         };
@@ -48,6 +49,7 @@ impl Workbench {
 
     /// A button was released anywhere in the window: the element holding the pointer hears it.
     pub(crate) fn release_pointer(&mut self, event: &gpui::MouseUpEvent, cx: &mut Context<Self>) {
+        self.text_mouse_up();
         let Some(id) = self.captured.take() else {
             return;
         };

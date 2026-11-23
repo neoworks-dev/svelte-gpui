@@ -276,7 +276,8 @@ await clipboard.write("copied");
 const text = await clipboard.read();
 ```
 
-Fields copy, cut and paste by themselves. `clipboard.read()` answers with what the system
+Fields copy, cut and paste by themselves, and `Text` with `selectable` copies what is selected in it
+(see [Selecting text](primitives.md#selecting-text)). `clipboard.read()` answers with what the system
 clipboard held when the host last looked: at the last Ctrl+V or Cmd+V, before the app hears
 the key, and at the last paste into a field. A paste shortcut of the app's own, such as
 pasting onto a canvas, reads it in its key handler.

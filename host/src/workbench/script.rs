@@ -193,16 +193,45 @@ impl Workbench {
             return Ok(());
         }
         if action == "mouse" {
-            // Several positions, `x,y;x,y;…`, are a pointer travelling, one move every 8 ms.
+            // Several positions, `x,y;x,y;…`, are a pointer travelling, one move every 8 ms. Between a
+            // `mousedown` and a `mouseup` the left button is held.
+            let pressed_button = self.pointer_held.then_some(gpui::MouseButton::Left);
             for (index, position) in needle.split(';').enumerate() {
                 let (x, y, _) = pointer_argument(position)?;
                 let event = gpui::MouseMoveEvent {
                     position: gpui::point(gpui::px(x), gpui::px(y)),
-                    pressed_button: None,
+                    pressed_button,
                     modifiers: Default::default(),
                 };
                 Self::dispatch_after(PlatformInput::MouseMove(event), index as u64 * 8, window, cx);
             }
+            return Ok(());
+        }
+        if action == "mousedown" || action == "mouseup" {
+            // The left button goes down or up at a window position, through GPUI as a real one does:
+            // `mousedown:X,Y,2` is the second press of a double click, and `mouse:` moves the pointer
+            // with the button held in between. `,shift` last holds shift, as in `mousedown:300,90,1,shift`.
+            let (needle, shift) = match needle.strip_suffix(",shift") {
+                Some(rest) => (rest, true),
+                None => (needle, false),
+            };
+            let (x, y, clicks) = pointer_argument(needle)?;
+            let (button, position) = (gpui::MouseButton::Left, gpui::point(gpui::px(x), gpui::px(y)));
+            let modifiers = gpui::Modifiers { shift, ..Default::default() };
+            self.pointer_held = action == "mousedown";
+            let event = if self.pointer_held {
+                let click_count = clicks.max(1) as usize;
+                PlatformInput::MouseDown(gpui::MouseDownEvent {
+                    button,
+                    position,
+                    modifiers,
+                    click_count,
+                    first_mouse: false,
+                })
+            } else {
+                PlatformInput::MouseUp(gpui::MouseUpEvent { button, position, modifiers, click_count: 1 })
+            };
+            Self::dispatch_later(event, window, cx);
             return Ok(());
         }
         if action == "wheel" {

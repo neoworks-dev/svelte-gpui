@@ -117,6 +117,15 @@ impl Workbench {
         if self.emit(target, "key", detail, cx).prevented {
             return true;
         }
+        // Text selected outside a field is copied, unless the focused field has a selection of its own.
+        if clipboard_event == Some("copy") && (target == 0 || !self.is_element(target)) {
+            if self.selected_text(target).is_none() {
+                if let Some(text) = self.selected_paragraph_text() {
+                    self.write_clipboard(text, cx);
+                    return true;
+                }
+            }
+        }
         // A view of the app's own has its clipboard keys to itself.
         if let (Some(kind), true) = (clipboard_event, target != 0 && !self.is_element(target)) {
             self.clipboard_shortcut(kind, target, cx);

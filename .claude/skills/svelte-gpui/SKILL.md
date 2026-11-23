@@ -39,14 +39,14 @@ are the reference. The app in `examples/demo` uses every feature.
 
 | Component | Key props | Methods |
 |---|---|---|
-| `View` | `style hover active focus focusable keepFocus onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()`, `blur()` |
-| `Text` | `style pre onlayout`; nest `Text` for runs in one paragraph; any other element inside is an inline box sized by its `width`/`height` (or the font size), moved by `verticalAlign` | |
+| `View` | `style hover active focus focusable keepFocus copyText onpress onhover ondown buttons onmove onup onwheel onlayout onresize onkey onfocus onblur ondragenter ondragover ondragleave ondrop` | `focus()`, `blur()` |
+| `Text` | `style pre selectable onlayout`; nest `Text` for runs in one paragraph; any other element inside is an inline box sized by its `width`/`height` (or the font size), moved by `verticalAlign`. `selectable` (not inherited; put it on the outermost `Text`) lets the pointer select: drag (also across selectable paragraphs, copied joined with a line break; text that is not selectable is skipped), double-click a word and triple-click a paragraph (dragging on grows by those), shift-press extends, Ctrl+C copies. An inline box copies as its `copyText` (`View`, `Image`, `Icon`), else as nothing. Removing a paragraph (a `List` row scrolling away) that holds an end of the selection ends it | |
 | `Button` | `style hover active focus disabled disabledStyle onpress onhover onkey onfocus onblur` | `focus()`, `blur()` |
 | `Input` | `bind:value placeholder multiline rows secure numeric maxLength disabled readonly style hover focus oninput onsubmit oncommit onselect onkey` | `focus()`, `blur()`, `select(start?, end?)`, `getSelection()` gives `{ start, end, firstRow, lastRow }` |
 | `Scroll` | `style horizontal anchor onscroll onlayout` (needs a bounded height; `anchor="content"` or `"end"` keeps what is in view in the host's layout pass, see below) | `scrollTo(offset)`, `scrollBy(delta)`, `position()` (`{ x, y, maxX, maxY }`, reactive; `onscroll` also fires when `maxY` changes) |
 | `List` | `items rowHeight? estimatedRowHeight row={snippet(item, index)} key overscan stickToEnd style` (virtualised; without `rowHeight` rows are measured and may differ) | `scrollToIndex(i, { align })` |
-| `Image` | `src` (path, `data:`, `http(s)`) `fit style onload onerror` | |
-| `Icon` | `svg` (markup) or `src`, `size color style`; tinted by the text colour | |
+| `Image` | `src` (path, `data:`, `http(s)`) `fit style copyText onload onerror` | |
+| `Icon` | `svg` (markup) or `src`, `size color style copyText`; tinted by the text colour | |
 | `Canvas` | `style vector ondown onmove onup onhover onwheel onlayout`; `vector` paints shapes as paths, for drawings redrawn whole | `begin(x,y,pen) lineTo end line fillRect fillCircle clear` |
 | `Presence` | `in out style`, each a transition or `[fn, params]` | |
 | `Overlay` | `side align offset crossOffset at flip shift margin matchWidth passthrough layer focusable keepFocus onoutside style` + `View` events; drawn above everything, placed against its parent's box | `focus()`, `blur()` |
@@ -255,6 +255,10 @@ one. `docs/testing.md` lists the steps:
 - `press`, `hover`, `focus`, `type`, `key`, `compose`, `commit` (`press` and `down` move focus as a real press does);
 - `down`/`move`/`up` with window `x,y` (a third number is the button: `down:T:10,20,2` is a right press);
 - `drop:TARGET:/a/file,/b` and `dragover:…` for files dragged in;
+- `mousedown:X,Y[,CLICKS][,shift]` and `mouseup:X,Y` (the left button through GPUI, at window coordinates; `mouse:` moves with it held,
+  so `mousedown:80,30`, `mouse:80,30;330,52`, `mouseup:330,52` drags a selection; CLICKS 2 or 3 is a double or triple click;
+  `mousedown:150,157,1,shift` is a shift-press); `key:T:ctrl-c` copies selected text, and `clipboard.read()` in the app shows what was copied
+  (the offscreen display cannot offer a clipboard to other programs);
 - `mouse:X,Y` (a real pointer move through GPUI: hover styles and `onhover` follow; `X,Y;X,Y` travels) and
   `wheel:X,Y:DY` (notches, negative scrolls down; `,px` last for touchpad pixels);
 - `scroll`, `wait`, `frames`.

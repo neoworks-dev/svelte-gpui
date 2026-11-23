@@ -13,6 +13,8 @@
     size?: number;
     color?: Color;
     style?: Style;
+    /** What copying selected text that holds this icon gives for it, when it is inside a `Text`. */
+    copyText?: string;
   }
 
   let props: Props = $props();
@@ -20,6 +22,7 @@
   const attributes = $derived({
     svg: props.svg,
     src: props.src,
+    copytext: props.copyText,
     look: encode({ size: props.size, color: props.color, ...props.style }),
   });
 </script>

@@ -13,6 +13,7 @@ mod reload;
 mod reports;
 mod script;
 mod scrolling;
+mod selection;
 mod windowing;
 
 use std::collections::{HashMap, HashSet};
@@ -64,6 +65,12 @@ pub struct Workbench {
     frame_times: Vec<Instant>,
     /// How many frames a throughput test still wants, set by the `frames:N` step.
     frame_target: usize,
+    /// Whether a `mousedown` step has not yet been answered by a `mouseup`, so `mouse:` drags.
+    pointer_held: bool,
+    /// What the left press going on has done to the selection of text.
+    text_press: selection::TextPress,
+    /// The selectable paragraph the pointer last moved over, and where, while a selection is dragged.
+    text_over: Option<(NodeId, gpui::Point<gpui::Pixels>)>,
     /// The element the `poke:` step has changed on every tick, as hovering one would.
     poked: Option<NodeId>,
     /// The element a button was pressed on, which hears the pointer until it is released.
@@ -108,6 +115,9 @@ impl Workbench {
             queued: Vec::new(),
             frame_times: Vec::new(),
             frame_target: 0,
+            pointer_held: false,
+            text_press: Default::default(),
+            text_over: None,
             poked: None,
             captured: None,
             frame_tick_pending: false,
@@ -230,6 +240,7 @@ impl Workbench {
     /// Has drawn again whatever the app's last changes to the tree touched.
     fn flush_dirty(&mut self, cx: &mut Context<Self>) {
         self.sync_elements(cx);
+        self.forget_dropped_text(cx);
         let (dirty, deep) = {
             let mut tree = self.svelte.tree.borrow_mut();
             (std::mem::take(&mut tree.dirty), std::mem::take(&mut tree.dirty_deep))

@@ -24,11 +24,12 @@ A step is `ACTION:TARGET[:ARGUMENT]`. The target is one of:
 |---|---|
 | `press:TARGET` (or `click:`) | Presses the nearest element at or above the target that listens for `press`. Focus moves as it does for a real press: to the nearest element at or above the target that takes it, or to nothing, unless an element above the target has `keepFocus`. |
 | `hover:TARGET`, `unhover:TARGET` | The pointer enters or leaves the nearest element at or above the target that listens for `hover`. |
-| `mouse:X,Y` | Moves the pointer to a window position through GPUI, as a real one does: whatever is under it is hovered, with the `hover` style and `onhover` it has, and the one it left is not. Several positions, `mouse:X,Y;X,Y;X,Y`, are a pointer travelling, a move every 8 ms. It takes no target, and it hovers what `hover:` cannot, an element that eases but has no `onhover`. |
+| `mouse:X,Y` | Moves the pointer to a window position through GPUI, as a real one does: whatever is under it is hovered, with the `hover` style and `onhover` it has, and the one it left is not. Several positions, `mouse:X,Y;X,Y;X,Y`, are a pointer travelling, a move every 8 ms. It takes no target, and it hovers what `hover:` cannot, an element that eases but has no `onhover`. After a `mousedown:` and until the `mouseup:`, the left button is held. |
+| `mousedown:X,Y`, `mousedown:X,Y,CLICKS`, `mouseup:X,Y` | The left button goes down or up at a window position, through GPUI, so the window and the elements under the pointer do what they do for a real press: `Text` with `selectable` starts a selection, and a `Button` is pressed when the button comes up over it. A third number is the click count, so `mousedown:300,30,2` is the second press of a double click, and `,shift` last holds shift: `mousedown:150,157,1,shift` extends a selection. Between the two, `mouse:` moves with the button held, which is how a drag selects: `mousedown:80,30`, `mouse:80,30;200,40;330,52`, `mouseup:330,52`. They take no target. `down:`, `move:` and `up:` are different: they only tell the app's own pointer listeners. |
 | `wheel:X,Y:DY`, `wheel:X,Y:DX,DY` | A mouse wheel at a window position, through GPUI. The deltas are in lines, as a notched wheel sends them, and negative ones scroll down: `wheel:300,200:-3` is three notches. `,px` last (`wheel:300,200:0,-30,px`) makes them pixels, as a touchpad sends them. |
 | `focus:TARGET` | Gives focus to the nearest element at or above the target that can take it. |
 | `type:TARGET:TEXT` | Focuses it and types the text, one key at a time. On a view the app's crate draws (`g-element`), the keys go through GPUI to the view, as a keyboard's do. |
-| `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`. On a `g-element`, it goes through GPUI to the view first, and what the view leaves alone bubbles to the UI. |
+| `key:TARGET:KEYS` | A keystroke in GPUI's notation: `enter`, `escape`, `ctrl-a`, `shift-left`, `f2`, `ctrl-c` (which copies selected `Text`). On a `g-element`, it goes through GPUI to the view first, and what the view leaves alone bubbles to the UI. |
 | `compose:TARGET:TEXT` | Input-method composition, which is underlined and not yet committed. |
 | `commit:TARGET:TEXT` | Input-method text committed. |
 | `down:TARGET:X,Y`, `move:TARGET:X,Y`, `up:TARGET:X,Y` | The pointer, at window coordinates. `down` captures, as a real press does, and overlays that listen for `outside` presses hear it if it is outside them. It moves focus as `press` does. A third number names the button: `down:TARGET:X,Y,2` is a right press, which goes to the nearest element at or above the target whose `ondown` takes that button. |
@@ -105,6 +106,13 @@ run ends, so runs can go side by side and nothing on the real monitors moves or 
 keyboard. The host's log goes to `/tmp/svelte-gpui-shot-<output>.log`. Make `SECONDS` long
 enough for every step to run: about one second per step, plus one. `offscreen-view` shows
 the newest output in a VNC viewer, read-only unless given `--interactive`.
+
+The offscreen display has no keyboard or pointer, so no window on it has input focus, and GPUI
+only offers a clipboard to other programs from a focused window. A copy there never reaches the system
+clipboard: `wl-paste` says "Nothing is copied", and a paste into a field reads nothing. To check a copy,
+run with `SVELTE_GPUI_TRACE=1`, which logs `clipboard write: "…"` for each, or have the app call
+`clipboard.read()` after it, which answers with the host's copy of what was written (see
+`examples/selectable-text`).
 
 `HOST` runs another executable instead of `svelte-gpui`: an app's own Rust binary, or a
 packaged one. A `BUNDLE` of `-` passes no `--bundle`, for an app that

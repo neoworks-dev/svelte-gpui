@@ -1,7 +1,9 @@
 //! Window-wide pointer listeners: a press that no element took focus for, which ends focus as a
 //! click outside a field does on the web, and the moves and release of a captured pointer.
 
-use gpui::{AnyElement, Context, DispatchPhase, MouseDownEvent, MouseMoveEvent, MouseUpEvent, canvas, prelude::*};
+use gpui::{
+    AnyElement, Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, canvas, prelude::*,
+};
 
 use crate::workbench::Workbench;
 
@@ -39,9 +41,27 @@ pub(super) fn captured_pointer(cx: &mut Context<Workbench>) -> AnyElement {
     let released = cx.listener(|workbench, event: &MouseUpEvent, _window, cx| {
         workbench.release_pointer(event, cx);
     });
+    let pressed = cx.listener(|workbench, event: &MouseDownEvent, _window, cx| {
+        workbench.text_press_began(event.modifiers.shift, cx);
+    });
+    let settled = cx.listener(|workbench, _: &MouseDownEvent, _window, cx| {
+        workbench.text_press_ended(cx);
+    });
     canvas(
         |_, _, _| {},
         move |_, _, window, _| {
+            // Before any element hears it, so a selectable text that is pressed starts its selection
+            // over, and a press anywhere else ends the one there was. With shift the selection is kept
+            // for the text to extend, and ended after the elements have heard the press if none did.
+            window.on_mouse_event(move |event: &MouseDownEvent, phase, window, app| {
+                if event.button != MouseButton::Left {
+                    return;
+                }
+                match phase {
+                    DispatchPhase::Capture => pressed(event, window, app),
+                    DispatchPhase::Bubble => settled(event, window, app),
+                }
+            });
             window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, app| {
                 if phase == DispatchPhase::Bubble {
                     moved(event, window, app);

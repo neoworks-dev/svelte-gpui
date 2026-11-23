@@ -14,7 +14,7 @@ use crate::style::Style;
 use crate::tree::{Node, NodeId};
 use crate::workbench::Workbench;
 
-const SELECTION: Rgba = Rgba { r: 0.23, g: 0.43, b: 0.66, a: 0.45 };
+pub(super) const SELECTION: Rgba = Rgba { r: 0.23, g: 0.43, b: 0.66, a: 0.45 };
 
 impl Painter<'_> {
     /// The editable text of a `g-input`, with its selection and caret.

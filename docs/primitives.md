@@ -33,6 +33,7 @@ the full set of pointer events.
 | `hover`, `active`, `focus` | `Style` | State styles. `active` applies while a button is held on it. |
 | `focusable` | `boolean` | Takes keyboard focus when pressed, which lets it receive `onkey`. |
 | `keepFocus` | `boolean` | A press on it, or on anything inside it, does not move focus: the field that has it keeps it, and nothing inside takes it. See [Events](events.md#keyboard-and-focus). |
+| `copyText` | `string` | Inside a `Text`: what copying selected text that holds the view gives for it. See [Selecting text](#selecting-text). |
 | `onpress` | `(e: PointerEvent) => void` | A click: a button pressed and released on it. |
 | `onhover` | `(hovered: boolean) => void` | The pointer entered (`true`) or left (`false`). |
 | `ondown` | `(e: PointerEvent) => void` | A button went down on it. This captures the pointer: `onmove` and `onup` follow it anywhere until release. |
@@ -72,6 +73,7 @@ weight, font, decoration or background. The paragraph wraps as one.
 |---|---|---|
 | `style` | `Style` | Text properties apply to this run and the runs inside it. |
 | `pre` | `boolean` | Keep spaces and line breaks as written. Otherwise runs of whitespace collapse to one space. |
+| `selectable` | `boolean` | The pointer can select the paragraph's text, see below. |
 | `onlayout` | `(l: Layout) => void` | |
 
 ```svelte
@@ -99,6 +101,45 @@ comes from its style's `width` and `height` in pixels, or is the font size. A
 ```
 
 A paragraph with boxes is left-aligned, and `truncate` and `maxLines` don't apply to it.
+
+### Selecting text
+
+Text is not selectable unless it says so. With `selectable`, pressing and dragging selects, a double
+click selects a word, a triple click the whole paragraph, and Ctrl+C (Cmd+C on macOS) copies the
+selection to the clipboard, as a field's does. After a double click, dragging grows the selection word by
+word, and after a triple click paragraph by paragraph. Shift and a press extends the selection there is to the
+pressed point. The selection is drawn in the colour a field uses, and the pointer is the text cursor
+over it unless the style sets a `cursor`. A press anywhere else, including on text that is not
+selectable, ends the selection, and there is one at a time.
+
+```svelte
+<Text selectable>Drag across this, double-click a word, or triple-click all of it.</Text>
+```
+
+**Across paragraphs.** A drag that starts in one selectable `Text` and ends in another selects the rest
+of the first, every selectable `Text` between them in document order, and the start of the last.
+Text between them that is not selectable is skipped, and not copied. Copying joins the paragraphs with
+a line break. Dragging between paragraphs, or past the last one, goes to the nearest in reading
+order: above a paragraph is its start, and below the last is its end.
+
+**What gets selected.** `selectable` is not inherited. Set it on the outermost `Text`: the `Text` runs
+nested in it are part of its paragraph and are selected with it. A `Text` inside a box in a paragraph is
+a paragraph of its own and needs its own `selectable`, and a `View` or `Button` around `Text` does not make
+it selectable. Copying gives the text as drawn (whitespace collapsed, `uppercase` applied). An inline box
+in a selection is drawn selected, and copies as its `copyText`, which `View`, `Image` and `Icon` take:
+`<Icon svg={star} copyText="(star)" />` copies as "(star)". A box without one copies as nothing, and the
+space around it is not doubled.
+
+**Lists.** A `List` builds only the rows near the window, so rows come and go as it scrolls. A row that is
+removed leaves the selection: what was selected of the rows that are still built stays selected, and
+copies. If the row that the selection started in, or the row the pointer is in, is removed, the whole
+selection ends. A row built later, between the two ends, is not added to the selection until it changes.
+
+The press still goes on to the elements around the text, so a `Button` or a `View` with `onpress` or
+`ondown` around selectable text is pressed as it would be without: a press that is not a drag only
+starts an empty selection. A drag is a press too, so an element that reacts to `ondown` and moves, as
+a draggable one does, will also select. When a field has focus and a selection of its own, Ctrl+C
+copies that.
 
 ## Button
 
@@ -315,6 +356,7 @@ Each row's size is read with `onresize` on a view around it, so a row costs one 
 | `src` | `string` | A path relative to the bundle (or to `--assets`), a `data:` URL, or an `http(s)` URL. URLs are fetched on a thread and cached on disk. |
 | `fit` | `"contain"` \| `"cover"` \| `"fill"` | How the image fills its box. |
 | `style` | `Style` | Give it a size. `radius` rounds the image itself. |
+| `copyText` | `string` | Inside a `Text`: what copying selected text that holds the image gives for it. See [Selecting text](#selecting-text). |
 | `onload`, `onerror` | `() => void` | When the source has loaded or failed. |
 
 Images load only once they come within a screen of the window, and are decoded no
@@ -334,6 +376,7 @@ An SVG, tinted with one colour.
 | `size` | `number` | Width and height in pixels. The default is the font size around it. |
 | `color` | `Color` | The default is the text colour around it, so a button's `color` and `hover={{ color }}` tint its icon. |
 | `style` | `Style` | |
+| `copyText` | `string` | Inside a `Text`: what copying selected text that holds the icon gives for it. See [Selecting text](#selecting-text). |
 
 The build loads `.svg` imports as their text, so an icon set's files can be used as
 they are:

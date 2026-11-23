@@ -18,6 +18,7 @@ mod overlay;
 mod press;
 mod primitive;
 mod roots;
+mod select;
 mod text;
 
 use std::cell::{Cell, RefCell};
@@ -48,6 +49,7 @@ use press::{captured_pointer, press_ends_focus};
 use primitive::compute;
 pub use primitive::{Computed, Primitive, primitive_of};
 pub use roots::ViewRoots;
+pub use select::{Selectable, Spot, TextSelection, Unit, changed, compare, forget, parts, resolve, unit_at};
 pub use text::Inherited;
 use text::{DEFAULT_FONT_SIZE, DEFAULT_TEXT, collapse, text_box, transform, zoom_text};
 
@@ -62,6 +64,10 @@ pub struct Interaction {
     /// Where each measured element came out in the window.
     pub bounds: Rc<RefCell<HashMap<NodeId, Bounds<gpui::Pixels>>>>,
     pub fields: Rc<RefCell<HashMap<NodeId, Field>>>,
+    /// The paragraphs with `selectable`, as they were last drawn.
+    pub texts: RefCell<HashMap<NodeId, Selectable>>,
+    /// What is selected in them. One selection at a time, in one paragraph.
+    pub text_selection: RefCell<Option<TextSelection>>,
     /// Elements the pointer is over, for hover styles that ease instead of snapping.
     pub hovered: RefCell<HashSet<NodeId>>,
     /// Transitions in flight, by element.
@@ -102,6 +108,8 @@ impl Interaction {
             scroll: RefCell::new(HashMap::new()),
             anchors: RefCell::new(HashMap::new()),
             fields,
+            texts: RefCell::new(HashMap::new()),
+            text_selection: RefCell::new(None),
             bounds: Rc::new(RefCell::new(HashMap::new())),
             hovered: RefCell::new(HashSet::new()),
             animations: RefCell::new(HashMap::new()),
@@ -130,6 +138,8 @@ impl Interaction {
         self.anchors.borrow_mut().clear();
         self.bounds.borrow_mut().clear();
         self.fields.borrow_mut().clear();
+        self.texts.borrow_mut().clear();
+        *self.text_selection.borrow_mut() = None;
         self.hovered.borrow_mut().clear();
         self.animations.borrow_mut().clear();
         self.animating.set(false);
@@ -460,7 +470,9 @@ impl<'a> Painter<'a> {
                 element.children(self.children(id, &inherited, row, cx))
             }
         };
-        if node.observed() || listens_for_pointer(node) || listens_for_drag(node) {
+        // A selectable text is measured too: a drag that leaves it finds the paragraph it enters by where it is.
+        let selectable = primitive == Primitive::Text && node.attributes.contains_key("selectable");
+        if node.observed() || listens_for_pointer(node) || listens_for_drag(node) || selectable {
             element = element.child(self.measure(id));
         }
         let drawn = self.interactive(element, id, node, primitive, &computed, eased, cx);

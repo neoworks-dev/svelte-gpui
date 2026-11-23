@@ -82,6 +82,9 @@ impl Painter<'_> {
         if primitive == Primitive::Input {
             element = self.wire_field(element, id, cx);
         }
+        if primitive == Primitive::Text && node.attributes.contains_key("selectable") {
+            element = self.wire_text(element, id, cx);
+        }
         if primitive == Primitive::Element && self.interaction.focus.borrow().contains_key(&id) {
             // After the view's own handlers, a press that nothing took gives the view focus.
             element = element.on_mouse_down(

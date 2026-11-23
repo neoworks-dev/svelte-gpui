@@ -4,7 +4,9 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, Div, FontWeight, Hsla, IntoElement, Rgba, SharedString, StyledText, div, px, size};
 
 use super::Painter;
+use super::field::SELECTION;
 use super::inline::{InlineBox, InlineFlow};
+use super::select::{Selectable, Source, highlight_runs, within};
 use crate::style::{Dimension, SANS, Style};
 use crate::tree::{Kind, Node, NodeId};
 use crate::workbench::Workbench;
@@ -114,13 +116,36 @@ impl Painter<'_> {
                 inline.at = inline.at.clamp(trimmed_start, trimmed_end.max(trimmed_start)) - trimmed_start;
             }
         }
+        // What is selected of a paragraph that can be, as a stretch of its current text.
+        let selectable = node.attributes.contains_key("selectable");
+        let selected = if selectable {
+            let selection = self.interaction.text_selection.borrow();
+            selection.as_ref().and_then(|selection| selection.range_in(id)).map(|range| within(&text, range.clone()))
+        } else {
+            None
+        }
+        .filter(|range| !range.is_empty());
+        if !selectable && self.interaction.texts.borrow().contains_key(&id) {
+            // It was selectable and is not now.
+            self.interaction.texts.borrow_mut().remove(&id);
+        }
         if !boxes.is_empty() {
             let widest = boxes.iter().map(|inline| f32::from(inline.size.width)).fold(0.0, f32::max);
             let longest = text.split_whitespace().map(|word| word.chars().count()).max().unwrap_or(0);
             let narrowest = widest.max(longest as f32 * inherited.font_size * 0.6);
-            return element.min_w(px(narrowest)).child(InlineFlow::new(text, runs, boxes));
+            let copies: Vec<(usize, String)> = boxes.iter().map(|inline| (inline.at, inline.copy.clone())).collect();
+            let mut flow = InlineFlow::new(text.clone(), runs, boxes);
+            if let Some(range) = selected {
+                flow = flow.selected(range, SELECTION);
+            }
+            if selectable {
+                let source = Source::Flow(flow.layout_handle());
+                self.interaction.texts.borrow_mut().insert(id, Selectable { text, source, copies });
+            }
+            return element.min_w(px(narrowest)).child(flow);
         }
         if text.is_empty() {
+            self.interaction.texts.borrow_mut().remove(&id);
             return element;
         }
         let single_line = style.nowrap == Some(true) || style.truncate == Some(true);
@@ -143,7 +168,16 @@ impl Painter<'_> {
         if preserve {
             element = element.whitespace_nowrap();
         }
-        element.child(StyledText::new(SharedString::from(text)).with_runs(runs))
+        let runs = match selected {
+            Some(range) => highlight_runs(&runs, range, SELECTION),
+            None => runs,
+        };
+        let styled = StyledText::new(SharedString::from(text.clone())).with_runs(runs);
+        if selectable {
+            let source = Source::Plain(styled.layout().clone());
+            self.interaction.texts.borrow_mut().insert(id, Selectable { text, source, copies: Vec::new() });
+        }
+        element.child(styled)
     }
 
     fn flow(
@@ -197,8 +231,10 @@ impl Painter<'_> {
                         Some(Dimension::Px(length)) => length,
                         _ => side,
                     };
+                    let copy = self.tree.nodes.get(child).and_then(|node| node.attributes.get("copytext"));
                     paragraph.boxes.push(InlineBox {
                         at: paragraph.text.len(),
+                        copy: copy.cloned().unwrap_or_default(),
                         element,
                         size: size(px(fixed(style.width)), px(fixed(style.height))),
                         raise: style.vertical_align.unwrap_or(0.0),

@@ -105,6 +105,9 @@ impl Computed {
 pub(super) fn compute(node: &Node) -> Computed {
     let primitive = primitive_of(node).unwrap_or(Primitive::View);
     let mut style = primitive.defaults();
+    if primitive == Primitive::Text && node.attributes.contains_key("selectable") {
+        style.cursor = Some(gpui::CursorStyle::IBeam);
+    }
     let patch = |name: &str| node.attributes.get(name).map(|json| style::parsed(json));
     if let Some(own) = patch("look") {
         style.overlay(&own);
@@ -113,4 +116,31 @@ pub(super) fn compute(node: &Node) -> Computed {
         style.apply_inline(name, value);
     }
     Computed { style, hover: patch("hover"), active: patch("active"), focus: patch("focus"), zoom: 1.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::CursorStyle;
+
+    use super::compute;
+    use crate::tree::{CREATE_ELEMENT, INSERT, ROOT, SET_ATTRIBUTE, Tree};
+
+    /// The cursor of a `g-text` made with these attributes.
+    fn cursor_of(attributes: &[(&str, &str)]) -> Option<CursorStyle> {
+        let mut tree = Tree::new();
+        let mut batch = vec![format!("[{CREATE_ELEMENT},2,\"g-text\"]"), format!("[{INSERT},{ROOT},2,0]")];
+        for (name, value) in attributes {
+            batch.push(format!("[{SET_ATTRIBUTE},2,{name:?},{value:?}]"));
+        }
+        tree.apply(&format!("[{}]", batch.join(",")));
+        compute(&tree.nodes[&2]).style.cursor
+    }
+
+    #[test]
+    fn selectable_text_has_the_text_cursor_unless_its_style_says_otherwise() {
+        assert_eq!(cursor_of(&[]), None);
+        assert_eq!(cursor_of(&[("selectable", "")]), Some(CursorStyle::IBeam));
+        let pointer = r#"{"cursor":"pointer"}"#;
+        assert_eq!(cursor_of(&[("selectable", ""), ("look", pointer)]), Some(CursorStyle::PointingHand));
+    }
 }

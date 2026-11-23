@@ -73,6 +73,9 @@ pub struct Tree {
     pub changed_elements: HashSet<NodeId>,
     /// App elements removed for good, whose ids no longer name a node.
     pub dropped_elements: Vec<NodeId>,
+    /// Selectable text (`g-text` with `selectable`) removed for good, which the window forgets the
+    /// layout of and drops from a selection.
+    pub dropped_selectable: Vec<NodeId>,
 }
 
 /// The tag of the node an app's own GPUI view is drawn in.
@@ -94,6 +97,7 @@ impl Tree {
             dirty_deep: HashSet::new(),
             changed_elements: HashSet::new(),
             dropped_elements: Vec::new(),
+            dropped_selectable: Vec::new(),
         };
         tree.nodes.insert(
             ROOT,
@@ -296,6 +300,9 @@ impl Tree {
                     self.dropped_elements.push(next);
                     self.changed_elements.remove(&next);
                 }
+                if node.attributes.contains_key("selectable") {
+                    self.dropped_selectable.push(next);
+                }
                 pending.extend(node.children);
             }
         }
@@ -356,6 +363,17 @@ mod tests {
         tree.apply(&format!("[[{REMOVE},2],[{DROP},2]]"));
         assert_eq!(tree.dropped_elements, vec![2]);
         assert!(!tree.changed_elements.contains(&2));
+    }
+
+    #[test]
+    fn dropped_selectable_text_is_reported_for_the_window_to_forget() {
+        let mut tree = Tree::new();
+        tree.apply(&format!(
+            "[[{CREATE_ELEMENT},2,\"g-text\"],[{SET_ATTRIBUTE},2,\"selectable\",\"\"],[{INSERT},1,2,0],\
+             [{CREATE_ELEMENT},3,\"g-text\"],[{INSERT},1,3,0]]"
+        ));
+        tree.apply(&format!("[[{REMOVE},2],[{DROP},2],[{REMOVE},3],[{DROP},3]]"));
+        assert_eq!(tree.dropped_selectable, vec![2]);
     }
 
     #[test]

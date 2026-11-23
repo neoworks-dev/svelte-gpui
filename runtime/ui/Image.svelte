@@ -12,6 +12,8 @@
     /** How the image fills its box. */
     fit?: "contain" | "cover" | "fill";
     style?: Style;
+    /** What copying selected text that holds this image gives for it, when it is inside a `Text`. */
+    copyText?: string;
     onload?: () => void;
     onerror?: () => void;
   }
@@ -20,6 +22,7 @@
 
   const attributes = $derived({
     src: props.src,
+    copytext: props.copyText,
     fit: props.fit,
     look: encode(props.style),
     onload: listener(props.onload, () => undefined),
